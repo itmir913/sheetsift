@@ -1,6 +1,6 @@
 //! 화면 정의 — **데이터에서 읽는다.**
 //!
-//! 조회 화면은 코드가 아니라 `data/screens.json` 의 항목 하나다. 빌드할 때
+//! 조회 화면은 코드가 아니라 `data/manifest.json` 의 항목 하나다. 빌드할 때
 //! `build_db` 가 그것을 navi.db 의 `screens_meta` 에 넣어 두고, 앱은 기동하면서
 //! 여기로 읽어 온다. 교육청 자료에 표가 하나 늘어도 Rust 를 고칠 일이 없다.
 //!
@@ -210,7 +210,7 @@ impl Screens {
             .find_map(|s| s.search.as_ref().map(|d| (s, d)))
             .ok_or_else(|| {
                 AppError::new(ErrorCode::DbEmbedInvalid)
-                    .detail("screens.json 에 search 를 쓰는 화면이 없습니다")
+                    .detail("manifest.json 에 search 를 쓰는 화면이 없습니다")
             })
     }
 }
