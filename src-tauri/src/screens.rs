@@ -31,9 +31,15 @@ pub struct ColumnDef {
     pub key: String,
     /// 화면에 보이는 이름.
     pub label: String,
-    /// 기준 테이블의 열 이름.
+    /// 기준 테이블의 열 이름. 계산으로 만드는 열은 비어 있다.
     #[serde(skip_serializing)]
     pub column: String,
+    /// 등급제 토글에 따라 갈아 끼우는 컷 열의 이름(`search.cuts` 의 열쇠).
+    #[serde(default, skip_serializing)]
+    pub cut: String,
+    /// 계산으로 만드는 열(`score` 환산점수 · `gap` 차이값).
+    #[serde(default, skip_serializing)]
+    pub compute: String,
     pub kind: ColumnKind,
     /// 열 너비(rem).
     pub width: f32,
@@ -86,31 +92,24 @@ impl Default for ScreenKind {
     }
 }
 
-/// 성적 검색이 계산에 쓰는 열 이름. 코드가 아니라 `screens.json` 에서 온다.
+/// 성적 검색에서 **코드가 뜻을 아는 열**. 나머지는 그냥 실어 나른다.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SearchFields {
-    pub region: String,
-    pub area: String,
-    pub univ: String,
-    pub mj: String,
-    pub gye: String,
-    pub jeongsi_jh: String,
+pub struct KeyColumns {
+    /// 학생의 환산점수와 견줄 입결 백분위.
     pub jeongsi: String,
     /// 이 행이 어느 환산규칙을 쓰는지 가리키는 열.
     pub rule_code: String,
-    pub suneung: String,
 }
 
-/// 등급제 하나에 딸린 네 개의 컷 열.
+/// 왼쪽 조건 상자가 거르는 열.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CutSet {
-    pub label: String,
-    pub gyogwa50: String,
-    pub gyogwa70: String,
-    pub jong50: String,
-    pub jong70: String,
+pub struct SearchFilters {
+    pub region: String,
+    pub gye: String,
+    pub univ: String,
+    pub mj: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,10 +128,12 @@ pub struct SearchDef {
     /// 계산해서 채우는 '가능성' 칸의 열 key. 화면이 쓴다.
     pub band_column: String,
     #[serde(skip_serializing)]
-    pub fields: SearchFields,
-    /// 등급제 이름 → 컷 열 묶음. 화면의 토글이 이 중 하나를 고른다.
+    pub key_columns: KeyColumns,
     #[serde(skip_serializing)]
-    pub cuts: std::collections::BTreeMap<String, CutSet>,
+    pub filters: SearchFilters,
+    /// 등급제 이름 → (컷 이름 → 양식의 열 이름). 화면의 토글이 하나를 고른다.
+    #[serde(skip_serializing)]
+    pub cuts: std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
     pub bands: Vec<BandDef>,
 }
 
