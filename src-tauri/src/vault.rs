@@ -41,7 +41,14 @@ const TAG_LEN: usize = 16;
 
 /// 학생 데이터 스키마 버전. 구조를 바꾸면 반드시 올린다.
 /// 파일 버전이 앱이 아는 것보다 높으면 열지 않고 안내한다.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
+
+/// 이 판부터 읽을 수 있다.
+///
+/// 2판에서 계열·석차·학년도 자리를 만들었다. 1판 파일에는 그 표가 아예 없어서,
+/// 열어 놓고 나중에 없는 열에서 터지느니 **입구에서 안내하고 세운다.**
+/// 늘어나기만 한 판이면 이 값을 그대로 두어 옛 파일을 계속 읽을 수 있다.
+pub const MIN_SCHEMA_VERSION: u32 = 2;
 
 /// 비밀번호를 너무 짧게 잡으면 암호화가 의미를 잃는다.
 pub const MIN_PASSWORD_LEN: usize = 8;
@@ -113,6 +120,11 @@ impl Vault {
             u32::from_le_bytes(bytes[8..12].try_into().expect("length checked above"));
         if schema_version > SCHEMA_VERSION {
             return Err(AppError::new(ErrorCode::VaultVersionTooNew)
+                .with("fileVersion", schema_version)
+                .with("appVersion", SCHEMA_VERSION));
+        }
+        if schema_version < MIN_SCHEMA_VERSION {
+            return Err(AppError::new(ErrorCode::VaultVersionTooOld)
                 .with("fileVersion", schema_version)
                 .with("appVersion", SCHEMA_VERSION));
         }
@@ -256,6 +268,15 @@ mod tests {
         let mut sealed = seeded().seal().unwrap();
         sealed[8..12].copy_from_slice(&(SCHEMA_VERSION + 5).to_le_bytes());
         assert_eq!(Vault::open(&sealed, PW).unwrap_err().code, ErrorCode::VaultVersionTooNew);
+    }
+
+    /// 옛 판은 조용히 열지 않는다. 없는 표를 나중에 만나면 무엇이 잘못됐는지
+    /// 알 수 없는 자리에서 터진다.
+    #[test]
+    fn older_schema_version_is_rejected() {
+        let mut sealed = seeded().seal().unwrap();
+        sealed[8..12].copy_from_slice(&(MIN_SCHEMA_VERSION - 1).to_le_bytes());
+        assert_eq!(Vault::open(&sealed, PW).unwrap_err().code, ErrorCode::VaultVersionTooOld);
     }
 
     #[test]
