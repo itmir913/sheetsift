@@ -1,4 +1,4 @@
-//! 암호화된 학생 데이터 파일(`students.db`).
+//! 암호화된 학생 데이터 파일(`.navi`).
 //!
 //! ## 왜 SQLCipher 를 쓰지 않았나
 //! SQLCipher 는 Windows 에서 OpenSSL 빌드가 얽혀 CI 구성이 까다롭다.
