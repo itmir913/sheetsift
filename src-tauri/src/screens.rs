@@ -328,6 +328,116 @@ static DAEIP2028_COLUMNS: &[ColumnDef] = &[
     text("reflectNote", "교과반영 비고", "_2028_교과성적반영방법___융합___비고", 16.0),
 ];
 
+/// 논술 전형 — 1,298행.
+static NONSUL_COLUMNS: &[ColumnDef] = &[
+    text("region", "지역", "기본사항___지역", 8.5),
+    text("univ", "대학", "기본사항___대학", 12.0),
+    text("gye", "계열", "기본사항___계열", 8.5),
+    text("mj26", "2026 모집단위", "기본사항___2026_모집단위", 18.0),
+    text("mj27", "2027 모집단위", "기본사항___2027_모집단위", 18.0),
+    text("quota", "모집인원", "기본사항___모집_인원", 8.5),
+    text("mjChange", "모집단위 변화", "기본사항___모집단위변화", 10.0),
+    text("minCount", "최저 반영개수", "수능최저학력기준_적용___반영_개수", 10.0),
+    text("minSum", "최저 등급합", "수능최저학력기준_적용___등급_합", 9.5),
+    text("minArea", "최저 반영영역", "수능최저학력기준_적용___반영_영역", 14.0),
+    text("minEtc", "최저 기타", "수능최저학력기준_적용___기타", 14.0),
+    text("subjKor", "국어", "출제정보___국어", 7.0),
+    text("subjMat", "수학", "출제정보___수학", 7.0),
+    text("subjTam", "사/과", "출제정보___사_과", 7.5),
+    text("subjShort", "약술형", "출제정보___약술형", 8.0),
+    text("items", "문항정보", "출제정보___문항정보", 18.0),
+    text("duration", "시험시간", "출제정보___시험_시간", 9.0),
+    text("whenRel", "수능일 기준", "일정___수능일_기준", 9.5),
+    text("examDate", "고사일자", "일정___고사일자", 12.0),
+    text("ratio", "반영비율", "반영방법_비율_등급간점수____반영비율", 14.0),
+    text("g1", "1등급", "반영방법_비율_등급간점수____1등급", 8.0),
+    text("g2", "2등급", "반영방법_비율_등급간점수____2등급", 8.0),
+    text("g3", "3등급", "반영방법_비율_등급간점수____3등급", 8.0),
+    text("g4", "4등급", "반영방법_비율_등급간점수____4등급", 8.0),
+    text("g5", "5등급", "반영방법_비율_등급간점수____5등급", 8.0),
+    text("g6", "6등급", "반영방법_비율_등급간점수____6등급", 8.0),
+    text("g7", "7등급", "반영방법_비율_등급간점수____7등급", 8.0),
+    text("g8", "8등급", "반영방법_비율_등급간점수____8등급", 8.0),
+    text("g9", "9등급", "반영방법_비율_등급간점수____9등급", 8.0),
+];
+
+/// 수능최저학력기준 — 7,234행.
+static CHOEJEO_COLUMNS: &[ColumnDef] = &[
+    text("year", "연도", "기본사항___연도", 7.0),
+    text("region", "지역", "기본사항___지역", 8.5),
+    text("univ", "대학명", "기본사항___대학명", 12.0),
+    text("jtype", "전형유형", "전형정보___전형유형", 9.0),
+    text("jh", "전형명", "전형정보___전형명", 16.0),
+    text("gye", "계열", "모집단위___계열", 8.5),
+    text("mj", "모집단위", "모집단위", 18.0),
+    text("area", "반영영역", "최저학력기준___반영영역", 14.0),
+    text("areaCount", "반영영역수", "최저학력기준___반영영역수", 10.0),
+    text("standard", "등급기준", "최저학력기준___등급기준", 12.0),
+    text("avgGrade", "평균등급", "최저학력기준___평균등급", 9.0),
+    text("note", "비고", "최저학력기준___비고", 20.0),
+    text("changed", "변경/신설", "최저학력기준___변경_신설", 10.0),
+];
+
+/// 5등급 ↔ 9등급 변환표 — 401행.
+static GRADEMAP_COLUMNS: &[ColumnDef] = &[
+    text("g5", "5등급", "_5등급", 8.0),
+    text("cumRatio", "인원 누적비", "인원_누적비", 10.0),
+    text("allRange", "전과목 범위", "전과목___범위", 12.0),
+    text("allGrade", "전과목 변환등급", "전과목___변환등급", 11.0),
+    text("ksesRange", "국수영사과 범위", "국수영사과___범위", 12.0),
+    text("ksesGrade", "국수영사과 변환등급", "국수영사과___변환등급", 12.5),
+    text("kseRange", "국수영과 범위", "국수영과___범위", 12.0),
+    text("kseGrade", "국수영과 변환등급", "국수영과___변환등급", 12.0),
+    text("kssRange", "국수영사 범위", "국수영사___범위", 12.0),
+    text("kssGrade", "국수영사 변환등급", "국수영사___변환등급", 12.0),
+];
+
+/// 모집단위 신설·변경 — 536행.
+static MJCHANGE_COLUMNS: &[ColumnDef] = &[
+    text("univ", "대학명", "대학명", 13.0),
+    text("kind", "신설/변경", "신설및변경", 9.5),
+    text("isNew", "신설", "신설", 7.0),
+    text("isChanged", "변경", "변경", 7.0),
+    text("isFree", "무전공", "무전공", 8.0),
+    text("mj25", "2025 모집단위", "_2025_모집단위", 20.0),
+    text("mj26", "2026 모집단위", "_2026_모집단위", 20.0),
+];
+
+/// 계약학과·첨단학과 — 368행.
+static CONTRACT_COLUMNS: &[ColumnDef] = &[
+    text("univ", "대학명", "대학명", 13.0),
+    text("kind", "구분", "구분", 10.0),
+    text("mj", "모집단위", "모집단위", 26.0),
+];
+
+/// 백분위 조견표(대학별) — 59행.
+static CHARTUNIV_COLUMNS: &[ColumnDef] = &[
+    text("univ", "대학명", "대학명", 14.0),
+    num("max", "최대", "최대", 10.0),
+    num("median", "중앙값", "중앙값", 10.0),
+    num("min", "최소", "최소", 10.0),
+    num("mean", "평균", "평균", 10.0),
+];
+
+/// 백분위 조견표(둘째 목록) — 36행.
+static CHARTUNIV2_COLUMNS: &[ColumnDef] = &[
+    text("univ", "대학명", "대학명", 14.0),
+    num("max", "최대", "최대", 10.0),
+    num("median", "중앙값", "중앙값", 10.0),
+    num("min", "최소", "최소", 10.0),
+    num("mean", "평균", "평균", 10.0),
+];
+
+/// 백분위 조견표(모집단위별) — 126행.
+static CHARTMJ_COLUMNS: &[ColumnDef] = &[
+    text("univ", "대학명(세부)", "대학명_세부_", 18.0),
+    text("gye", "계열", "계열", 9.0),
+    num("cut70", "70% 컷", "_70_컷", 9.0),
+    num("quota", "정원", "정원", 8.0),
+    num("compRate", "경쟁률", "경쟁률", 9.0),
+    num("extraRate", "충원율", "충원율", 9.0),
+];
+
 pub static SCREENS: &[ScreenDef] = &[
     ScreenDef {
         id: "mojipdanwibyeol",
@@ -391,6 +501,62 @@ pub static SCREENS: &[ScreenDef] = &[
         description: "2027 대비 2028학년도 전형 변경 사항",
         base: "daeip2028",
         columns: DAEIP2028_COLUMNS,
+    },
+    ScreenDef {
+        id: "nonsul",
+        title: "논술 전형",
+        description: "논술 모집단위·수능최저·출제정보·고사일자",
+        base: "nonsul",
+        columns: NONSUL_COLUMNS,
+    },
+    ScreenDef {
+        id: "choejeo",
+        title: "수능최저학력기준",
+        description: "대학·모집단위별 수능최저 반영영역과 등급기준",
+        base: "choejeo",
+        columns: CHOEJEO_COLUMNS,
+    },
+    ScreenDef {
+        id: "mjChange",
+        title: "모집단위 신설·변경",
+        description: "2025 대비 2026 모집단위 변화",
+        base: "mj_change",
+        columns: MJCHANGE_COLUMNS,
+    },
+    ScreenDef {
+        id: "contractDept",
+        title: "계약·첨단학과",
+        description: "계약학과와 첨단학과 모집단위",
+        base: "contract_dept",
+        columns: CONTRACT_COLUMNS,
+    },
+    ScreenDef {
+        id: "chartUniv",
+        title: "백분위 조견표",
+        description: "대학별 입시결과 백분위 범위",
+        base: "chart_univ",
+        columns: CHARTUNIV_COLUMNS,
+    },
+    ScreenDef {
+        id: "chartUniv2",
+        title: "백분위 조견표(둘째)",
+        description: "원본 시트의 둘째 목록. 구분 이름이 원본에 없습니다",
+        base: "chart_univ2",
+        columns: CHARTUNIV2_COLUMNS,
+    },
+    ScreenDef {
+        id: "chartMj",
+        title: "조견표 모집단위별",
+        description: "의약계열 모집단위별 70% 컷·정원·경쟁률·충원율",
+        base: "chart_mj",
+        columns: CHARTMJ_COLUMNS,
+    },
+    ScreenDef {
+        id: "gradeMap",
+        title: "5등급 ↔ 9등급 변환",
+        description: "교과 조합별 25~75% 범위와 변환등급",
+        base: "grade_map",
+        columns: GRADEMAP_COLUMNS,
     },
 ];
 
