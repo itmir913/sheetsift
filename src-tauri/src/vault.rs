@@ -39,16 +39,8 @@ const HEADER_LEN: usize = 8 + 4 + SALT_LEN + NONCE_LEN;
 /// GCM 인증 태그 길이.
 const TAG_LEN: usize = 16;
 
-/// 학생 데이터 스키마 버전. 구조를 바꾸면 반드시 올린다.
-/// 파일 버전이 앱이 아는 것보다 높으면 열지 않고 안내한다.
-pub const SCHEMA_VERSION: u32 = 2;
-
-/// 이 판부터 읽을 수 있다.
-///
-/// 2판에서 계열·석차·학년도 자리를 만들었다. 1판 파일에는 그 표가 아예 없어서,
-/// 열어 놓고 나중에 없는 열에서 터지느니 **입구에서 안내하고 세운다.**
-/// 늘어나기만 한 판이면 이 값을 그대로 두어 옛 파일을 계속 읽을 수 있다.
-pub const MIN_SCHEMA_VERSION: u32 = 2;
+/// 스키마 판은 `migrate.rs` 가 정한다. 여기서는 그 값을 그대로 쓴다.
+pub use crate::migrate::SCHEMA_VERSION;
 
 /// 비밀번호를 너무 짧게 잡으면 암호화가 의미를 잃는다.
 pub const MIN_PASSWORD_LEN: usize = 8;
@@ -105,7 +97,7 @@ impl Vault {
 
         let conn = Connection::open_in_memory()
             .map_err(|e| AppError::new(ErrorCode::VaultOpenFailed).detail(e))?;
-        crate::students::init_schema(&conn)?;
+        crate::migrate::run(&conn)?;
 
         Ok(Self { conn, key, salt, schema_version: SCHEMA_VERSION })
     }
@@ -116,16 +108,15 @@ impl Vault {
             return Err(AppError::new(ErrorCode::VaultFormatInvalid)
                 .detail("magic mismatch or file too short"));
         }
-        let schema_version =
+        // 머리에 적힌 판. **알맹이를 풀기 전에** 상위 판을 걸러 낸다 —
+        // 모르는 구조를 애써 풀어 놓고 그제야 막을 까닭이 없다. 머리는 AAD 로
+        // 함께 인증되므로 손댈 수도 없다. 근거는 어디까지나 DB 안의
+        // `user_version` 이고, 이건 미리 거르려고 두는 사본이다.
+        let header_version =
             u32::from_le_bytes(bytes[8..12].try_into().expect("length checked above"));
-        if schema_version > SCHEMA_VERSION {
+        if header_version > SCHEMA_VERSION {
             return Err(AppError::new(ErrorCode::VaultVersionTooNew)
-                .with("fileVersion", schema_version)
-                .with("appVersion", SCHEMA_VERSION));
-        }
-        if schema_version < MIN_SCHEMA_VERSION {
-            return Err(AppError::new(ErrorCode::VaultVersionTooOld)
-                .with("fileVersion", schema_version)
+                .with("fileVersion", header_version)
                 .with("appVersion", SCHEMA_VERSION));
         }
 
@@ -151,6 +142,11 @@ impl Vault {
             .map_err(|e| AppError::new(ErrorCode::VaultOpenFailed).detail(e))?;
         plain.zeroize();
 
+        // 여기서부터 근거는 DB 안의 판이다. 옛 파일은 막지 않고 올린다 —
+        // 3월에 만든 파일을 11월에 여는 일이 이 프로그램에서는 보통이다.
+        crate::migrate::run(&conn)?;
+        let schema_version = crate::migrate::user_version(&conn)?;
+
         Ok(Self { conn, key, salt, schema_version })
     }
 
@@ -165,9 +161,13 @@ impl Vault {
         let mut nonce = [0u8; NONCE_LEN];
         rand::rng().fill_bytes(&mut nonce);
 
+        // 머리에 적는 판은 **DB 에서 읽어 온다.** 상수를 적어 넣으면 알맹이가
+        // 옛 판인 채로 머리만 새 판이 되고, 그 어긋남은 아무도 못 본다.
+        let version = crate::migrate::user_version(&self.conn)?;
+
         let mut out = Vec::with_capacity(HEADER_LEN + data.len() + TAG_LEN);
         out.extend_from_slice(MAGIC);
-        out.extend_from_slice(&SCHEMA_VERSION.to_le_bytes());
+        out.extend_from_slice(&version.to_le_bytes());
         out.extend_from_slice(&self.salt);
         out.extend_from_slice(&nonce);
 
@@ -270,13 +270,43 @@ mod tests {
         assert_eq!(Vault::open(&sealed, PW).unwrap_err().code, ErrorCode::VaultVersionTooNew);
     }
 
-    /// 옛 판은 조용히 열지 않는다. 없는 표를 나중에 만나면 무엇이 잘못됐는지
-    /// 알 수 없는 자리에서 터진다.
+    /// 옛 판 파일은 **막지 않고 올려서 연다.** 담당자가 3월에 만든 파일을
+    /// 11월에 여는 일이 이 프로그램에서는 보통이다.
     #[test]
-    fn older_schema_version_is_rejected() {
-        let mut sealed = seeded().seal().unwrap();
-        sealed[8..12].copy_from_slice(&(MIN_SCHEMA_VERSION - 1).to_le_bytes());
-        assert_eq!(Vault::open(&sealed, PW).unwrap_err().code, ErrorCode::VaultVersionTooOld);
+    fn an_older_file_opens_after_being_migrated() {
+        // 판을 매기기 전(0판) 파일을 그대로 만든다 — 표가 하나도 없다.
+        let mut salt = [0u8; SALT_LEN];
+        rand::rng().fill_bytes(&mut salt);
+        let old = Vault {
+            conn: Connection::open_in_memory().unwrap(),
+            key: derive_key(PW, &salt).unwrap(),
+            salt,
+            schema_version: 0,
+        };
+        let sealed = old.seal().unwrap();
+        assert_eq!(u32::from_le_bytes(sealed[8..12].try_into().unwrap()), 0);
+
+        // 막지 않고 올려서 연다. 3월에 만든 파일을 11월에 여는 일이 보통이다.
+        let opened = Vault::open(&sealed, PW).unwrap();
+        assert_eq!(opened.schema_version, SCHEMA_VERSION, "열면서 판을 올리지 않았다");
+        opened
+            .conn
+            .execute(
+                "INSERT INTO students(grade, class_no, number, name) VALUES(3, 1, 9, '김우현')",
+                [],
+            )
+            .expect("판을 올렸는데 표가 없다");
+    }
+
+    /// 봉할 때 머리에 적는 판은 DB 에서 읽는다. 상수를 적어 넣으면 알맹이와
+    /// 머리가 어긋나고, 그 어긋남은 아무도 못 본다.
+    #[test]
+    fn the_header_version_comes_from_the_database() {
+        let sealed = seeded().seal().unwrap();
+        assert_eq!(
+            u32::from_le_bytes(sealed[8..12].try_into().unwrap()),
+            SCHEMA_VERSION
+        );
     }
 
     #[test]
