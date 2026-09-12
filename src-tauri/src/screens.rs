@@ -97,7 +97,7 @@ pub struct SearchFields {
     pub gye: String,
     pub jeongsi_jh: String,
     pub jeongsi: String,
-    /// 이 행이 어느 환산룰을 쓰는지 가리키는 열.
+    /// 이 행이 어느 환산규칙을 쓰는지 가리키는 열.
     pub rule_code: String,
     pub suneung: String,
 }
