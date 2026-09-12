@@ -45,8 +45,6 @@ pub struct ColumnDef {
     #[serde(default)]
     pub compute: String,
     pub kind: ColumnKind,
-    /// 열 너비(rem).
-    pub width: f32,
     pub sortable: bool,
     pub filterable: bool,
     /// 양수에 `+` 를 붙일 숫자인가. 격차처럼 부호에 뜻이 있는 열에 쓴다.
