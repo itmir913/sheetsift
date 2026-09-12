@@ -120,7 +120,8 @@ pub const MAX_VALUES: u32 = 1000;
 /// 화면에서 비어 있는 값을 나타내는 표식. 실제 데이터의 빈칸/NULL 에 대응한다.
 pub const BLANK_TOKEN: &str = "(비어 있음)";
 
-fn like_escape(s: &str) -> String {
+/// `LIKE` 에서 뜻을 갖는 글자를 막는다. 미리보기도 같은 규칙을 쓴다.
+pub fn like_escape(s: &str) -> String {
     s.replace('\\', r"\\").replace('%', r"\%").replace('_', r"\_")
 }
 
