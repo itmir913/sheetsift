@@ -410,28 +410,17 @@ static CONTRACT_COLUMNS: &[ColumnDef] = &[
     text("mj", "모집단위", "모집단위", 26.0),
 ];
 
-/// 백분위 조견표(대학별) — 59행.
-static CHARTUNIV_COLUMNS: &[ColumnDef] = &[
-    text("univ", "대학명", "대학명", 14.0),
-    num("max", "최대", "최대", 10.0),
-    num("median", "중앙값", "중앙값", 10.0),
-    num("min", "최소", "최소", 10.0),
-    num("mean", "평균", "평균", 10.0),
-];
-
-/// 백분위 조견표(둘째 목록) — 36행.
-static CHARTUNIV2_COLUMNS: &[ColumnDef] = &[
-    text("univ", "대학명", "대학명", 14.0),
-    num("max", "최대", "최대", 10.0),
-    num("median", "중앙값", "중앙값", 10.0),
-    num("min", "최소", "최소", 10.0),
-    num("mean", "평균", "평균", 10.0),
-];
-
-/// 백분위 조견표(모집단위별) — 126행.
-static CHARTMJ_COLUMNS: &[ColumnDef] = &[
-    text("univ", "대학명(세부)", "대학명_세부_", 18.0),
+/// 백분위 조견표 — 221행. 원본의 표 셋(일반대학1·일반대학2·의약학/계약학과)을
+/// 합쳐 두었다. 앞의 둘은 대학 단위 범위(최대·중앙값·최소·평균)를, 마지막은
+/// 모집단위 단위 70%컷을 갖는다. 없는 칸은 비어 있다.
+static CHARTRANGE_COLUMNS: &[ColumnDef] = &[
+    text("kind", "구분", "구분", 12.0),
+    text("univ", "대학명", "대학명", 18.0),
     text("gye", "계열", "계열", 9.0),
+    num("max", "최대", "최대", 9.0),
+    num("median", "중앙값", "중앙값", 9.0),
+    num("min", "최소", "최소", 9.0),
+    num("mean", "평균", "평균", 9.0),
     num("cut70", "70% 컷", "_70_컷", 9.0),
     num("quota", "정원", "정원", 8.0),
     num("compRate", "경쟁률", "경쟁률", 9.0),
@@ -531,25 +520,11 @@ pub static SCREENS: &[ScreenDef] = &[
         columns: CONTRACT_COLUMNS,
     },
     ScreenDef {
-        id: "chartUniv",
+        id: "chartRange",
         title: "백분위 조견표",
-        description: "대학별 입시결과 백분위 범위",
-        base: "chart_univ",
-        columns: CHARTUNIV_COLUMNS,
-    },
-    ScreenDef {
-        id: "chartUniv2",
-        title: "백분위 조견표(둘째)",
-        description: "원본 시트의 둘째 목록. 구분 이름이 원본에 없습니다",
-        base: "chart_univ2",
-        columns: CHARTUNIV2_COLUMNS,
-    },
-    ScreenDef {
-        id: "chartMj",
-        title: "조견표 모집단위별",
-        description: "의약계열 모집단위별 70% 컷·정원·경쟁률·충원율",
-        base: "chart_mj",
-        columns: CHARTMJ_COLUMNS,
+        description: "대학·모집단위별 입시결과 백분위 범위",
+        base: "chart_range",
+        columns: CHARTRANGE_COLUMNS,
     },
     ScreenDef {
         id: "gradeMap",
