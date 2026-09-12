@@ -39,6 +39,9 @@ pub struct ColumnDef {
     pub width: f32,
     pub sortable: bool,
     pub filterable: bool,
+    /// 양수에 `+` 를 붙일 숫자인가. 격차처럼 부호에 뜻이 있는 열에 쓴다.
+    #[serde(default)]
+    pub signed: bool,
     /// 사전 인코딩 열인가. 그렇다면 값은 정수 id 이고 dict 를 조인해야 한다.
     #[serde(skip_serializing)]
     pub dict: bool,
@@ -62,10 +65,83 @@ impl ColumnDef {
     }
 }
 
+/// 무엇으로 그리는 화면인가. **어느 화면이 차트인지는 데이터가 정한다** —
+/// 코드가 화면 id 를 보고 고르면 id 를 바꾸는 순간 조용히 표로 바뀐다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ScreenKind {
+    /// 보통 표.
+    Grid,
+    /// 범위 차트(+표). `chart` 가 어느 열이 어떤 구실인지 말해 준다.
+    RangeChart,
+    /// 성적 검색 — 유일하게 계산을 하는 화면.
+    Search,
+    /// 학생 데이터 관리. 표를 읽지 않는다.
+    Admin,
+}
+
+impl Default for ScreenKind {
+    fn default() -> Self {
+        ScreenKind::Grid
+    }
+}
+
+/// 성적 검색이 계산에 쓰는 열 이름. 코드가 아니라 `screens.json` 에서 온다.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchFields {
+    pub region: String,
+    pub area: String,
+    pub univ: String,
+    pub mj: String,
+    pub gye: String,
+    pub jeongsi_jh: String,
+    pub jeongsi: String,
+    /// 이 행이 어느 환산룰을 쓰는지 가리키는 열.
+    pub rule_code: String,
+    pub suneung: String,
+}
+
+/// 등급제 하나에 딸린 네 개의 컷 열.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CutSet {
+    pub label: String,
+    pub gyogwa50: String,
+    pub gyogwa70: String,
+    pub jong50: String,
+    pub jong70: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BandDef {
+    pub key: String,
+    pub label: String,
+    /// 이 밴드에 들어가는 격차의 하한. 마지막 줄은 하한이 없다.
+    #[serde(default)]
+    pub min: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchDef {
+    /// 계산해서 채우는 '가능성' 칸의 열 key. 화면이 쓴다.
+    pub band_column: String,
+    #[serde(skip_serializing)]
+    pub fields: SearchFields,
+    /// 등급제 이름 → 컷 열 묶음. 화면의 토글이 이 중 하나를 고른다.
+    #[serde(skip_serializing)]
+    pub cuts: std::collections::BTreeMap<String, CutSet>,
+    pub bands: Vec<BandDef>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScreenDef {
     pub id: String,
+    #[serde(default)]
+    pub kind: ScreenKind,
     pub title: String,
     pub description: String,
     /// 왼쪽 목록에서 묶이는 자리. 묶음의 순서는 화면 쪽이 정한다.
@@ -74,6 +150,12 @@ pub struct ScreenDef {
     #[serde(rename = "table", skip_serializing)]
     pub base: String,
     pub columns: Vec<ColumnDef>,
+    /// 범위 차트가 어느 열을 어떤 구실로 쓰는지. 그림 화면에만 있다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chart: Option<serde_json::Value>,
+    /// 성적 검색이 쓰는 열과 밴드. 성적 검색 화면에만 있다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search: Option<SearchDef>,
 }
 
 impl ScreenDef {
@@ -104,12 +186,26 @@ impl ScreenDef {
 pub struct Screens {
     /// 왼쪽 목록의 묶음 순서.
     pub groups: Vec<String>,
+    /// 왼쪽 목록 아래 칸(프로그램 자체를 다루는 메뉴)의 묶음.
+    #[serde(default, rename = "footGroups")]
+    pub foot_groups: Vec<String>,
     pub screens: Vec<ScreenDef>,
 }
 
 impl Screens {
     pub fn find(&self, id: &str) -> Option<&ScreenDef> {
         self.screens.iter().find(|s| s.id == id)
+    }
+
+    /// 성적 검색 화면의 정의. 계산에 쓸 열 이름이 여기 들어 있다.
+    pub fn search(&self) -> AppResult<(&ScreenDef, &SearchDef)> {
+        self.screens
+            .iter()
+            .find_map(|s| s.search.as_ref().map(|d| (s, d)))
+            .ok_or_else(|| {
+                AppError::new(ErrorCode::DbEmbedInvalid)
+                    .detail("screens.json 에 search 를 쓰는 화면이 없습니다")
+            })
     }
 }
 

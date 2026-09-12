@@ -398,6 +398,56 @@ mod tests {
         (conn, screens)
     }
 
+    /// 성능 시험에 쓸 화면을 **데이터에서 고른다.**
+    ///
+    /// 예전에는 표 이름을 그대로 적어 두었는데, 그러면 양식에서 시트 하나를
+    /// 갈아 끼울 때 시험이 먼저 깨진다. 여기서 보고 싶은 것은 특정 표가 아니라
+    /// **가장 큰 표에서도 조회가 빠른가** 이므로, 행이 제일 많은 화면을 고른다.
+    fn biggest(conn: &Connection, screens: &Screens) -> String {
+        let mut best = (0i64, String::new());
+        for sc in &screens.screens {
+            if sc.base.is_empty() {
+                continue;
+            }
+            let n: i64 = conn
+                .query_row(&format!("SELECT COUNT(*) FROM \"{}\"", sc.base), [], |r| r.get(0))
+                .unwrap_or(0);
+            if n > best.0 {
+                best = (n, sc.id.clone());
+            }
+        }
+        assert!(!best.1.is_empty(), "조회할 화면이 하나도 없다");
+        best.1
+    }
+
+    /// 그 화면에서 실제로 쓸 수 있는 열 key 를 구실별로 고른다.
+    /// (글자 열 / 숫자 열 / 값 선택이 되는 열)
+    fn a_text_key(screens: &Screens, id: &str) -> String {
+        let sc = screens.find(id).unwrap();
+        sc.columns
+            .iter()
+            .find(|c| c.sortable && c.filterable)
+            .expect("정렬·필터가 되는 열이 없다")
+            .key
+            .clone()
+    }
+
+    /// 그 열에 실제로 들어 있는 값 몇 개. 값 선택 필터에 쓴다.
+    fn some_values(conn: &Connection, screens: &Screens, id: &str, key: &str, n: usize) -> Vec<String> {
+        let r = ColumnValuesRequest {
+            screen_id: id.into(),
+            column_key: key.into(),
+            filters: vec![],
+        };
+        column_values(conn, screens, &r)
+            .unwrap()
+            .values
+            .into_iter()
+            .take(n)
+            .map(|v| v.value)
+            .collect()
+    }
+
     fn req(screen: &str, sorts: Vec<Sort>, filters: Vec<Filter>) -> QueryRequest {
         QueryRequest { screen_id: screen.into(), sorts, filters, offset: 0, limit: 100 }
     }
@@ -425,49 +475,69 @@ mod tests {
     #[test]
     fn grid_queries_are_fast_enough() {
         let (conn, screens) = open();
+        let id = biggest(&conn, &screens);
+        let sc = screens.find(&id).unwrap();
+        // 정렬·필터에 쓸 열을 화면 정의에서 고른다. 이름을 적어 두지 않는다.
+        let text: Vec<String> = sc
+            .columns
+            .iter()
+            .filter(|c| c.sortable && c.kind == crate::screens::ColumnKind::Text)
+            .map(|c| c.key.clone())
+            .collect();
+        let num: Vec<String> = sc
+            .columns
+            .iter()
+            .filter(|c| c.sortable && c.kind == crate::screens::ColumnKind::Number)
+            .map(|c| c.key.clone())
+            .collect();
+        assert!(text.len() >= 2 && !num.is_empty(), "시험할 만한 열이 모자란다");
+
+        let pick_col = &text[0];
+        let vals = some_values(&conn, &screens, &id, pick_col, 2);
+        let two: Vec<&str> = vals.iter().map(String::as_str).collect();
+        let total = run(&conn, &screens, &req(&id, vec![], vec![])).unwrap().total;
+        let last = total.saturating_sub(500);
+
         let cases: Vec<(&str, QueryRequest)> = vec![
-            ("정렬 없음", req("mojipdanwibyeol", vec![], vec![])),
-            ("1순위 정렬(텍스트)", req("mojipdanwibyeol", vec![s("univ", SortDir::Asc)], vec![])),
+            ("정렬 없음", req(&id, vec![], vec![])),
+            ("1순위 정렬(텍스트)", req(&id, vec![s(&text[0], SortDir::Asc)], vec![])),
             (
                 "3순위 정렬",
                 req(
-                    "mojipdanwibyeol",
+                    &id,
                     vec![
-                        s("univ", SortDir::Asc),
-                        s("mj", SortDir::Asc),
-                        s("rate", SortDir::Desc),
+                        s(&text[0], SortDir::Asc),
+                        s(&text[1], SortDir::Asc),
+                        s(&num[0], SortDir::Desc),
                     ],
                     vec![],
                 ),
             ),
             (
                 "값 선택 필터 + 정렬",
-                req(
-                    "mojipdanwibyeol",
-                    vec![s("rate", SortDir::Desc)],
-                    vec![picked("region", &["서울", "경인권"])],
-                ),
+                req(&id, vec![s(&num[0], SortDir::Desc)], vec![picked(pick_col, &two)]),
             ),
             (
                 "값 선택 + 열 검색 동시",
                 req(
-                    "mojipdanwibyeol",
+                    &id,
                     vec![],
-                    vec![picked("region", &["서울"]), contains("mj", "간호")],
+                    vec![picked(pick_col, &two[..1]), contains(&text[1], "학")],
                 ),
             ),
             // 뒤쪽 페이지로 넘어갈 때의 비용.
-            ("정렬 없음 · 30쪽", at(req("mojipdanwibyeol", vec![], vec![]), 15_000)),
-            ("정렬 없음 · 마지막 쪽", at(req("mojipdanwibyeol", vec![], vec![]), 119_500)),
+            ("정렬 없음 · 30쪽", at(req(&id, vec![], vec![]), 15_000)),
+            ("정렬 없음 · 마지막 쪽", at(req(&id, vec![], vec![]), last)),
             (
                 "1순위 정렬 · 30쪽",
-                at(req("mojipdanwibyeol", vec![s("univ", SortDir::Asc)], vec![]), 15_000),
+                at(req(&id, vec![s(&text[0], SortDir::Asc)], vec![]), 15_000),
             ),
             (
                 "1순위 정렬 · 마지막 쪽",
-                at(req("mojipdanwibyeol", vec![s("univ", SortDir::Asc)], vec![]), 119_500),
+                at(req(&id, vec![s(&text[0], SortDir::Asc)], vec![]), last),
             ),
         ];
+        eprintln!("  가장 큰 화면: {id} ({total} 행)");
         for (name, r) in cases {
             let _ = run(&conn, &screens, &r).unwrap();
             let t = Instant::now();
@@ -483,25 +553,31 @@ mod tests {
     #[test]
     fn column_value_lists_are_fast_enough() {
         let (conn, screens) = open();
-        let cases = [
-            ("mojipdanwibyeol", "region", vec![]),
-            ("mojipdanwibyeol", "univ", vec![]),
-            ("mojipdanwibyeol", "mj", vec![]),
-            ("mojipdanwibyeol", "quota", vec![]),
-            ("mojipdanwibyeol", "univ", vec![picked("region", &["서울"])]),
-            ("data", "univ", vec![]),
-        ];
-        for (screen, key, filters) in cases {
+        let id = biggest(&conn, &screens);
+        let sc = screens.find(&id).unwrap();
+        let keys: Vec<String> =
+            sc.columns.iter().filter(|c| c.filterable).take(4).map(|c| c.key.clone()).collect();
+        assert!(!keys.is_empty(), "값 선택이 되는 열이 없다");
+
+        let first = &keys[0];
+        let vals = some_values(&conn, &screens, &id, first, 1);
+        let one: Vec<&str> = vals.iter().map(String::as_str).collect();
+
+        let mut cases: Vec<(String, Vec<Filter>)> =
+            keys.iter().map(|k| (k.clone(), vec![])).collect();
+        cases.push((keys[keys.len() - 1].clone(), vec![picked(first, &one)]));
+
+        for (key, filters) in cases {
             let r = ColumnValuesRequest {
-                screen_id: screen.into(),
-                column_key: key.into(),
+                screen_id: id.clone(),
+                column_key: key.clone(),
                 filters,
             };
             let _ = column_values(&conn, &screens, &r).unwrap();
             let t = Instant::now();
             let res = column_values(&conn, &screens, &r).unwrap();
             eprintln!(
-                "  {screen}.{key:<10} {:>7.1} ms   고유값 {:>5}개{}",
+                "  {id}.{key:<10} {:>7.1} ms   고유값 {:>5}개{}",
                 t.elapsed().as_secs_f64() * 1000.0,
                 res.values.len(),
                 if res.truncated { " (잘림)" } else { "" }
@@ -513,30 +589,38 @@ mod tests {
     #[test]
     fn picked_values_narrow_the_result() {
         let (conn, screens) = open();
-        let all = run(&conn, &screens, &req("mojipdanwibyeol", vec![], vec![])).unwrap().total;
-        let one =
-            run(&conn, &screens, &req("mojipdanwibyeol", vec![], vec![picked("region", &["서울"])]))
-                .unwrap()
-                .total;
-        assert!(one > 0 && one < all, "값 선택이 결과를 좁히지 못했다 ({one} / {all})");
+        let id = biggest(&conn, &screens);
+        let key = a_text_key(&screens, &id);
+        let vals = some_values(&conn, &screens, &id, &key, 1);
+        let one: Vec<&str> = vals.iter().map(String::as_str).collect();
+
+        let all = run(&conn, &screens, &req(&id, vec![], vec![])).unwrap().total;
+        let some = run(&conn, &screens, &req(&id, vec![], vec![picked(&key, &one)])).unwrap().total;
+        assert!(some > 0 && some < all, "값 선택이 결과를 좁히지 못했다 ({some} / {all})");
     }
 
     #[test]
     fn unchecking_everything_yields_no_rows() {
         let (conn, screens) = open();
-        let res =
-            run(&conn, &screens, &req("mojipdanwibyeol", vec![], vec![picked("region", &[])])).unwrap();
+        let id = biggest(&conn, &screens);
+        let key = a_text_key(&screens, &id);
+        let res = run(&conn, &screens, &req(&id, vec![], vec![picked(&key, &[])])).unwrap();
         assert_eq!(res.total, 0);
     }
 
     #[test]
     fn value_list_ignores_its_own_column_filter() {
         let (conn, screens) = open();
-        // 서울만 체크한 상태여도, 지역 열의 후보 목록에는 전체 지역이 남아야 한다.
+        let id = biggest(&conn, &screens);
+        let key = a_text_key(&screens, &id);
+        let vals = some_values(&conn, &screens, &id, &key, 1);
+        let one: Vec<&str> = vals.iter().map(String::as_str).collect();
+
+        // 한 값만 체크한 상태여도, 그 열의 후보 목록에는 전체 값이 남아야 한다.
         let r = ColumnValuesRequest {
-            screen_id: "mojipdanwibyeol".into(),
-            column_key: "region".into(),
-            filters: vec![picked("region", &["서울"])],
+            screen_id: id.clone(),
+            column_key: key.clone(),
+            filters: vec![picked(&key, &one)],
         };
         let res = column_values(&conn, &screens, &r).unwrap();
         assert!(res.values.len() > 1, "자기 열 필터를 제외하지 않았다");
@@ -545,7 +629,8 @@ mod tests {
     #[test]
     fn unknown_sort_key_is_rejected() {
         let (conn, screens) = open();
-        let e = run(&conn, &screens, &req("mojipdanwibyeol", vec![s("no_such", SortDir::Asc)], vec![]))
+        let id = biggest(&conn, &screens);
+        let e = run(&conn, &screens, &req(&id, vec![s("no_such", SortDir::Asc)], vec![]))
             .unwrap_err();
         assert_eq!(e.code, ErrorCode::InvalidSortKey);
     }
@@ -553,7 +638,9 @@ mod tests {
     #[test]
     fn filter_wildcards_are_escaped() {
         let (conn, screens) = open();
-        let res = run(&conn, &screens, &req("mojipdanwibyeol", vec![], vec![contains("mj", "%")])).unwrap();
+        let id = biggest(&conn, &screens);
+        let key = a_text_key(&screens, &id);
+        let res = run(&conn, &screens, &req(&id, vec![], vec![contains(&key, "%")])).unwrap();
         assert_eq!(res.total, 0, "LIKE 와일드카드가 이스케이프되지 않았다");
     }
 }
