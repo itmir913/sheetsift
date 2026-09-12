@@ -361,7 +361,7 @@ pub fn column_values(
         let count: i64 = r.get(1)?;
         let text = match raw {
             Json::Null => BLANK_TOKEN.to_string(),
-            Json::String(s) if s.is_empty() || s == "-" => BLANK_TOKEN.to_string(),
+            Json::String(s) if s.is_empty() || s == screens.blank => BLANK_TOKEN.to_string(),
             Json::String(s) => s,
             other => other.to_string(),
         };

@@ -182,6 +182,11 @@ impl ScreenDef {
 }
 
 /// navi.db 에 들어 있는 화면 정의 묶음.
+/// 양식이 "없음" 을 적을 때 쓰는 글자. navi.db 에 없으면(옛 파일) 이 값.
+fn default_blank() -> String {
+    "-".into()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Screens {
     /// 왼쪽 목록의 묶음 순서.
@@ -189,6 +194,9 @@ pub struct Screens {
     /// 왼쪽 목록 아래 칸(프로그램 자체를 다루는 메뉴)의 묶음.
     #[serde(default, rename = "footGroups")]
     pub foot_groups: Vec<String>,
+    /// 값이 없는 칸에 양식이 적어 두는 글자. **코드에 박지 않는다.**
+    #[serde(default = "default_blank")]
+    pub blank: String,
     pub screens: Vec<ScreenDef>,
 }
 
