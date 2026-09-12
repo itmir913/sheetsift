@@ -73,10 +73,11 @@ impl ColumnDef {
 
 /// 무엇으로 그리는 화면인가. **어느 화면이 차트인지는 데이터가 정한다** —
 /// 코드가 화면 id 를 보고 고르면 id 를 바꾸는 순간 조용히 표로 바뀐다.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ScreenKind {
-    /// 보통 표.
+    /// 보통 표. `kind` 를 적지 않은 화면은 이것이다.
+    #[default]
     Grid,
     /// 범위 차트(+표). `chart` 가 어느 열이 어떤 구실인지 말해 준다.
     RangeChart,
@@ -84,12 +85,6 @@ pub enum ScreenKind {
     Search,
     /// 학생 데이터 관리. 표를 읽지 않는다.
     Admin,
-}
-
-impl Default for ScreenKind {
-    fn default() -> Self {
-        ScreenKind::Grid
-    }
 }
 
 /// 성적 검색에서 **코드가 뜻을 아는 열**. 나머지는 그냥 실어 나른다.

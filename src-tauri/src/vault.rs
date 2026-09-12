@@ -23,7 +23,7 @@
 
 use aes_gcm::{
     aead::{Aead, KeyInit, Payload},
-    Aes256Gcm, Key, Nonce,
+    Aes256Gcm, Nonce,
 };
 use argon2::Argon2;
 use rand::RngCore;
@@ -119,14 +119,16 @@ impl Vault {
 
         let mut salt = [0u8; SALT_LEN];
         salt.copy_from_slice(&bytes[12..12 + SALT_LEN]);
-        let nonce = &bytes[12 + SALT_LEN..HEADER_LEN];
+        let nonce: [u8; NONCE_LEN] = bytes[12 + SALT_LEN..HEADER_LEN]
+            .try_into()
+            .expect("length checked above");
         let header = &bytes[..HEADER_LEN];
         let ciphertext = &bytes[HEADER_LEN..];
 
         let key = derive_key(password, &salt)?;
-        let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
+        let cipher = Aes256Gcm::new((&key).into());
         let mut plain = cipher
-            .decrypt(Nonce::from_slice(nonce), Payload { msg: ciphertext, aad: header })
+            .decrypt(&Nonce::from(nonce), Payload { msg: ciphertext, aad: header })
             // 비밀번호 오류와 파일 손상은 구분할 수 없다. 구분해서도 안 된다.
             .map_err(|_| AppError::new(ErrorCode::VaultPasswordWrong))?;
 
@@ -157,9 +159,9 @@ impl Vault {
         out.extend_from_slice(&self.salt);
         out.extend_from_slice(&nonce);
 
-        let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&self.key));
+        let cipher = Aes256Gcm::new((&self.key).into());
         let ct = cipher
-            .encrypt(Nonce::from_slice(&nonce), Payload { msg: &data, aad: &out })
+            .encrypt(&Nonce::from(nonce), Payload { msg: &data, aad: &out })
             .map_err(|e| AppError::new(ErrorCode::VaultSealFailed).detail(e))?;
         out.extend_from_slice(&ct);
         Ok(out)
