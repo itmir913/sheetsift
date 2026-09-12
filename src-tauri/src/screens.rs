@@ -1,18 +1,21 @@
-//! 화면 정의.
+//! 화면 정의 — **데이터에서 읽는다.**
 //!
-//! "화면도 데이터다" — 조회 화면은 코드가 아니라 이 표의 항목 하나로 표현된다.
-//! 지금은 Rust 상수지만 구조를 그대로 YAML/JSON 으로 뺄 수 있게 잡아 두었다.
-//! 교육청 파일에 시트가 하나 늘어도 여기 항목 하나만 추가하면 화면이 생긴다.
+//! 조회 화면은 코드가 아니라 `data/screens.json` 의 항목 하나다. 빌드할 때
+//! `build_db` 가 그것을 navi.db 의 `screens_meta` 에 넣어 두고, 앱은 기동하면서
+//! 여기로 읽어 온다. 교육청 자료에 표가 하나 늘어도 Rust 를 고칠 일이 없다.
 //!
 //! ## 사전 인코딩(Dict) 열
 //! 대용량 표는 반복되는 문자열(대학명·전형명 등)을 `dict` 테이블의 정수 id 로
 //! 바꿔 저장한다. 이때 **id 를 가나다순으로 부여**했기 때문에
 //! `ORDER BY t.univ`(정수) 가 곧 가나다순 정렬이다.
-//! 덕분에 정렬·집계에는 조인이 전혀 필요 없고, 화면에 내보낼 100행에만 조인한다.
+//! 덕분에 정렬·집계에는 조인이 전혀 필요 없고, 화면에 내보낼 행에만 조인한다.
 
-use serde::Serialize;
+use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+use crate::error::{AppError, AppResult, ErrorCode};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ColumnKind {
     /// 문자열. 좌측 정렬, 부분일치 필터.
@@ -21,61 +24,56 @@ pub enum ColumnKind {
     Number,
 }
 
-/// 값이 기준 테이블에 어떤 형태로 들어 있는지.
-#[derive(Debug, Clone, Copy)]
-pub enum Source {
-    /// 기준 테이블의 열을 그대로 쓴다.
-    Plain(&'static str),
-    /// 사전 인코딩된 열. `col` 에 정수 id 가 있고 `alias` 로 dict 를 조인한다.
-    Dict { col: &'static str, alias: &'static str },
-}
-
-impl Source {
-    /// 기준 테이블 안에서의 열 참조. 정렬·필터에 쓴다.
-    pub fn base_ref(&self) -> String {
-        match self {
-            Source::Plain(c) => format!("t.\"{c}\""),
-            Source::Dict { col, .. } => format!("t.\"{col}\""),
-        }
-    }
-    /// 화면에 내보낼 식. 사전 열은 조인한 문자열을 쓴다.
-    pub fn display_ref(&self) -> String {
-        match self {
-            Source::Plain(c) => format!("t.\"{c}\""),
-            Source::Dict { alias, .. } => format!("{alias}.s"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ColumnDef {
     /// 결과 컬럼 별칭이자 프런트에서 쓰는 키.
-    pub key: &'static str,
+    pub key: String,
     /// 화면에 보이는 이름.
-    pub label: &'static str,
-    #[serde(skip)]
-    pub source: Source,
+    pub label: String,
+    /// 기준 테이블의 열 이름.
+    #[serde(skip_serializing)]
+    pub column: String,
     pub kind: ColumnKind,
     /// 열 너비(rem).
     pub width: f32,
     pub sortable: bool,
     pub filterable: bool,
+    /// 사전 인코딩 열인가. 그렇다면 값은 정수 id 이고 dict 를 조인해야 한다.
+    #[serde(skip_serializing)]
+    pub dict: bool,
+    /// dict 조인에 쓸 별칭. 읽어 들이면서 열마다 하나씩 매긴다.
+    #[serde(skip)]
+    pub alias: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+impl ColumnDef {
+    /// 기준 테이블 안에서의 열 참조. 정렬·필터에 쓴다.
+    pub fn base_ref(&self) -> String {
+        format!("t.\"{}\"", self.column)
+    }
+    /// 화면에 내보낼 식. 사전 열은 조인한 문자열을 쓴다.
+    pub fn display_ref(&self) -> String {
+        if self.dict {
+            format!("{}.s", self.alias)
+        } else {
+            self.base_ref()
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScreenDef {
-    pub id: &'static str,
-    pub title: &'static str,
-    pub description: &'static str,
-    /// 왼쪽 목록에서 묶이는 자리. 화면이 늘어날수록 목록이 길어져서,
-    /// 무엇을 하려는지로 묶어 준다. 묶음의 순서는 화면 쪽(App.vue)이 정한다.
-    pub group: &'static str,
-    /// 기준 테이블 이름 (내부 상수).
-    #[serde(skip)]
-    pub base: &'static str,
-    pub columns: &'static [ColumnDef],
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    /// 왼쪽 목록에서 묶이는 자리. 묶음의 순서는 화면 쪽이 정한다.
+    pub group: String,
+    /// 기준 테이블 이름 (내부 값).
+    #[serde(rename = "table", skip_serializing)]
+    pub base: String,
+    pub columns: Vec<ColumnDef>,
 }
 
 impl ScreenDef {
@@ -87,472 +85,65 @@ impl ScreenDef {
     pub fn dict_joins(&self) -> String {
         let mut seen: Vec<&str> = Vec::new();
         let mut out = String::new();
-        for c in self.columns {
-            if let Source::Dict { col, alias } = c.source {
-                if seen.contains(&alias) {
-                    continue;
-                }
-                seen.push(alias);
-                out.push_str(&format!(
-                    "\n     LEFT JOIN dict {alias} ON {alias}.id = t.\"{col}\""
-                ));
+        for c in &self.columns {
+            if !c.dict || seen.contains(&c.alias.as_str()) {
+                continue;
             }
+            seen.push(&c.alias);
+            out.push_str(&format!(
+                "\n     LEFT JOIN dict {} ON {}.id = t.\"{}\"",
+                c.alias, c.alias, c.column
+            ));
         }
         out
     }
 }
 
-const fn dict(
-    key: &'static str,
-    label: &'static str,
-    col: &'static str,
-    alias: &'static str,
-    width: f32,
-) -> ColumnDef {
-    ColumnDef {
-        key,
-        label,
-        source: Source::Dict { col, alias },
-        kind: ColumnKind::Text,
-        width,
-        sortable: true,
-        filterable: true,
+/// navi.db 에 들어 있는 화면 정의 묶음.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Screens {
+    /// 왼쪽 목록의 묶음 순서.
+    pub groups: Vec<String>,
+    pub screens: Vec<ScreenDef>,
+}
+
+impl Screens {
+    pub fn find(&self, id: &str) -> Option<&ScreenDef> {
+        self.screens.iter().find(|s| s.id == id)
     }
 }
 
-const fn text(key: &'static str, label: &'static str, col: &'static str, width: f32) -> ColumnDef {
-    ColumnDef {
-        key,
-        label,
-        source: Source::Plain(col),
-        kind: ColumnKind::Text,
-        width,
-        sortable: true,
-        filterable: true,
+/// `screens_meta` 에서 읽어 온다. 같은 열을 두 번 조인하지 않도록
+/// 사전 열마다 별칭(d1, d2 …)을 여기서 매긴다.
+pub fn load(conn: &Connection) -> AppResult<Screens> {
+    let json: String = conn
+        .query_row("SELECT json FROM screens_meta LIMIT 1", [], |r| r.get(0))
+        .map_err(|e| {
+            AppError::new(ErrorCode::DbEmbedInvalid)
+                .detail(format!("screens_meta 를 읽지 못했습니다: {e}"))
+        })?;
+
+    let mut screens: Screens = serde_json::from_str(&json).map_err(|e| {
+        AppError::new(ErrorCode::DbEmbedInvalid)
+            .detail(format!("화면 정의를 해석하지 못했습니다: {e}"))
+    })?;
+
+    for s in &mut screens.screens {
+        let mut alias_of: Vec<(String, String)> = Vec::new();
+        for c in &mut s.columns {
+            if !c.dict {
+                continue;
+            }
+            let found = alias_of.iter().find(|(col, _)| *col == c.column).map(|(_, a)| a.clone());
+            c.alias = match found {
+                Some(a) => a,
+                None => {
+                    let a = format!("d{}", alias_of.len() + 1);
+                    alias_of.push((c.column.clone(), a.clone()));
+                    a
+                }
+            };
+        }
     }
-}
-
-const fn num(key: &'static str, label: &'static str, col: &'static str, width: f32) -> ColumnDef {
-    ColumnDef {
-        key,
-        label,
-        source: Source::Plain(col),
-        kind: ColumnKind::Number,
-        width,
-        sortable: true,
-        filterable: false,
-    }
-}
-
-/// 모집단위별 지원경향 — 120,340행.
-static MOJIP_COLUMNS: &[ColumnDef] = &[
-    dict("bUniv", "기준 대학", "b_univ", "d1", 13.0),
-    dict("bJh", "기준 전형", "b_jh", "d2", 9.0),
-    dict("bGye", "기준 계열", "b_gye", "d3", 8.5),
-    dict("bMj", "기준 모집단위", "b_mj", "d4", 13.0),
-    dict("region", "지역", "region", "d5", 8.5),
-    dict("univ", "대학", "univ", "d6", 11.0),
-    dict("jh", "전형", "jh", "d7", 10.0),
-    dict("gye", "계열", "gye", "d8", 8.5),
-    dict("mj", "모집단위", "mj", "d9", 14.0),
-    num("quota", "모집인원", "quota", 8.5),
-    num("apply", "지원건수", "n_apply", 8.5),
-    num("pass", "합격", "n_pass", 8.5),
-    num("rate", "합격률", "rate", 8.5),
-];
-
-/// 전형별 지원경향 — 122,382행.
-static JUNHYEONG_COLUMNS: &[ColumnDef] = &[
-    dict("bUniv", "기준 대학", "b_univ", "d1", 13.0),
-    dict("bType", "기준 전형유형", "b_type", "d2", 9.5),
-    dict("bJh", "기준 전형", "b_jh", "d3", 9.0),
-    dict("bGye", "기준 계열", "b_gye", "d4", 8.5),
-    dict("region", "지역", "region", "d5", 8.5),
-    dict("univ", "대학", "univ", "d6", 11.0),
-    dict("jtype", "전형유형", "jtype", "d7", 8.5),
-    dict("jh", "전형", "jh", "d8", 12.0),
-    dict("gye", "계열", "gye", "d9", 8.5),
-    num("apply", "지원건수", "n_apply", 8.5),
-    num("pass", "합격", "n_pass", 8.5),
-    num("rate", "합격률", "rate", 8.5),
-];
-
-/// 대학 입결 데이터 — 6,373행. 열이 넓은 표의 예.
-static DATA_COLUMNS: &[ColumnDef] = &[
-    text("region", "권역", "권역", 8.5),
-    text("area", "지역", "지역", 8.5),
-    text("city", "세부지역", "세부지역", 8.5),
-    text("univ", "대학명", "대학명", 12.0),
-    text("mj", "2027 수시 모집단위", "_2027_수시_모집단위", 16.0),
-    text("gye", "계열", "계열", 8.5),
-    text("gyogwa1Jh", "교과1 전형", "교과1_전형", 10.0),
-    num("gyogwa1P50", "교과1 50%", "교과1_50_", 8.5),
-    num("gyogwa1P70", "교과1 70%", "교과1_70_", 8.5),
-    text("gyogwa2Jh", "교과2 전형", "교과2_전형", 10.0),
-    num("gyogwa2P50", "교과2 50%", "교과2_50_", 8.5),
-    num("gyogwa2P70", "교과2 70%", "교과2_70_", 8.5),
-    text("jongJh", "종합1 전형", "종합1_전형", 10.0),
-    num("jongP50", "종합1 50%", "종합1_50_", 8.5),
-    num("jongP70", "종합1 70%", "종합1_70_", 8.5),
-    num("jeongsi", "정시 백분위", "정시백분위", 9.0),
-    text("suneung", "수능 반영영역", "_26정시반영영역", 18.0),
-];
-
-/* ── 교육청 엑셀의 참고 시트들 ──────────────────────────────────
-   전부 "머리글 + 행" 짜리 표라서 그리드 하나면 끝난다. 화면마다 따로 만들
-   것이 없고, 여기 정의만 있으면 정렬·열 검색·값 필터·열 고정·인쇄가
-   그대로 딸려 온다.
-   열 이름은 양식의 머리글을 눌러 만든 것이라 길다. 화면에 보이는 이름은
-   두 번째 인자로 따로 적는다. */
-
-/// 학생부종합 전형 — 335행.
-static JONGHAP_COLUMNS: &[ColumnDef] = &[
-    text("region", "지역", "전형개요___지역", 8.5),
-    text("univ", "대학명", "전형개요___대학명", 12.0),
-    text("jh", "전형명", "전형개요___전형명", 14.0),
-    text("gubun", "구분", "전형개요___구분", 13.0),
-    text("quota", "모집인원", "전형개요___모집인원", 8.5),
-    text("stage", "단계/일괄", "전형개요___단계_일괄", 9.0),
-    text("stageRatio", "1단계 선발비율", "전형개요___1단계_선발비율", 11.0),
-    text("method", "전형방법", "전형개요___전형방법", 22.0),
-    text("itvWhen", "면접 시기", "면접일정_및_내용___면접_시기", 9.5),
-    text("itvAnnounce", "1단계 발표", "면접일정_및_내용___1단계발표", 10.5),
-    text("itvDate", "면접일자", "면접일정_및_내용___면접일자", 12.0),
-    text("itvHow", "면접방법", "면접일정_및_내용___면접방법__서류_제시문_기타_", 14.0),
-    text("minGrade", "수능최저 등급기준", "수능최저학력기준___등급기준", 11.0),
-    text("minDetail", "수능최저 세부내용", "수능최저학력기준___세부내용", 20.0),
-    text("evalAcademic", "학업역량", "서류_평가요소별_비율___학업역량", 8.5),
-    text("evalCareer", "진로역량", "서류_평가요소별_비율___진로역량__탐구__자기계발_등_", 8.5),
-    text("evalCommunity", "공동체역량", "서류_평가요소별_비율___공동체역량", 9.5),
-    text("evalNote", "평가요소 및 배점", "평가요소_및_인재상___평가요소_및_배점", 24.0),
-    text("ideal", "대학 인재상", "평가요소_및_인재상___대학_인재상", 24.0),
-];
-
-/// 정원외·특별전형 — 11,345행.
-static TEUKBYEOL_COLUMNS: &[ColumnDef] = &[
-    text("region", "지역", "기본사항___지역", 8.5),
-    text("univ", "대학명", "기본사항___대학명", 12.0),
-    text("mj", "모집단위", "_2027학년도_전형정보___모집단위", 16.0),
-    text("gye", "계열", "_2027학년도_전형정보___계열", 8.5),
-    text("jtype", "전형유형", "_2027학년도_전형정보___전형_유형", 9.0),
-    text("jh", "전형명", "_2027학년도_전형정보___전형명", 16.0),
-    text("unified", "통합선발", "_2027학년도_전형정보___통합선발_모집단위", 9.0),
-    text("quota", "모집인원", "_2027학년도_전형정보___모집_인원", 8.5),
-    text("qualMulti", "자격 2개 이상", "_2027학년도_전형정보___지원자격___지원자격_2개_이상", 10.5),
-    text("qRural", "농어촌", "_2027학년도_전형정보___농어촌", 8.0),
-    text("qVocational", "특성화고", "_2027학년도_전형정보___특성화고", 8.5),
-    text("qBasic", "기/차/한", "_2027학년도_전형정보___기_차_한", 8.5),
-    text("qMulticultural", "다문화", "_2027학년도_전형정보___다문화", 8.0),
-    text("qManyChildren", "다자녀", "_2027학년도_전형정보___다자녀", 8.0),
-    text("qOfficial", "공무원", "_2027학년도_전형정보___공무원__군인_경찰_소방_등_", 9.0),
-    text("mj26", "2026 모집단위", "_2026학년도_전형정보___모집단위", 16.0),
-    text("jtype26", "2026 전형유형", "_2026학년도_전형정보___전형유형", 10.0),
-    text("jh26", "2026 전형명", "_2026학년도_전형정보___전형명", 16.0),
-    text("q26Rural", "2026 농어촌", "_2026학년도_전형정보___지원자격___농어촌", 9.5),
-    text("q26Vocational", "2026 특성화고", "_2026학년도_전형정보___특성화고", 10.0),
-    text("q26Basic", "2026 기/차/한", "_2026학년도_전형정보___기_차_한", 10.0),
-    text("quota26", "2026 모집인원", "_2026학년도_입시결과___모집인원", 10.0),
-    text("compRate26", "2026 경쟁률", "_2026학년도_입시결과___경쟁률", 9.5),
-    text("extra26", "2026 충원인원", "_2026학년도_입시결과___충원인원", 10.0),
-    text("basis26", "대학제공기준", "_2026학년도_입시결과___대학제공기준", 10.5),
-    text("result50", "입결 50%", "_2026학년도_입시결과___수시입시결과___0_5", 8.5),
-    text("result70", "입결 70%", "_2026학년도_입시결과___0_7", 8.5),
-    text("note26", "비고", "_2026학년도_입시결과___비고", 10.0),
-];
-
-/// 대학별 교과 반영 방법 — 900행.
-static GYOGWA_COLUMNS: &[ColumnDef] = &[
-    text("year", "연도", "연도", 7.0),
-    text("region", "지역", "지역", 8.5),
-    text("univ", "대학명", "대학명", 12.0),
-    text("campus", "캠퍼스", "캠퍼스", 8.5),
-    text("jh", "전형명", "전형명", 14.0),
-    text("gye", "계열", "계열", 9.0),
-    text("mj", "모집단위", "모집단위", 18.0),
-    text("g1Subject", "일반선택 반영교과", "일반선택과목___반영교과", 14.0),
-    text("g1Count", "일반선택 반영과목", "일반선택과목___반영과목", 11.0),
-    text("g1Method", "일반선택 반영방법", "일반선택과목___반영방법", 24.0),
-    text("g1Index", "활용지표", "일반선택과목___활용지표", 9.5),
-    text("g1Unit", "이수단위", "일반선택과목___이수단위", 9.5),
-    text("g2Subject", "진로선택 반영교과", "진로선택과목___반영교과", 14.0),
-    text("g2Method", "진로선택 반영방법", "진로선택과목___반영방법", 24.0),
-    text("g2Count", "진로선택 과목수", "진로선택과목___반영과목수", 11.0),
-    text("g2A", "A", "진로선택과목___A", 7.0),
-    text("g2B", "B", "진로선택과목___B", 7.0),
-    text("g2C", "C", "진로선택과목___C", 7.0),
-    text("g2Note", "진로선택 반영내용", "진로선택과목___반영내용", 11.0),
-    text("note", "비고(변경/유지/신설)", "비고___변경_유지_신설", 22.0),
-];
-
-/// 무전공·자유전공 — 805행.
-static JAYUL_COLUMNS: &[ColumnDef] = &[
-    text("region", "지역", "지역", 8.5),
-    text("univ", "대학명", "대학명", 12.0),
-    text("type", "유형", "유형", 8.0),
-    text("gye", "계열", "계열", 8.5),
-    text("jtype", "전형유형", "전형유형", 9.0),
-    text("jh", "전형명", "전형명", 14.0),
-    text("mj", "2027 모집단위", "_2027_모집단위", 16.0),
-    text("quota", "모집인원", "모집인원", 8.5),
-    text("ratio", "반영비율", "반영비율", 22.0),
-    text("detail", "2027 세부전공", "_2027_세부전공", 26.0),
-];
-
-/// 전형 일정 — 482행.
-static ILJEONG_COLUMNS: &[ColumnDef] = &[
-    text("date", "날짜", "날짜", 10.0),
-    text("univ", "대학명", "대학명", 12.0),
-    text("gubun", "구분", "구분", 8.0),
-    text("jh", "전형명", "전형명", 14.0),
-    text("what", "내용", "내용", 10.0),
-    text("mj", "모집단위", "모집단위", 18.0),
-    text("note", "비고", "비고", 22.0),
-];
-
-/// 2028 대입 변경 사항 — 985행.
-static DAEIP2028_COLUMNS: &[ColumnDef] = &[
-    text("region", "지역", "지역", 8.5),
-    text("univ", "대학명", "대학명", 12.0),
-    text("jtype", "전형유형", "전형유형", 9.0),
-    text("category", "분류", "분류", 9.5),
-    text("jh27", "2027 전형명", "_2027_전형명", 14.0),
-    text("note27", "2027 주요 사항", "_2027_주요_사항", 24.0),
-    text("changed", "27 대비 변경", "_27대비_변경여부", 10.0),
-    text("jh28", "2028 전형명", "_2028_전형명", 14.0),
-    text("note28", "2028 주요 사항", "_2028_주요_사항", 24.0),
-    text("commonGrade", "공통 등급", "_2028_교과성적반영방법___공통___등급", 8.5),
-    text("commonLevel", "공통 성취도", "_2028_교과성적반영방법___공통___성취도", 9.5),
-    text("generalGrade", "일반 등급", "_2028_교과성적반영방법___일반___등급", 8.5),
-    text("generalLevel", "일반 성취도", "_2028_교과성적반영방법___일반___성취도", 9.5),
-    text("careerGrade", "진로 등급", "_2028_교과성적반영방법___진로___등급", 8.5),
-    text("careerLevel", "진로 성취도", "_2028_교과성적반영방법___진로___성취도", 9.5),
-    text("fusionGrade", "융합 등급", "_2028_교과성적반영방법___융합___등급", 8.5),
-    text("fusionLevel", "융합 성취도", "_2028_교과성적반영방법___융합___성취도", 9.5),
-    text("reflectNote", "교과반영 비고", "_2028_교과성적반영방법___융합___비고", 16.0),
-];
-
-/// 논술 전형 — 1,298행.
-static NONSUL_COLUMNS: &[ColumnDef] = &[
-    text("region", "지역", "기본사항___지역", 8.5),
-    text("univ", "대학", "기본사항___대학", 12.0),
-    text("gye", "계열", "기본사항___계열", 8.5),
-    text("mj26", "2026 모집단위", "기본사항___2026_모집단위", 18.0),
-    text("mj27", "2027 모집단위", "기본사항___2027_모집단위", 18.0),
-    text("quota", "모집인원", "기본사항___모집_인원", 8.5),
-    text("mjChange", "모집단위 변화", "기본사항___모집단위변화", 10.0),
-    text("minCount", "최저 반영개수", "수능최저학력기준_적용___반영_개수", 10.0),
-    text("minSum", "최저 등급합", "수능최저학력기준_적용___등급_합", 9.5),
-    text("minArea", "최저 반영영역", "수능최저학력기준_적용___반영_영역", 14.0),
-    text("minEtc", "최저 기타", "수능최저학력기준_적용___기타", 14.0),
-    text("subjKor", "국어", "출제정보___국어", 7.0),
-    text("subjMat", "수학", "출제정보___수학", 7.0),
-    text("subjTam", "사/과", "출제정보___사_과", 7.5),
-    text("subjShort", "약술형", "출제정보___약술형", 8.0),
-    text("items", "문항정보", "출제정보___문항정보", 18.0),
-    text("duration", "시험시간", "출제정보___시험_시간", 9.0),
-    text("whenRel", "수능일 기준", "일정___수능일_기준", 9.5),
-    text("examDate", "고사일자", "일정___고사일자", 12.0),
-    text("ratio", "반영비율", "반영방법_비율_등급간점수____반영비율", 14.0),
-    text("g1", "1등급", "반영방법_비율_등급간점수____1등급", 8.0),
-    text("g2", "2등급", "반영방법_비율_등급간점수____2등급", 8.0),
-    text("g3", "3등급", "반영방법_비율_등급간점수____3등급", 8.0),
-    text("g4", "4등급", "반영방법_비율_등급간점수____4등급", 8.0),
-    text("g5", "5등급", "반영방법_비율_등급간점수____5등급", 8.0),
-    text("g6", "6등급", "반영방법_비율_등급간점수____6등급", 8.0),
-    text("g7", "7등급", "반영방법_비율_등급간점수____7등급", 8.0),
-    text("g8", "8등급", "반영방법_비율_등급간점수____8등급", 8.0),
-    text("g9", "9등급", "반영방법_비율_등급간점수____9등급", 8.0),
-];
-
-/// 수능최저학력기준 — 7,234행.
-static CHOEJEO_COLUMNS: &[ColumnDef] = &[
-    text("year", "연도", "기본사항___연도", 7.0),
-    text("region", "지역", "기본사항___지역", 8.5),
-    text("univ", "대학명", "기본사항___대학명", 12.0),
-    text("jtype", "전형유형", "전형정보___전형유형", 9.0),
-    text("jh", "전형명", "전형정보___전형명", 16.0),
-    text("gye", "계열", "모집단위___계열", 8.5),
-    text("mj", "모집단위", "모집단위", 18.0),
-    text("area", "반영영역", "최저학력기준___반영영역", 14.0),
-    text("areaCount", "반영영역수", "최저학력기준___반영영역수", 10.0),
-    text("standard", "등급기준", "최저학력기준___등급기준", 12.0),
-    text("avgGrade", "평균등급", "최저학력기준___평균등급", 9.0),
-    text("note", "비고", "최저학력기준___비고", 20.0),
-    text("changed", "변경/신설", "최저학력기준___변경_신설", 10.0),
-];
-
-/// 5등급 ↔ 9등급 변환표 — 401행.
-static GRADEMAP_COLUMNS: &[ColumnDef] = &[
-    text("g5", "5등급", "_5등급", 8.0),
-    text("cumRatio", "인원 누적비", "인원_누적비", 10.0),
-    text("allRange", "전과목 범위", "전과목___범위", 12.0),
-    text("allGrade", "전과목 변환등급", "전과목___변환등급", 11.0),
-    text("ksesRange", "국수영사과 범위", "국수영사과___범위", 12.0),
-    text("ksesGrade", "국수영사과 변환등급", "국수영사과___변환등급", 12.5),
-    text("kseRange", "국수영과 범위", "국수영과___범위", 12.0),
-    text("kseGrade", "국수영과 변환등급", "국수영과___변환등급", 12.0),
-    text("kssRange", "국수영사 범위", "국수영사___범위", 12.0),
-    text("kssGrade", "국수영사 변환등급", "국수영사___변환등급", 12.0),
-];
-
-/// 모집단위 신설·변경 — 536행.
-static MJCHANGE_COLUMNS: &[ColumnDef] = &[
-    text("univ", "대학명", "대학명", 13.0),
-    text("kind", "신설/변경", "신설및변경", 9.5),
-    text("isNew", "신설", "신설", 7.0),
-    text("isChanged", "변경", "변경", 7.0),
-    text("isFree", "무전공", "무전공", 8.0),
-    text("mj25", "2025 모집단위", "_2025_모집단위", 20.0),
-    text("mj26", "2026 모집단위", "_2026_모집단위", 20.0),
-];
-
-/// 계약학과·첨단학과 — 368행.
-static CONTRACT_COLUMNS: &[ColumnDef] = &[
-    text("univ", "대학명", "대학명", 13.0),
-    text("kind", "구분", "구분", 10.0),
-    text("mj", "모집단위", "모집단위", 26.0),
-];
-
-/// 백분위 조견표 — 221행. 원본의 표 셋(일반대학1·일반대학2·의약학/계약학과)을
-/// 합쳐 두었다. 앞의 둘은 대학 단위 범위(최대·중앙값·최소·평균)를, 마지막은
-/// 모집단위 단위 70%컷을 갖는다. 없는 칸은 비어 있다.
-static CHARTRANGE_COLUMNS: &[ColumnDef] = &[
-    text("kind", "구분", "구분", 12.0),
-    text("univ", "대학명", "대학명", 18.0),
-    text("gye", "계열", "계열", 9.0),
-    num("max", "최대", "최대", 9.0),
-    num("median", "중앙값", "중앙값", 9.0),
-    num("min", "최소", "최소", 9.0),
-    num("mean", "평균", "평균", 9.0),
-    num("cut70", "70% 컷", "_70_컷", 9.0),
-    num("quota", "정원", "정원", 8.0),
-    num("compRate", "경쟁률", "경쟁률", 9.0),
-    num("extraRate", "충원율", "충원율", 9.0),
-];
-
-pub static SCREENS: &[ScreenDef] = &[
-    ScreenDef {
-        id: "mojipdanwibyeol",
-        title: "모집단위별 지원경향",
-        description: "기준 모집단위에 지원한 학생들이 함께 지원한 대학·모집단위",
-        group: "입결·지원경향",
-        base: "mojipdanwibyeol",
-        columns: MOJIP_COLUMNS,
-    },
-    ScreenDef {
-        id: "junhyeongbyeol",
-        title: "전형별 지원경향",
-        description: "기준 전형에 지원한 학생들이 함께 지원한 대학·전형",
-        group: "입결·지원경향",
-        base: "junhyeongbyeol",
-        columns: JUNHYEONG_COLUMNS,
-    },
-    ScreenDef {
-        id: "data",
-        title: "대학 입결 데이터",
-        description: "대학·모집단위별 교과 / 종합 / 정시 입시 결과",
-        group: "입결·지원경향",
-        base: "data",
-        columns: DATA_COLUMNS,
-    },
-    ScreenDef {
-        id: "jonghap",
-        title: "학생부종합 전형",
-        description: "종합전형 개요와 면접 일정·서류 평가요소",
-        group: "대학별 모집요강",
-        base: "jonghap",
-        columns: JONGHAP_COLUMNS,
-    },
-    ScreenDef {
-        id: "teukbyeol",
-        title: "특별전형",
-        description: "정원외·특별전형과 지원자격, 2026 입시결과",
-        group: "대학별 모집요강",
-        base: "teukbyeol",
-        columns: TEUKBYEOL_COLUMNS,
-    },
-    ScreenDef {
-        id: "gyogwa",
-        title: "교과 반영 방법",
-        description: "대학별 일반선택·진로선택 과목 반영 방법",
-        group: "대학별 모집요강",
-        base: "gyogwa",
-        columns: GYOGWA_COLUMNS,
-    },
-    ScreenDef {
-        id: "jayul",
-        title: "무전공·자유전공",
-        description: "전공자율선택 모집단위와 세부전공",
-        group: "대학별 모집요강",
-        base: "jayul",
-        columns: JAYUL_COLUMNS,
-    },
-    ScreenDef {
-        id: "iljeong",
-        title: "전형 일정",
-        description: "대학별 1단계 발표·면접 등 전형 일정",
-        group: "변경·일정",
-        base: "iljeong",
-        columns: ILJEONG_COLUMNS,
-    },
-    ScreenDef {
-        id: "daeip2028",
-        title: "2028 대입 변경",
-        description: "2027 대비 2028학년도 전형 변경 사항",
-        group: "변경·일정",
-        base: "daeip2028",
-        columns: DAEIP2028_COLUMNS,
-    },
-    ScreenDef {
-        id: "nonsul",
-        title: "논술 전형",
-        description: "논술 모집단위·수능최저·출제정보·고사일자",
-        group: "대학별 모집요강",
-        base: "nonsul",
-        columns: NONSUL_COLUMNS,
-    },
-    ScreenDef {
-        id: "choejeo",
-        title: "수능최저학력기준",
-        description: "대학·모집단위별 수능최저 반영영역과 등급기준",
-        group: "대학별 모집요강",
-        base: "choejeo",
-        columns: CHOEJEO_COLUMNS,
-    },
-    ScreenDef {
-        id: "mjChange",
-        title: "모집단위 신설·변경",
-        description: "2025 대비 2026 모집단위 변화",
-        group: "변경·일정",
-        base: "mj_change",
-        columns: MJCHANGE_COLUMNS,
-    },
-    ScreenDef {
-        id: "contractDept",
-        title: "계약·첨단학과",
-        description: "계약학과와 첨단학과 모집단위",
-        group: "대학별 모집요강",
-        base: "contract_dept",
-        columns: CONTRACT_COLUMNS,
-    },
-    ScreenDef {
-        id: "chartRange",
-        title: "백분위 조견표",
-        description: "대학·모집단위별 입시결과 백분위 범위",
-        group: "학생 상담",
-        base: "chart_range",
-        columns: CHARTRANGE_COLUMNS,
-    },
-    ScreenDef {
-        id: "gradeMap",
-        title: "5등급 ↔ 9등급 변환",
-        description: "교과 조합별 25~75% 범위와 변환등급",
-        group: "학생 상담",
-        base: "grade_map",
-        columns: GRADEMAP_COLUMNS,
-    },
-];
-
-pub fn find(id: &str) -> Option<&'static ScreenDef> {
-    SCREENS.iter().find(|s| s.id == id)
+    Ok(screens)
 }

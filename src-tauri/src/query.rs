@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
 
 use crate::error::{AppError, AppResult, ErrorCode};
-use crate::screens::{ColumnKind, ColumnDef, ScreenDef, Source};
+use crate::screens::{ColumnDef, ColumnKind, ScreenDef, Screens};
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -113,19 +113,18 @@ fn like_escape(s: &str) -> String {
 
 /// 필터 하나를 WHERE 조각으로 바꾼다.
 fn filter_clause(col: &ColumnDef, f: &Filter, binds: &mut Vec<String>) -> Option<String> {
-    let base = col.source.base_ref();
+    let base = col.base_ref();
     let mut parts: Vec<String> = Vec::new();
 
     // ① 열 검색 (부분일치)
     let needle = f.contains.trim();
     if !needle.is_empty() {
         binds.push(format!("%{}%", like_escape(needle)));
-        parts.push(match col.source {
-            Source::Plain(_) => format!(r"{base} LIKE ? ESCAPE '\'"),
+        parts.push(if col.dict {
             // 사전(3천여 행)에서 먼저 id 집합을 구한 뒤 정수 비교한다.
-            Source::Dict { .. } => {
-                format!(r"{base} IN (SELECT id FROM dict WHERE s LIKE ? ESCAPE '\')")
-            }
+            format!(r"{base} IN (SELECT id FROM dict WHERE s LIKE ? ESCAPE '\')")
+        } else {
+            format!(r"{base} LIKE ? ESCAPE '\'")
         });
     }
 
@@ -144,17 +143,17 @@ fn filter_clause(col: &ColumnDef, f: &Filter, binds: &mut Vec<String>) -> Option
             for v in &concrete {
                 binds.push((*v).clone());
             }
-            alt.push(match col.source {
-                Source::Plain(_) => format!("{base} IN ({holes})"),
-                Source::Dict { .. } => {
-                    format!("{base} IN (SELECT id FROM dict WHERE s IN ({holes}))")
-                }
+            alt.push(if col.dict {
+                format!("{base} IN (SELECT id FROM dict WHERE s IN ({holes}))")
+            } else {
+                format!("{base} IN ({holes})")
             });
         }
         if has_blank {
-            alt.push(match col.source {
-                Source::Plain(_) => format!("({base} IS NULL OR {base} = '' OR {base} = '-')"),
-                Source::Dict { .. } => format!("{base} IS NULL"),
+            alt.push(if col.dict {
+                format!("{base} IS NULL")
+            } else {
+                format!("({base} IS NULL OR {base} = '' OR {base} = '-')")
             });
         }
         parts.push(format!("({})", alt.join(" OR ")));
@@ -184,7 +183,7 @@ fn build_where(
         let col = screen.column(&f.key).ok_or_else(|| {
             AppError::new(ErrorCode::InvalidSortKey)
                 .with("key", &f.key)
-                .with("screen", screen.id)
+                .with("screen", &screen.id)
                 .detail("unknown filter column")
         })?;
         if !col.filterable {
@@ -214,7 +213,7 @@ fn build_order(screen: &ScreenDef, sorts: &[Sort]) -> AppResult<String> {
         let col = screen.column(&s.key).ok_or_else(|| {
             AppError::new(ErrorCode::InvalidSortKey)
                 .with("key", &s.key)
-                .with("screen", screen.id)
+                .with("screen", &screen.id)
                 .detail("unknown sort column")
         })?;
         if !col.sortable {
@@ -224,15 +223,17 @@ fn build_order(screen: &ScreenDef, sorts: &[Sort]) -> AppResult<String> {
             SortDir::Asc => "ASC",
             SortDir::Desc => "DESC",
         };
-        let base = col.source.base_ref();
+        let base = col.base_ref();
         // 값 없음(NULL·빈칸·"-")은 방향과 무관하게 항상 뒤로 보낸다.
         let blank = format!("({base} IS NULL OR {base} = '' OR {base} = '-') ASC");
-        let expr = match (col.kind, col.source) {
+        let expr = if col.dict {
             // 사전 열은 정수 id 그대로 (가나다순).
-            (_, Source::Dict { .. }) => base.clone(),
+            base.clone()
+        } else if col.kind == ColumnKind::Number {
             // 숫자 열은 TEXT 로 저장돼 있을 수 있어 CAST 후 정렬.
-            (ColumnKind::Number, _) => format!("CAST({base} AS REAL)"),
-            (ColumnKind::Text, _) => base.clone(),
+            format!("CAST({base} AS REAL)")
+        } else {
+            base.clone()
         };
         parts.push(format!("{blank}, {expr} {dir}"));
     }
@@ -254,10 +255,15 @@ fn value_to_json(v: ValueRef<'_>) -> Json {
     }
 }
 
-pub fn run(conn: &Connection, req: &QueryRequest) -> AppResult<QueryResponse> {
+pub fn run(
+    conn: &Connection,
+    screens: &Screens,
+    req: &QueryRequest,
+) -> AppResult<QueryResponse> {
     let started = std::time::Instant::now();
 
-    let screen = crate::screens::find(&req.screen_id)
+    let screen = screens
+        .find(&req.screen_id)
         .ok_or_else(|| AppError::new(ErrorCode::ScreenNotFound).with("screen", &req.screen_id))?;
 
     let (where_sql, binds) = build_where(screen, &req.filters, None)?;
@@ -275,14 +281,14 @@ pub fn run(conn: &Connection, req: &QueryRequest) -> AppResult<QueryResponse> {
     let select_list = screen
         .columns
         .iter()
-        .map(|c| format!("{} AS \"{}\"", c.source.display_ref(), c.key))
+        .map(|c| format!("{} AS \"{}\"", c.display_ref(), c.key))
         .collect::<Vec<_>>()
         .join(", ");
     let sql = format!(
         "SELECT {select_list} FROM (\
            SELECT * FROM {base} t{where_sql}{order_sql} LIMIT {limit} OFFSET {offset}\
          ) t{joins}{order_sql}",
-        base = screen.base,
+        base = &screen.base,
         joins = screen.dict_joins(),
         offset = req.offset,
     );
@@ -313,16 +319,18 @@ pub fn run(conn: &Connection, req: &QueryRequest) -> AppResult<QueryResponse> {
 /// 그래야 체크를 풀었다 걸었다 해도 후보 목록이 사라지지 않는다.
 pub fn column_values(
     conn: &Connection,
+    screens: &Screens,
     req: &ColumnValuesRequest,
 ) -> AppResult<ColumnValuesResponse> {
     let started = std::time::Instant::now();
 
-    let screen = crate::screens::find(&req.screen_id)
+    let screen = screens
+        .find(&req.screen_id)
         .ok_or_else(|| AppError::new(ErrorCode::ScreenNotFound).with("screen", &req.screen_id))?;
     let col = screen.column(&req.column_key).ok_or_else(|| {
         AppError::new(ErrorCode::InvalidSortKey)
             .with("key", &req.column_key)
-            .with("screen", screen.id)
+            .with("screen", &screen.id)
             .detail("unknown column for value list")
     })?;
 
@@ -330,20 +338,19 @@ pub fn column_values(
     let params: Vec<&dyn rusqlite::ToSql> =
         binds.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
-    let base = col.source.base_ref();
+    let base = col.base_ref();
     let over = MAX_VALUES + 1; // 하나 더 받아 "잘렸는지" 판단한다.
 
     // 기준 테이블에서만 GROUP BY 한 뒤, 좁혀진 목록에만 dict 를 조인한다.
     let inner = format!(
         "SELECT {base} AS v, COUNT(*) AS n FROM {table} t{where_sql} \
          GROUP BY v ORDER BY v LIMIT {over}",
-        table = screen.base,
+        table = &screen.base,
     );
-    let sql = match col.source {
-        Source::Plain(_) => format!("SELECT c.v, c.n FROM ({inner}) c"),
-        Source::Dict { .. } => {
-            format!("SELECT d.s, c.n FROM ({inner}) c LEFT JOIN dict d ON d.id = c.v")
-        }
+    let sql = if col.dict {
+        format!("SELECT d.s, c.n FROM ({inner}) c LEFT JOIN dict d ON d.id = c.v")
+    } else {
+        format!("SELECT c.v, c.n FROM ({inner}) c")
     };
 
     let mut stmt = conn.prepare_cached(&sql)?;
@@ -384,6 +391,13 @@ mod tests {
     use super::*;
     use std::time::Instant;
 
+    /// 테스트도 화면 정의를 **DB 에서** 읽는다. 코드에 화면이 없다는 뜻이다.
+    fn open() -> (Connection, Screens) {
+        let conn = crate::db::open_embedded().unwrap();
+        let screens = crate::screens::load(&conn).unwrap();
+        (conn, screens)
+    }
+
     fn req(screen: &str, sorts: Vec<Sort>, filters: Vec<Filter>) -> QueryRequest {
         QueryRequest { screen_id: screen.into(), sorts, filters, offset: 0, limit: 100 }
     }
@@ -410,7 +424,7 @@ mod tests {
 
     #[test]
     fn grid_queries_are_fast_enough() {
-        let conn = crate::db::open_embedded().unwrap();
+        let (conn, screens) = open();
         let cases: Vec<(&str, QueryRequest)> = vec![
             ("정렬 없음", req("mojipdanwibyeol", vec![], vec![])),
             ("1순위 정렬(텍스트)", req("mojipdanwibyeol", vec![s("univ", SortDir::Asc)], vec![])),
@@ -455,9 +469,9 @@ mod tests {
             ),
         ];
         for (name, r) in cases {
-            let _ = run(&conn, &r).unwrap();
+            let _ = run(&conn, &screens, &r).unwrap();
             let t = Instant::now();
-            let res = run(&conn, &r).unwrap();
+            let res = run(&conn, &screens, &r).unwrap();
             eprintln!(
                 "  {name:<24} {:>7.1} ms   전체 {:>7} 행",
                 t.elapsed().as_secs_f64() * 1000.0,
@@ -468,25 +482,24 @@ mod tests {
 
     #[test]
     fn column_value_lists_are_fast_enough() {
-        let conn = crate::db::open_embedded().unwrap();
+        let (conn, screens) = open();
         let cases = [
             ("mojipdanwibyeol", "region", vec![]),
             ("mojipdanwibyeol", "univ", vec![]),
             ("mojipdanwibyeol", "mj", vec![]),
             ("mojipdanwibyeol", "quota", vec![]),
             ("mojipdanwibyeol", "univ", vec![picked("region", &["서울"])]),
-            ("data", "대학명", vec![]),
+            ("data", "univ", vec![]),
         ];
         for (screen, key, filters) in cases {
-            let key = if screen == "data" && key == "대학명" { "univ" } else { key };
             let r = ColumnValuesRequest {
                 screen_id: screen.into(),
                 column_key: key.into(),
                 filters,
             };
-            let _ = column_values(&conn, &r).unwrap();
+            let _ = column_values(&conn, &screens, &r).unwrap();
             let t = Instant::now();
-            let res = column_values(&conn, &r).unwrap();
+            let res = column_values(&conn, &screens, &r).unwrap();
             eprintln!(
                 "  {screen}.{key:<10} {:>7.1} ms   고유값 {:>5}개{}",
                 t.elapsed().as_secs_f64() * 1000.0,
@@ -499,10 +512,10 @@ mod tests {
 
     #[test]
     fn picked_values_narrow_the_result() {
-        let conn = crate::db::open_embedded().unwrap();
-        let all = run(&conn, &req("mojipdanwibyeol", vec![], vec![])).unwrap().total;
+        let (conn, screens) = open();
+        let all = run(&conn, &screens, &req("mojipdanwibyeol", vec![], vec![])).unwrap().total;
         let one =
-            run(&conn, &req("mojipdanwibyeol", vec![], vec![picked("region", &["서울"])]))
+            run(&conn, &screens, &req("mojipdanwibyeol", vec![], vec![picked("region", &["서울"])]))
                 .unwrap()
                 .total;
         assert!(one > 0 && one < all, "값 선택이 결과를 좁히지 못했다 ({one} / {all})");
@@ -510,37 +523,37 @@ mod tests {
 
     #[test]
     fn unchecking_everything_yields_no_rows() {
-        let conn = crate::db::open_embedded().unwrap();
+        let (conn, screens) = open();
         let res =
-            run(&conn, &req("mojipdanwibyeol", vec![], vec![picked("region", &[])])).unwrap();
+            run(&conn, &screens, &req("mojipdanwibyeol", vec![], vec![picked("region", &[])])).unwrap();
         assert_eq!(res.total, 0);
     }
 
     #[test]
     fn value_list_ignores_its_own_column_filter() {
-        let conn = crate::db::open_embedded().unwrap();
+        let (conn, screens) = open();
         // 서울만 체크한 상태여도, 지역 열의 후보 목록에는 전체 지역이 남아야 한다.
         let r = ColumnValuesRequest {
             screen_id: "mojipdanwibyeol".into(),
             column_key: "region".into(),
             filters: vec![picked("region", &["서울"])],
         };
-        let res = column_values(&conn, &r).unwrap();
+        let res = column_values(&conn, &screens, &r).unwrap();
         assert!(res.values.len() > 1, "자기 열 필터를 제외하지 않았다");
     }
 
     #[test]
     fn unknown_sort_key_is_rejected() {
-        let conn = crate::db::open_embedded().unwrap();
-        let e = run(&conn, &req("mojipdanwibyeol", vec![s("no_such", SortDir::Asc)], vec![]))
+        let (conn, screens) = open();
+        let e = run(&conn, &screens, &req("mojipdanwibyeol", vec![s("no_such", SortDir::Asc)], vec![]))
             .unwrap_err();
         assert_eq!(e.code, ErrorCode::InvalidSortKey);
     }
 
     #[test]
     fn filter_wildcards_are_escaped() {
-        let conn = crate::db::open_embedded().unwrap();
-        let res = run(&conn, &req("mojipdanwibyeol", vec![], vec![contains("mj", "%")])).unwrap();
+        let (conn, screens) = open();
+        let res = run(&conn, &screens, &req("mojipdanwibyeol", vec![], vec![contains("mj", "%")])).unwrap();
         assert_eq!(res.total, 0, "LIKE 와일드카드가 이스케이프되지 않았다");
     }
 }
