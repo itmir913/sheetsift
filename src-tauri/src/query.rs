@@ -124,8 +124,25 @@ fn like_escape(s: &str) -> String {
     s.replace('\\', r"\\").replace('%', r"\%").replace('_', r"\_")
 }
 
+/// 값이 없는 칸을 가려내는 SQL 조각.
+///
+/// **무엇을 "없음" 으로 볼지는 양식이 정한다**(`screens.json` 의 `blank`).
+/// 여기에 글자를 박아 두면, 양식이 `–` 나 `N/A` 로 바뀌었을 때 값 선택 목록과
+/// 필터가 같은 파일 안에서 갈라진다 — 후보에는 `(비어 있음)` 이 뜨는데 그걸
+/// 고르면 0건이 되고, 아무 오류도 나지 않는다.
+fn is_blank_sql(base: &str, blank: &str) -> String {
+    // 양식이 정하는 글자라 따옴표가 들어올 일은 없지만, SQL 에 그대로 넣으므로 막는다.
+    let mark = blank.replace('\'', "''");
+    format!("({base} IS NULL OR {base} = '' OR {base} = '{mark}')")
+}
+
 /// 필터 하나를 WHERE 조각으로 바꾼다.
-fn filter_clause(col: &ColumnDef, f: &Filter, binds: &mut Vec<String>) -> Option<String> {
+fn filter_clause(
+    col: &ColumnDef,
+    f: &Filter,
+    blank: &str,
+    binds: &mut Vec<String>,
+) -> Option<String> {
     let base = col.base_ref();
     let mut parts: Vec<String> = Vec::new();
 
@@ -166,7 +183,7 @@ fn filter_clause(col: &ColumnDef, f: &Filter, binds: &mut Vec<String>) -> Option
             alt.push(if col.dict {
                 format!("{base} IS NULL")
             } else {
-                format!("({base} IS NULL OR {base} = '' OR {base} = '-')")
+                is_blank_sql(&base, blank)
             });
         }
         parts.push(format!("({})", alt.join(" OR ")));
@@ -177,7 +194,7 @@ fn filter_clause(col: &ColumnDef, f: &Filter, binds: &mut Vec<String>) -> Option
         parts.push(if col.dict {
             format!("{base} IS NOT NULL")
         } else {
-            format!("({base} IS NOT NULL AND {base} <> '' AND {base} <> '-')")
+            format!("NOT {}", is_blank_sql(&base, blank))
         });
     }
 
@@ -193,6 +210,7 @@ fn filter_clause(col: &ColumnDef, f: &Filter, binds: &mut Vec<String>) -> Option
 fn build_where(
     screen: &ScreenDef,
     filters: &[Filter],
+    blank: &str,
     skip_key: Option<&str>,
 ) -> AppResult<(String, Vec<String>)> {
     let mut clauses = Vec::new();
@@ -221,7 +239,7 @@ fn build_where(
             if !col.filterable {
                 continue;
             }
-            if let Some(c) = filter_clause(col, f, &mut binds) {
+            if let Some(c) = filter_clause(col, f, blank, &mut binds) {
                 alts.push(c);
             }
         }
@@ -242,7 +260,7 @@ fn build_where(
 
 /// ORDER BY 절. 배열 순서가 그대로 정렬 우선순위(1순위, 2순위, …)다.
 /// 사전 인코딩 열은 id 자체가 가나다순이라 조인 없이 정수 정렬로 끝난다.
-fn build_order(screen: &ScreenDef, sorts: &[Sort]) -> AppResult<String> {
+fn build_order(screen: &ScreenDef, sorts: &[Sort], blank: &str) -> AppResult<String> {
     if sorts.is_empty() {
         return Ok(String::new());
     }
@@ -262,8 +280,8 @@ fn build_order(screen: &ScreenDef, sorts: &[Sort]) -> AppResult<String> {
             SortDir::Desc => "DESC",
         };
         let base = col.base_ref();
-        // 값 없음(NULL·빈칸·"-")은 방향과 무관하게 항상 뒤로 보낸다.
-        let blank = format!("({base} IS NULL OR {base} = '' OR {base} = '-') ASC");
+        // 값 없음은 방향과 무관하게 늘 뒤로 보낸다. 무엇이 없음인지는 양식이 정한다.
+        let missing = format!("{} ASC", is_blank_sql(&base, blank));
         let expr = if col.dict {
             // 사전 열은 정수 id 그대로 (가나다순).
             base.clone()
@@ -273,7 +291,7 @@ fn build_order(screen: &ScreenDef, sorts: &[Sort]) -> AppResult<String> {
         } else {
             base.clone()
         };
-        parts.push(format!("{blank}, {expr} {dir}"));
+        parts.push(format!("{missing}, {expr} {dir}"));
     }
     if parts.is_empty() {
         return Ok(String::new());
@@ -304,8 +322,8 @@ pub fn run(
         .find(&req.screen_id)
         .ok_or_else(|| AppError::new(ErrorCode::ScreenNotFound).with("screen", &req.screen_id))?;
 
-    let (where_sql, binds) = build_where(screen, &req.filters, None)?;
-    let order_sql = build_order(screen, &req.sorts)?;
+    let (where_sql, binds) = build_where(screen, &req.filters, &screens.blank, None)?;
+    let order_sql = build_order(screen, &req.sorts, &screens.blank)?;
     let limit = req.limit.clamp(1, MAX_LIMIT);
 
     let params: Vec<&dyn rusqlite::ToSql> =
@@ -372,7 +390,8 @@ pub fn column_values(
             .detail("unknown column for value list")
     })?;
 
-    let (where_sql, binds) = build_where(screen, &req.filters, Some(&req.column_key))?;
+    let (where_sql, binds) =
+        build_where(screen, &req.filters, &screens.blank, Some(&req.column_key))?;
     let params: Vec<&dyn rusqlite::ToSql> =
         binds.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
@@ -428,6 +447,19 @@ pub fn column_values(
 mod tests {
     use super::*;
     use std::time::Instant;
+
+    /// 값이 없는 칸을 가려내는 글자가 **양식에서 온다**는 것을 못 박는다.
+    ///
+    /// 예전에는 `'-'` 가 SQL 세 곳에 박혀 있었다. 양식이 `N/A` 로 바뀌면 값
+    /// 선택 목록과 필터가 갈라지는데, 그 어긋남은 오류를 내지 않는다.
+    #[test]
+    fn the_blank_mark_comes_from_the_form() {
+        let sql = is_blank_sql("t.x", "N/A");
+        assert!(sql.contains("'N/A'"), "{sql}");
+        assert!(!sql.contains("'-'"), "{sql}");
+        // 따옴표가 든 표기도 SQL 을 깨뜨리지 않는다.
+        assert!(is_blank_sql("t.x", "it's").contains("'it''s'"));
+    }
 
     /// 테스트도 화면 정의를 **DB 에서** 읽는다. 코드에 화면이 없다는 뜻이다.
     fn open() -> (Connection, Screens) {
