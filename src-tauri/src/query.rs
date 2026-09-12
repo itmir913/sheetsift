@@ -103,9 +103,9 @@ pub struct ColumnValuesResponse {
 /// 한 번에 가져갈 수 있는 최대 행 수. IPC 직렬화 폭주를 막는다.
 const MAX_LIMIT: u32 = 500;
 /// 값 선택 목록의 상한. 넘으면 잘라서 보내고 검색으로 좁히게 한다.
-const MAX_VALUES: u32 = 1000;
+pub const MAX_VALUES: u32 = 1000;
 /// 화면에서 비어 있는 값을 나타내는 표식. 실제 데이터의 빈칸/NULL 에 대응한다.
-const BLANK_TOKEN: &str = "(비어 있음)";
+pub const BLANK_TOKEN: &str = "(비어 있음)";
 
 fn like_escape(s: &str) -> String {
     s.replace('\\', r"\\").replace('%', r"\%").replace('_', r"\_")
