@@ -38,7 +38,11 @@ pub struct ColumnDef {
     #[serde(default, skip_serializing)]
     pub cut: String,
     /// 계산으로 만드는 열(`score` 환산점수 · `gap` 차이값).
-    #[serde(default, skip_serializing)]
+    ///
+    /// **이것만 화면에도 보낸다.** 열 이름이 아니라 구실이라, 화면이 이걸 보고
+    /// "무엇을 재어 가능성을 가르는가" 를 열 라벨로 적어 줄 수 있다. 이름을
+    /// 화면에 적어 두면 양식에서 머리글을 바꿀 때 설명만 옛말이 된다.
+    #[serde(default)]
     pub compute: String,
     pub kind: ColumnKind,
     /// 열 너비(rem).
