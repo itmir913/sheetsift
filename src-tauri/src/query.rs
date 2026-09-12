@@ -31,21 +31,34 @@ pub struct Sort {
     pub dir: SortDir,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Filter {
     pub key: String,
+    /// 여러 열을 **OR 로 묶어** 보고 싶을 때. 비면 `key` 하나만 본다.
+    ///
+    /// 검색창 하나로 대학과 계열을 한꺼번에 찾는 화면이 쓴다. 열끼리는 AND 가
+    /// 기본이라, 그대로 두면 "대학이 서울대이면서 계열도 서울대" 가 된다.
+    #[serde(default)]
+    pub keys: Vec<String>,
     /// 열 검색(부분일치). 빈 문자열이면 적용하지 않는다.
     #[serde(default)]
     pub contains: String,
     /// 값 선택. None = 전체 허용.
     #[serde(default)]
     pub values: Option<Vec<String>>,
+    /// 이 열이 **빈칸이 아닌 줄만** 고른다.
+    ///
+    /// 그림을 그리는 화면이 쓴다. 값이 없는 줄은 막대를 그릴 수 없는데, 그런
+    /// 줄까지 세어 쪽을 나누면 통째로 빈 쪽이 생긴다 — 합격사례의 국영수 기준은
+    /// 절반이 넘는 줄에 값이 없다.
+    #[serde(default)]
+    pub not_blank: bool,
 }
 
 impl Filter {
     fn is_empty(&self) -> bool {
-        self.contains.trim().is_empty() && self.values.is_none()
+        self.contains.trim().is_empty() && self.values.is_none() && !self.not_blank
     }
 }
 
@@ -159,6 +172,15 @@ fn filter_clause(col: &ColumnDef, f: &Filter, binds: &mut Vec<String>) -> Option
         parts.push(format!("({})", alt.join(" OR ")));
     }
 
+    // ③ 빈칸이 아닌 줄만
+    if f.not_blank {
+        parts.push(if col.dict {
+            format!("{base} IS NOT NULL")
+        } else {
+            format!("({base} IS NOT NULL AND {base} <> '' AND {base} <> '-')")
+        });
+    }
+
     if parts.is_empty() {
         None
     } else {
@@ -177,20 +199,36 @@ fn build_where(
     let mut binds = Vec::new();
 
     for f in filters {
-        if f.is_empty() || skip_key == Some(f.key.as_str()) {
+        let names_this = skip_key
+            .is_some_and(|k| k == f.key || f.keys.iter().any(|x| x == k));
+        if f.is_empty() || names_this {
             continue;
         }
-        let col = screen.column(&f.key).ok_or_else(|| {
-            AppError::new(ErrorCode::InvalidSortKey)
-                .with("key", &f.key)
-                .with("screen", &screen.id)
-                .detail("unknown filter column")
-        })?;
-        if !col.filterable {
-            continue;
+        let wanted: Vec<&str> = if f.keys.is_empty() {
+            vec![f.key.as_str()]
+        } else {
+            f.keys.iter().map(String::as_str).collect()
+        };
+
+        let mut alts = Vec::new();
+        for key in wanted {
+            let col = screen.column(key).ok_or_else(|| {
+                AppError::new(ErrorCode::InvalidSortKey)
+                    .with("key", key)
+                    .with("screen", &screen.id)
+                    .detail("unknown filter column")
+            })?;
+            if !col.filterable {
+                continue;
+            }
+            if let Some(c) = filter_clause(col, f, &mut binds) {
+                alts.push(c);
+            }
         }
-        if let Some(c) = filter_clause(col, f, &mut binds) {
-            clauses.push(c);
+        match alts.len() {
+            0 => {}
+            1 => clauses.push(alts.pop().unwrap()),
+            _ => clauses.push(format!("({})", alts.join(" OR "))),
         }
     }
 
@@ -462,13 +500,13 @@ mod tests {
         Sort { key: key.into(), dir }
     }
     fn contains(key: &str, text: &str) -> Filter {
-        Filter { key: key.into(), contains: text.into(), values: None }
+        Filter { key: key.into(), contains: text.into(), ..Filter::default() }
     }
     fn picked(key: &str, vals: &[&str]) -> Filter {
         Filter {
             key: key.into(),
-            contains: String::new(),
             values: Some(vals.iter().map(|v| v.to_string()).collect()),
+            ..Filter::default()
         }
     }
 
