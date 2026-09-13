@@ -21,6 +21,13 @@
 //!
 //! 비밀번호는 담당교사가 정하고, 담임에게 파일과 **다른 경로로** 전달한다.
 //! (zip 은 메일, 비밀번호는 문자 — 파일만 새어 나가도 열리지 않는다.)
+//!
+//! ## 열어 둔 채로는 잠그지 않는다 — 정한 것이다
+//!
+//! 얼마쯤 지나면 저절로 잠그는 길을 두지 않는다. 상담은 학생을 앞에 두고 30분씩
+//! 이어지고, 그 사이에 비밀번호를 다시 묻는 프로그램은 선생님이 창을 닫아 두거나
+//! 더 쉬운 비밀번호를 고르게 만든다. 파일을 열어 둔 자리는 교무실이고, 그 자리의
+//! 보안은 화면 잠금이 진다.
 
 use aes_gcm::{
     aead::{Aead, KeyInit, Payload},
@@ -63,10 +70,18 @@ pub const MIN_PASSWORD_LEN: usize = 8;
    나온다.** 3월에 만든 파일을 11월에 열면 `비밀번호가 맞지 않거나 파일이
    손상되었습니다` 가 뜨는데 둘 다 아니다. 아무도 원인을 찾지 못한다.
 
-   값은 OWASP 가 말하는 Argon2id 최소치다. 올리려면 그릇의 판을 함께 올려야
-   한다 — 옛 파일은 옛 비용으로 뽑아야 열린다. */
-const KDF_MEMORY_KIB: u32 = 19_456;
-const KDF_PASSES: u32 = 2;
+   64 MiB · 3회는 RFC 9106 이 두 번째로 권하는 값이고, OWASP 최소치(12 MiB·3회)의
+   다섯 배가 넘는다. 갈래를 하나로 두는 까닭은 우리가 한 줄로 계산하기 때문이다 —
+   갈래를 늘리면 우리는 그만큼 느려지지 않는데 여러 코어를 가진 공격자만 이득을
+   본다.
+
+   **새어 나간 파일에 대한 현실적인 공격은 오프라인 추측 하나뿐이다.** 여는 데
+   걸리는 시간은 담당자가 파일을 열 때 한 번이고, 추측하는 쪽은 그 시간을 수억 번
+   치러야 한다. 그 거래는 언제나 우리 쪽이 남는다.
+
+   올리려면 그릇의 판을 함께 올려야 한다 — 옛 파일은 옛 비용으로 뽑아야 열린다. */
+const KDF_MEMORY_KIB: u32 = 65_536;
+const KDF_PASSES: u32 = 3;
 const KDF_LANES: u32 = 1;
 
 fn kdf() -> AppResult<Argon2<'static>> {
@@ -75,12 +90,50 @@ fn kdf() -> AppResult<Argon2<'static>> {
     Ok(Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params))
 }
 
+/// 비밀번호의 유니코드 표기를 한 가지로 맞춘다.
+///
+/// **같은 글자가 두 바이트열로 적힌다.** `한` 은 윈도우 자판에서 완성형 한 자
+/// (NFC, 3바이트)로, 맥 자판·맥에서 복사한 글에서는 자모 셋(NFD, 9바이트)으로
+/// 온다. 눈으로는 같은데 열쇠가 다르다. 맥에서 만든 파일을 윈도우에서 못 열고,
+/// 그때 뜨는 말은 `비밀번호가 맞지 않거나 파일이 손상되었습니다` 다.
+///
+/// 담당교사가 비밀번호를 **문자로 보내는** 구조라(파일과 다른 경로) 그 글이
+/// 어느 표기로 도착할지 우리가 정할 수 없다. 그래서 받는 쪽에서 맞춘다.
+fn normalize(password: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    password.nfc().collect()
+}
+
 fn derive_key(password: &str, salt: &[u8]) -> AppResult<[u8; 32]> {
     let mut key = [0u8; 32];
-    kdf()?
-        .hash_password_into(password.as_bytes(), salt, &mut key)
-        .map_err(|e| AppError::new(ErrorCode::VaultKeyDerivationFailed).detail(e))?;
+    let mut normalized = normalize(password);
+    let hashed = kdf()?.hash_password_into(normalized.as_bytes(), salt, &mut key);
+    normalized.zeroize();
+    hashed.map_err(|e| AppError::new(ErrorCode::VaultKeyDerivationFailed).detail(e))?;
     Ok(key)
+}
+
+/// 풀어 낸 SQLite 알맹이가 **성한 것인지** 본다.
+///
+/// 태그가 맞았다는 것은 "이 파일을 만든 사람이 비밀번호를 알았다" 까지만 말한다.
+/// 그런데 이 프로그램은 **파일과 비밀번호를 함께 건네는 것이 정상 흐름**이라,
+/// 받은 사람이 손본 파일을 되돌려 주는 길이 열려 있다. SQLite 는 조작된 b-tree
+/// 이미지에 대해 스스로 안전을 보장하지 않는다고 문서에 적어 두었다.
+///
+/// `DEFENSIVE` 는 SQL 로 스키마를 직접 건드리는 길을 막고, `integrity_check` 는
+/// 장부가 앞뒤가 맞는지 훑는다. 학생 수백 명짜리 파일에서 눈에 띄는 시간이 들지
+/// 않는다.
+fn check_image(conn: &Connection) -> AppResult<()> {
+    conn.set_db_config(rusqlite::config::DbConfig::SQLITE_DBCONFIG_DEFENSIVE, true)
+        .map_err(|e| AppError::new(ErrorCode::VaultFormatInvalid).detail(e))?;
+
+    let verdict: String = conn
+        .query_row("PRAGMA integrity_check", [], |r| r.get(0))
+        .map_err(|e| AppError::new(ErrorCode::VaultFormatInvalid).detail(e))?;
+    if verdict != "ok" {
+        return Err(AppError::new(ErrorCode::VaultFormatInvalid).detail(verdict));
+    }
+    Ok(())
 }
 
 /// 학생 자료를 담는 메모리 DB. **임시 파일을 디스크에 만들지 않는다.**
@@ -98,7 +151,9 @@ fn memory_db() -> AppResult<Connection> {
 }
 
 fn check_password(password: &str) -> AppResult<()> {
-    if password.chars().count() < MIN_PASSWORD_LEN {
+    // 길이도 **맞춘 뒤에** 센다. NFD 로 온 `한글비밀번호` 는 자모 하나하나가
+    // 글자로 세어져, 같은 비밀번호가 표기에 따라 되기도 하고 안 되기도 한다.
+    if normalize(password).chars().count() < MIN_PASSWORD_LEN {
         return Err(AppError::new(ErrorCode::VaultPasswordTooShort)
             .with("min", MIN_PASSWORD_LEN));
     }
@@ -193,6 +248,8 @@ impl Vault {
         conn.deserialize_read_exact("main", std::io::Cursor::new(&plain), len, false)
             .map_err(|e| AppError::new(ErrorCode::VaultOpenFailed).detail(e))?;
         plain.zeroize();
+
+        check_image(&conn)?;
 
         // 여기서부터 근거는 DB 안의 판이다. 옛 파일은 막지 않고 올린다 —
         // 3월에 만든 파일을 11월에 여는 일이 이 프로그램에서는 보통이다.
@@ -330,6 +387,12 @@ mod tests {
     fn hex(bytes: &[u8]) -> String {
         bytes.iter().map(|b| format!("{b:02x}")).collect()
     }
+
+    use unicode_normalization::UnicodeNormalization;
+
+    /// 저장소에 둔 고정 파일의 비밀번호. **한글을 넣는다** — 자모로 갈리는
+    /// 글자가 있어야 표기를 맞추는 일까지 붙잡을 수 있다.
+    const FIXTURE_PW: &str = "학교비밀번호2027";
 
     const PW: &str = "학교비밀번호2027";
 
@@ -535,6 +598,143 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /* ── 이미 나간 그릇을 못 박는 자리 ───────────────────────────
+
+       아래 둘은 **한 번 배포되면 손댈 수 없는 것**을 지킨다. 값을 고치는 손이
+       그럴듯한 까닭을 갖고 있어도(더 센 암호, 더 짧은 머리) 담당자 손의 파일은
+       그 손을 따라가지 못한다. 그래서 사람의 판단이 아니라 시험이 막는다. */
+
+    /// 머리의 생김새. **자리 하나하나가 약속이다.**
+    ///
+    /// 칸을 하나 늘리거나 차례를 바꾸면 이미 나간 파일은 영영 안 열린다. 숫자를
+    /// 여기 적어 두는 것은 문서가 아니라 **자물쇠**다.
+    #[test]
+    fn the_header_layout_is_pinned() {
+        assert_eq!(MAGIC, b"GOENAVI", "매직이 달라졌습니다");
+        assert_eq!(CONTAINER_VERSION, 1);
+        assert_eq!(SALT_LEN, 16);
+        assert_eq!(NONCE_LEN, 12);
+        assert_eq!(TAG_LEN, 16);
+        assert_eq!(HEADER_LEN, 40, "머리 길이가 달라졌습니다");
+
+        // 자리까지 본다. 길이의 합이 같아도 차례가 바뀌면 못 읽는다.
+        let sealed = seeded().seal().unwrap();
+        assert_eq!(&sealed[..7], MAGIC);
+        assert_eq!(sealed[7], CONTAINER_VERSION);
+        assert_eq!(
+            u32::from_le_bytes(sealed[8..12].try_into().unwrap()),
+            SCHEMA_VERSION
+        );
+        assert_eq!(sealed.len(), HEADER_LEN + TAG_LEN + serialized_len());
+    }
+
+    /// 봉인한 알맹이의 길이. 머리·태그를 뺀 나머지가 이것과 맞아야 한다.
+    fn serialized_len() -> usize {
+        seeded().conn.serialize("main").unwrap().len()
+    }
+
+    /**
+     * **이미 나간 파일이 아직 열리는가.**
+     *
+     * 저장소에 넣어 둔 `.navi` 를 그대로 연다. 이 파일 하나가 그릇의 모든
+     * 약속을 한꺼번에 붙잡는다 — 매직·판·솔트·논스의 자리, AES-256-GCM 과 AAD,
+     * Argon2id 의 갈래·횟수·메모리, 비밀번호의 유니코드 표기까지. 그중 **무엇
+     * 하나만 달라져도 이 시험이 선다.**
+     *
+     * 지문(`the_key_recipe_is_pinned`)이 이미 비용을 붙잡지만, 그것은 우리가 아는
+     * 곳만 본다. 이 파일은 **아무도 생각하지 못한 곳**까지 본다.
+     *
+     * 담긴 것은 지어낸 학생 둘이다. 실제 성적은 저장소에 들어가지 않는다.
+     *
+     * 고쳐야 한다면(아직 아무에게도 나가지 않았다면) 아래 `write_the_fixture` 를
+     * 손으로 돌려 다시 뜬다. 나간 뒤라면 **고칠 수 없다** — 그릇의 판을 올려라.
+     */
+    #[test]
+    fn a_file_sealed_by_the_released_format_still_opens() {
+        let bytes = include_bytes!("../fixtures/released-v1.navi");
+        let v = Vault::open(bytes, FIXTURE_PW).unwrap_or_else(|e| {
+            panic!(
+                "\n이미 나간 그릇으로 봉한 파일이 열리지 않습니다: {e:?}\n\
+                 머리 모양·암호 방식·열쇠 뽑는 비용·비밀번호 표기 중 하나가 달라졌습니다.\n\
+                 담당자 손의 파일은 그 변경을 따라가지 못합니다. 그릇의 판을 올리세요.\n"
+            )
+        });
+        assert_eq!(v.schema_version, SCHEMA_VERSION);
+
+        let names: Vec<String> = {
+            let mut stmt = v.conn.prepare("SELECT name FROM students ORDER BY number").unwrap();
+            let rows = stmt.query_map([], |r| r.get(0)).unwrap();
+            rows.map(|r| r.unwrap()).collect()
+        };
+        assert_eq!(names, ["가나다", "라마바"], "알맹이가 달라졌습니다");
+
+        let grade: f64 = v
+            .conn
+            .query_row("SELECT grade_avg FROM naesin WHERE student_id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert!((grade - 1.25).abs() < 1e-9);
+    }
+
+    /// **자모로 적은 비밀번호로도 열린다.** 맥 자판과 맥에서 복사한 글은 `한` 을
+    /// 자모 셋으로 적는다(NFD). 눈으로는 같은 글자다.
+    ///
+    /// 이 시험이 서면 맥에서 만든 파일이 윈도우에서 안 열린다는 뜻이고, 그때 뜨는
+    /// 말은 "비밀번호가 맞지 않거나 파일이 손상되었습니다" 다. 아무도 원인을 못 찾는다.
+    #[test]
+    fn the_same_password_typed_on_a_mac_opens_it_too() {
+        let bytes = include_bytes!("../fixtures/released-v1.navi");
+        let decomposed: String = FIXTURE_PW.nfd().collect();
+        assert_ne!(decomposed, FIXTURE_PW, "고른 비밀번호에 자모로 갈릴 글자가 없습니다");
+        assert!(
+            Vault::open(bytes, &decomposed).is_ok(),
+            "자모로 적은 같은 비밀번호로 열리지 않습니다"
+        );
+    }
+
+    /// 저장소에 둘 `.navi` 를 다시 뜬다. **평소에는 돌지 않는다.**
+    ///
+    /// ```text
+    /// cargo test --manifest-path src-tauri/Cargo.toml write_the_fixture -- --ignored
+    /// ```
+    ///
+    /// 나가기 전에 그릇을 고쳤을 때만 돌린다. 나간 뒤에는 이 파일이 곧 약속이라
+    /// 다시 뜨면 안 된다 — 지켜야 할 것을 지우는 셈이다.
+    #[test]
+    #[ignore = "저장소의 고정 파일을 덮어쓴다. 그릇을 일부러 고쳤을 때만 돌린다."]
+    fn write_the_fixture() {
+        let v = Vault::create(FIXTURE_PW).unwrap();
+        // 어휘는 `exam.rs` 에서 가져온다. 글자로 적으면 자료 검사가 막고,
+        // 어휘가 바뀌면 고정 파일만 옛말로 남는다.
+        let set = crate::exam::SUBJECT_SETS[0];
+        let area = crate::exam::AREA_KOR;
+        v.conn
+            .execute(
+                "INSERT INTO students(id, grade, class_no, number, name) VALUES
+                   (1, 3, 1, 1, ?1), (2, 3, 1, 2, ?2)",
+                rusqlite::params!["가나다", "라마바"],
+            )
+            .unwrap();
+        v.conn
+            .execute(
+                "INSERT INTO naesin(student_id, subject_set, term, grade_avg) VALUES
+                   (1, ?1, '1-1', 1.25), (2, ?1, '1-1', 2.5)",
+                rusqlite::params![set],
+            )
+            .unwrap();
+        v.conn
+            .execute(
+                "INSERT INTO mock(student_id, month, area, subject, percentile, grade_band)
+                   VALUES(1, '9월', ?1, ?2, 92.0, 2)",
+                rusqlite::params![area, "언어와매체"],
+            )
+            .unwrap();
+
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("released-v1.navi"), v.seal().unwrap()).unwrap();
+        eprintln!("  다시 떴다: {}", dir.join("released-v1.navi").display());
+    }
+
     /// **열쇠를 뽑는 방법이 굳어 있는가.**
     ///
     /// 같은 비밀번호·같은 솔트에서 늘 같은 열쇠가 나와야 한다. 알고리즘·판·비용
@@ -546,7 +746,7 @@ mod tests {
         let key = derive_key("학교비밀번호2027", b"goe-navi-salt-16").unwrap();
         assert_eq!(
             hex(&key),
-            "8febb810076c7f36afb488444be4e63346d68940d16533b446bfe1e584f856c5",
+            "dd5dcf8533250488be80b1df35c8df8c4653bec6e14403e20778576549c2993f",
             "\n열쇠를 뽑는 방법이 달라졌습니다. 비용·알고리즘·판 중 무엇이 바뀌었는지\n\
              확인하세요. 이미 나간 파일이 있으면 그 파일들은 열리지 않습니다.\n"
         );
