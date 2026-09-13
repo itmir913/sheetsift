@@ -92,7 +92,18 @@ const KDF_LANES: u32 = 1;
 ///
 /// 그래서 판을 올리는 길을 지금 뚫어 둔다. 올릴 때 하는 일은 이 배열에 한 줄
 /// 더하고 `CONTAINER_VERSION` 을 올리는 것뿐이고, **옛 파일은 옛 줄로 열린다.**
+#[cfg(not(test))]
 const CONTAINERS: &[Kdf] = &[Kdf { memory_kib: KDF_MEMORY_KIB, passes: KDF_PASSES, lanes: KDF_LANES }];
+
+/// 시험에서는 판이 하나 더 있다. **판을 올리는 날을 미리 치러 보려는 것**이다.
+///
+/// 둘째 줄의 값은 첫째와 달라야 뜻이 있다(열쇠가 실제로 달라져야 한다). 비용은
+/// 일부러 낮게 잡는다 — 시험이 기다릴 까닭이 없다.
+#[cfg(test)]
+const CONTAINERS: &[Kdf] = &[
+    Kdf { memory_kib: KDF_MEMORY_KIB, passes: KDF_PASSES, lanes: KDF_LANES },
+    Kdf { memory_kib: 8, passes: 1, lanes: 1 },
+];
 
 #[derive(Clone, Copy)]
 struct Kdf {
@@ -101,7 +112,8 @@ struct Kdf {
     lanes: u32,
 }
 
-/// 판 수와 비용 줄 수가 어긋나면 **컴파일이 선다.**
+/// 판 수와 비용 줄 수가 어긋나면 **컴파일이 선다.** (시험에서는 한 줄이 더 있다.)
+#[cfg(not(test))]
 const _: () = assert!(
     CONTAINER_VERSION as usize == CONTAINERS.len(),
     "그릇 판마다 열쇠 뽑는 법이 한 줄씩 있어야 한다"
@@ -271,16 +283,31 @@ impl Vault {
         check_password(password)?;
         let mut salt = [0u8; SALT_LEN];
         rand::rng().fill_bytes(&mut salt);
-        let key = derive_key(password, &salt)?;
+        let mut key = derive_key(password, &salt)?;
 
         let conn = memory_db()?;
         crate::migrate::run(&conn)?;
 
-        Ok(Self { conn, key, salt, container: CONTAINER_VERSION, schema_version: SCHEMA_VERSION })
+        // `[u8; 32]` 는 Copy 라 넣어도 지역 사본이 스택에 남는다.
+        let vault =
+            Self { conn, key, salt, container: CONTAINER_VERSION, schema_version: SCHEMA_VERSION };
+        key.zeroize();
+        Ok(vault)
     }
 
     /// 파일 내용을 복호화해 메모리에서 연다.
     pub fn open(bytes: &[u8], password: &str) -> AppResult<Self> {
+        Self::open_as(bytes, password, CONTAINER_VERSION)
+    }
+
+    /// 여는 길. **이 앱이 몇 판인지를 받는다.**
+    ///
+    /// 늘 `CONTAINER_VERSION` 이다. 판을 올리는 길(옛 그릇을 열어 새 그릇으로
+    /// 올리는 것)은 판이 둘이 되기 전에는 도달할 수 없어, 그 길만 시험이 지나갈 수
+    /// 있게 자리를 열어 둔다. **두 번이나 이 자리에서 틀렸다** — 한 번은 여는 쪽이
+    /// 판을 안 보았고, 한 번은 봉하는 쪽이 상수를 적었다. 다음에 판을 올리는 사람이
+    /// 손으로 확인하기를 기대하지 않는다.
+    fn open_as(bytes: &[u8], password: &str, app_container: u8) -> AppResult<Self> {
         if bytes.len() < HEADER_LEN + TAG_LEN || &bytes[..7] != MAGIC {
             return Err(AppError::new(ErrorCode::VaultFormatInvalid)
                 .detail("magic mismatch or file too short"));
@@ -292,10 +319,10 @@ impl Vault {
            파일도 여기서 걸린다 — 그때 "더 새 프로그램을 구하세요" 라고 말하면
            담당자는 있지도 않은 것을 찾으러 간다. */
         let container = bytes[7];
-        if container == 0 || container > CONTAINER_VERSION {
+        if container == 0 || container > app_container {
             return Err(AppError::new(ErrorCode::VaultContainerUnknown)
                 .with("fileVersion", container)
-                .with("appVersion", CONTAINER_VERSION));
+                .with("appVersion", app_container));
         }
         // 머리에 적힌 스키마 판. **알맹이를 풀기 전에** 상위 판을 걸러 낸다 —
         // 모르는 구조를 애써 풀어 놓고 그제야 막을 까닭이 없다.
@@ -322,7 +349,7 @@ impl Vault {
         let ciphertext = &bytes[HEADER_LEN..];
 
         // **그 파일의 판으로 뽑는다.** 비용이 판마다 다를 수 있다.
-        let key = derive_key_for(container, password, &salt)?;
+        let mut key = derive_key_for(container, password, &salt)?;
         let cipher = Aes256Gcm::new((&key).into());
         let mut plain = cipher
             .decrypt(&Nonce::from(nonce), Payload { msg: ciphertext, aad: header })
@@ -346,15 +373,16 @@ impl Vault {
            있는 일이다 — 저장할 때는 이미 없다. 올린 열쇠는 다음 저장부터 쓰이고,
            저장하지 않으면 파일은 그대로다. */
         let mut vault = Self { conn, key, salt, container, schema_version };
-        if container < CONTAINER_VERSION {
+        key.zeroize();
+        if container < app_container {
             let mut fresh = [0u8; SALT_LEN];
             rand::rng().fill_bytes(&mut fresh);
-            let mut upgraded = derive_key_for(CONTAINER_VERSION, password, &fresh)?;
+            let mut upgraded = derive_key_for(app_container, password, &fresh)?;
             vault.key.zeroize();
             vault.key = upgraded;
             upgraded.zeroize();
             vault.salt = fresh;
-            vault.container = CONTAINER_VERSION;
+            vault.container = app_container;
         }
         Ok(vault)
     }
@@ -1006,6 +1034,117 @@ mod tests {
         // 판을 손으로 바꿔 두면 머리도 따라가야 한다(상수를 적지 않는다는 뜻).
         v.container = 7;
         assert_eq!(v.seal().unwrap()[7], 7, "머리에 상수를 적고 있다");
+    }
+
+    /// **`ANALYZE` 를 해도 파일은 열린다.**
+    ///
+    /// 통계 표는 질의 계획에만 쓰이고 담긴 자료와 무관하다. 지문에 올리면 누군가
+    /// "여는 게 느리다" 며 한 줄 넣는 순간 **담임 전원이 제 학생 자료에서 잠긴다.**
+    /// 지금은 부르는 곳이 없지만, 없다는 것과 넣어도 괜찮다는 것은 다른 말이다.
+    #[test]
+    fn analyzing_the_database_does_not_lock_it() {
+        let analyzed = doctored(|c| c.execute_batch("ANALYZE").unwrap());
+        assert!(
+            Vault::open(&analyzed, PW).is_ok(),
+            "ANALYZE 한 줄에 파일이 안 열린다"
+        );
+    }
+
+    /// **종류가 없는 줄도 지문에 오른다.**
+    ///
+    /// `NOT (type = 'index' AND sql IS NULL)` 은 `type` 이 NULL 이면 통째로 NULL 이
+    /// 되어 그 줄이 조용히 빠진다. 지금 그것이 악용되지 않는 까닭은 SQLite 파서가
+    /// 그런 줄을 거절해서지 우리 검사가 막아서가 아니었다.
+    #[test]
+    fn a_row_with_no_type_does_not_slip_past_the_fingerprint() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::migrate::run(&conn).unwrap();
+        let before = crate::migrate::fingerprint(&conn).unwrap();
+
+        conn.execute_batch(
+            "PRAGMA writable_schema = ON;
+             INSERT INTO sqlite_master(type, name, tbl_name, rootpage, sql)
+               VALUES(NULL, 'ghost', 'students', 0, NULL);
+             PRAGMA writable_schema = OFF;",
+        )
+        .unwrap();
+
+        assert_ne!(
+            crate::migrate::fingerprint(&conn).unwrap(),
+            before,
+            "종류가 없는 줄이 지문에서 빠졌다"
+        );
+    }
+
+    /* ── 판을 올리는 날을 미리 치러 본다 ─────────────────────────
+
+       이 길은 판이 둘이 되기 전에는 도달할 수 없다. 그런데 **여기서 두 번 틀렸다** —
+       여는 쪽이 판을 안 보았고, 봉하는 쪽이 상수를 적었다. 둘 다 "그날" 에야 드러나고,
+       그날 드러나면 담당자 손의 파일이 전부 안 열린다. 그래서 시험에서만 판을 하나 더
+       두고 실제로 태워 본다. */
+
+    /// 옛 판 파일이 **새 앱에서 열리고, 저장하면 새 판이 되고, 다시 열린다.**
+    #[test]
+    fn an_older_container_opens_and_upgrades_when_saved() {
+        const NEXT: u8 = 2;
+        let sealed = seeded().seal().unwrap();
+        assert_eq!(sealed[7], 1, "만든 파일이 1판이 아니다");
+
+        // 새 앱(2판)이 옛 파일을 연다.
+        let upgraded = Vault::open_as(&sealed, PW, NEXT).expect("옛 판 파일이 안 열린다");
+        assert_eq!(upgraded.container, NEXT, "열면서 판이 올라가지 않았다");
+        let name: String = upgraded
+            .conn
+            .query_row("SELECT name FROM students", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(name, "김우현", "알맹이가 넘어오지 않았다");
+
+        // 저장하면 새 판으로 적힌다.
+        let saved = upgraded.seal().unwrap();
+        assert_eq!(saved[7], NEXT, "저장했는데 머리에 옛 판이 적혔다");
+
+        // **그리고 다시 열린다.** 머리와 열쇠가 어긋났다면 여기서 선다.
+        let reopened = Vault::open_as(&saved, PW, NEXT).expect("저장한 파일이 안 열린다");
+        assert_eq!(reopened.container, NEXT);
+    }
+
+    /// 옛 앱은 새 판 파일을 **모르는 파일로 거절한다.** 억지로 풀지 않는다.
+    #[test]
+    fn an_older_app_refuses_a_newer_container() {
+        const NEXT: u8 = 2;
+        let sealed = seeded().seal().unwrap();
+        let saved = Vault::open_as(&sealed, PW, NEXT).unwrap().seal().unwrap();
+        assert_eq!(
+            Vault::open_as(&saved, PW, 1).unwrap_err().code,
+            ErrorCode::VaultContainerUnknown
+        );
+    }
+
+    /// 올린 뒤 **저장하지 않으면 파일은 그대로**다. 열었다는 이유로 남의 파일이
+    /// 바뀌면 안 된다.
+    #[test]
+    fn opening_alone_does_not_rewrite_the_file() {
+        let sealed = seeded().seal().unwrap();
+        let before = sealed.clone();
+        let _ = Vault::open_as(&sealed, PW, 2).unwrap();
+        assert_eq!(sealed, before);
+        // 옛 앱이 아직 연다 — 아무것도 안 바뀌었으므로.
+        assert!(Vault::open_as(&sealed, PW, 1).is_ok());
+    }
+
+    /// 비밀번호 바꾸기는 **늘 지금 판**으로 봉한다.
+    #[test]
+    fn rekeying_moves_the_file_to_the_current_container() {
+        let mut v = seeded();
+        v.container = 2; // 올려서 연 것처럼 둔다
+        let mut saved = Vec::new();
+        v.rekey(PW, "바뀐비밀번호2027", |b| {
+            saved = b.to_vec();
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(saved[7], CONTAINER_VERSION, "바꾼 뒤에도 옛 판이 적혔다");
+        assert_eq!(v.container, CONTAINER_VERSION);
     }
 
     /// 비밀번호를 아는 쪽이 손본 파일을 만든다. 태그는 맞는다.
