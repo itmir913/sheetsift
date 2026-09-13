@@ -238,8 +238,14 @@ fn constant_time_eq(a: &[u8; 32], b: &[u8; 32]) -> bool {
 
 /// 파일로 안전하게 쓴다. 임시 파일에 쓴 뒤 바꿔치기해서,
 /// 저장 도중 전원이 꺼져도 기존 파일이 반쯤 망가지지 않게 한다.
+///
+/// 임시 이름은 **확장자를 갈지 않고 뒤에 덧붙인다.** `with_extension("tmp")`
+/// 는 `학생데이터.navi` 를 `학생데이터.tmp` 로 만드는데, 같은 자리에 담당자가
+/// 둔 `학생데이터.tmp` 가 있으면 그것을 말없이 덮어쓴다.
 pub fn write_atomically(path: &std::path::Path, bytes: &[u8]) -> AppResult<()> {
-    let tmp = path.with_extension("tmp");
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".tmp");
+    let tmp = path.with_file_name(name);
     std::fs::write(&tmp, bytes)
         .map_err(|e| AppError::new(ErrorCode::VaultWriteFailed).detail(e))?;
     std::fs::rename(&tmp, path).map_err(|e| {
@@ -434,6 +440,27 @@ mod tests {
             Vault::open(&sealed, NEW_PW).unwrap_err().code,
             ErrorCode::VaultPasswordWrong
         );
+    }
+
+    /// 임시 이름은 확장자를 갈지 않고 덧붙인다. 갈아 버리면 같은 자리의
+    /// `<같은이름>.tmp` 를 말없이 덮어쓴다.
+    #[test]
+    fn the_temporary_name_does_not_eat_a_neighbours_file() {
+        let dir = std::env::temp_dir().join("goe-navi-tmp-name-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let neighbour = dir.join("학생데이터.tmp");
+        std::fs::write(&neighbour, "담당자가 둔 파일").unwrap();
+
+        let target = dir.join("학생데이터.navi");
+        write_atomically(&target, "새로 쓴 것".as_bytes()).unwrap();
+
+        assert_eq!(
+            std::fs::read(&neighbour).unwrap(),
+            "담당자가 둔 파일".as_bytes(),
+            "옆의 .tmp 를 덮어썼다"
+        );
+        assert_eq!(std::fs::read(&target).unwrap(), "새로 쓴 것".as_bytes());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
