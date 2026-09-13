@@ -10,8 +10,9 @@
 //! ## 파일 형식
 //! ```text
 //! offset  size  내용
-//!      0     8  "GOENAVI\x01"  매직 + 컨테이너 버전
-//!      8     4  schema_version (little endian)
+//!      0     7  "GOENAVI"     매직
+//!      7     1  container_version  그릇의 판 — 푸는 방법이 바뀌면 오른다
+//!      8     4  schema_version (little endian)  안의 표가 바뀌면 오른다
 //!     12    16  Argon2id 솔트
 //!     28    12  AES-GCM 논스
 //!     40     …  AES-256-GCM(직렬화된 SQLite) + 인증 태그 16 B
@@ -32,10 +33,20 @@ use zeroize::Zeroize;
 
 use crate::error::{AppError, AppResult, ErrorCode};
 
-const MAGIC: &[u8; 8] = b"GOENAVI\x01";
+const MAGIC: &[u8; 7] = b"GOENAVI";
+
+/// **그릇의 판.** 머리 모양이나 암호 방식을 바꾸면 이것을 올린다. 안의 스키마
+/// 판(`schema_version`)과 다른 것이다 — 그쪽은 표가 바뀌는 것이고, 이쪽은 파일을
+/// 푸는 방법이 바뀌는 것이다.
+///
+/// **매직에 붙여 두지 않는다.** 예전에는 `GOENAVI\x01` 여덟 자를 통째로 견주어,
+/// 판을 올리는 순간 옛 파일이 `우리 파일이 아니다` 가 됐다 — 판으로 쓸 수 없는
+/// 판 자리였다. 지금은 따로 읽어, 더 새것이면 그렇게 말해 준다.
+const CONTAINER_VERSION: u8 = 1;
+
 const SALT_LEN: usize = 16;
 const NONCE_LEN: usize = 12;
-const HEADER_LEN: usize = 8 + 4 + SALT_LEN + NONCE_LEN;
+const HEADER_LEN: usize = 7 + 1 + 4 + SALT_LEN + NONCE_LEN;
 /// GCM 인증 태그 길이.
 const TAG_LEN: usize = 16;
 
@@ -45,12 +56,45 @@ pub use crate::migrate::SCHEMA_VERSION;
 /// 비밀번호를 너무 짧게 잡으면 암호화가 의미를 잃는다.
 pub const MIN_PASSWORD_LEN: usize = 8;
 
+/* 열쇠를 뽑는 비용. **크레이트 기본값에 기대지 않는다.**
+
+   `Argon2::default()` 는 그때그때의 기본값을 쓴다. argon2 는 실제로 한 번 기본을
+   바꿨고(m=4096·t=3 → m=19456·t=2), 또 바뀌면 **같은 비밀번호에서 다른 열쇠가
+   나온다.** 3월에 만든 파일을 11월에 열면 `비밀번호가 맞지 않거나 파일이
+   손상되었습니다` 가 뜨는데 둘 다 아니다. 아무도 원인을 찾지 못한다.
+
+   값은 OWASP 가 말하는 Argon2id 최소치다. 올리려면 그릇의 판을 함께 올려야
+   한다 — 옛 파일은 옛 비용으로 뽑아야 열린다. */
+const KDF_MEMORY_KIB: u32 = 19_456;
+const KDF_PASSES: u32 = 2;
+const KDF_LANES: u32 = 1;
+
+fn kdf() -> AppResult<Argon2<'static>> {
+    let params = argon2::Params::new(KDF_MEMORY_KIB, KDF_PASSES, KDF_LANES, None)
+        .map_err(|e| AppError::new(ErrorCode::VaultKeyDerivationFailed).detail(e))?;
+    Ok(Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params))
+}
+
 fn derive_key(password: &str, salt: &[u8]) -> AppResult<[u8; 32]> {
     let mut key = [0u8; 32];
-    Argon2::default()
+    kdf()?
         .hash_password_into(password.as_bytes(), salt, &mut key)
         .map_err(|e| AppError::new(ErrorCode::VaultKeyDerivationFailed).detail(e))?;
     Ok(key)
+}
+
+/// 학생 자료를 담는 메모리 DB. **임시 파일을 디스크에 만들지 않는다.**
+///
+/// SQLite 는 정렬이나 임시 인덱스가 캐시를 넘기면 `%TEMP%` 에 임시 파일을 만든다.
+/// 그 안에는 학생 이름과 성적이 평문으로 들어간다. 내장 DB 에는 진작 걸어 두었는데
+/// (`db.rs`) 정작 개인정보가 든 이쪽에 빠져 있었다. 이 파일이 통째로 암호화된다는
+/// 말은 이 한 줄이 있어야 참이 된다.
+fn memory_db() -> AppResult<Connection> {
+    let conn = Connection::open_in_memory()
+        .map_err(|e| AppError::new(ErrorCode::VaultOpenFailed).detail(e))?;
+    conn.execute_batch("PRAGMA temp_store = MEMORY;")
+        .map_err(|e| AppError::new(ErrorCode::VaultOpenFailed).detail(e))?;
+    Ok(conn)
 }
 
 fn check_password(password: &str) -> AppResult<()> {
@@ -95,8 +139,7 @@ impl Vault {
         rand::rng().fill_bytes(&mut salt);
         let key = derive_key(password, &salt)?;
 
-        let conn = Connection::open_in_memory()
-            .map_err(|e| AppError::new(ErrorCode::VaultOpenFailed).detail(e))?;
+        let conn = memory_db()?;
         crate::migrate::run(&conn)?;
 
         Ok(Self { conn, key, salt, schema_version: SCHEMA_VERSION })
@@ -104,14 +147,24 @@ impl Vault {
 
     /// 파일 내용을 복호화해 메모리에서 연다.
     pub fn open(bytes: &[u8], password: &str) -> AppResult<Self> {
-        if bytes.len() < HEADER_LEN + TAG_LEN || &bytes[..8] != MAGIC {
+        if bytes.len() < HEADER_LEN + TAG_LEN || &bytes[..7] != MAGIC {
             return Err(AppError::new(ErrorCode::VaultFormatInvalid)
                 .detail("magic mismatch or file too short"));
         }
-        // 머리에 적힌 판. **알맹이를 풀기 전에** 상위 판을 걸러 낸다 —
-        // 모르는 구조를 애써 풀어 놓고 그제야 막을 까닭이 없다. 머리는 AAD 로
-        // 함께 인증되므로 손댈 수도 없다. 근거는 어디까지나 DB 안의
-        // `user_version` 이고, 이건 미리 거르려고 두는 사본이다.
+        // 그릇의 판. 더 새것이면 **푸는 방법 자체를 모르는** 파일이다.
+        if bytes[7] > CONTAINER_VERSION {
+            return Err(AppError::new(ErrorCode::VaultVersionTooNew)
+                .with("fileVersion", bytes[7])
+                .with("appVersion", CONTAINER_VERSION));
+        }
+        // 머리에 적힌 스키마 판. **알맹이를 풀기 전에** 상위 판을 걸러 낸다 —
+        // 모르는 구조를 애써 풀어 놓고 그제야 막을 까닭이 없다.
+        //
+        // 머리는 AAD 로 함께 인증되므로 **위조는 못 한다** — 한 바이트만 고쳐도
+        // 복호화가 반드시 실패한다. 다만 이 미리 거르기는 인증보다 앞서 돌므로,
+        // 망가진 파일이 `더 새 판입니다` 로 잘못 갈릴 수는 있다. 그 값으로 하는
+        // 일이 거절뿐이라 더 나빠질 것은 없다. 근거는 어디까지나 복호화 뒤에 읽는
+        // DB 안의 `user_version` 이고, 이건 미리 거르려고 두는 사본이다.
         let header_version =
             u32::from_le_bytes(bytes[8..12].try_into().expect("length checked above"));
         if header_version > SCHEMA_VERSION {
@@ -135,8 +188,7 @@ impl Vault {
             // 비밀번호 오류와 파일 손상은 구분할 수 없다. 구분해서도 안 된다.
             .map_err(|_| AppError::new(ErrorCode::VaultPasswordWrong))?;
 
-        let mut conn = Connection::open_in_memory()
-            .map_err(|e| AppError::new(ErrorCode::VaultOpenFailed).detail(e))?;
+        let mut conn = memory_db()?;
         let len = plain.len();
         conn.deserialize_read_exact("main", std::io::Cursor::new(&plain), len, false)
             .map_err(|e| AppError::new(ErrorCode::VaultOpenFailed).detail(e))?;
@@ -171,6 +223,7 @@ impl Vault {
 
         let mut out = Vec::with_capacity(HEADER_LEN + data.len() + TAG_LEN);
         out.extend_from_slice(MAGIC);
+        out.push(CONTAINER_VERSION);
         out.extend_from_slice(&version.to_le_bytes());
         out.extend_from_slice(salt);
         out.extend_from_slice(&nonce);
@@ -226,6 +279,8 @@ impl Vault {
         self.key.zeroize();
         self.key = key;
         self.salt = salt;
+        // `[u8; 32]` 는 Copy 라 옮겨도 지역 사본이 스택에 남는다.
+        key.zeroize();
         Ok(())
     }
 }
@@ -246,8 +301,21 @@ pub fn write_atomically(path: &std::path::Path, bytes: &[u8]) -> AppResult<()> {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(".tmp");
     let tmp = path.with_file_name(name);
-    std::fs::write(&tmp, bytes)
-        .map_err(|e| AppError::new(ErrorCode::VaultWriteFailed).detail(e))?;
+    // **알맹이가 디스크에 닿은 뒤에** 이름을 바꾼다. 이름 바꾸기는 파일 체계가
+    // 지켜 주지만 알맹이는 지켜 주지 않는다. 그냥 쓰고 바꾸면, 전원이 꺼졌을 때
+    // 이름만 남고 속이 빈 파일이 될 수 있다 — 옛 파일은 이미 사라진 뒤다.
+    // 담당자가 USB 로 건네는 흐름이라 꺼내기 전에 빼는 일이 실제로 일어난다.
+    let write = || -> std::io::Result<()> {
+        use std::io::Write;
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()
+    };
+    write().map_err(|e| {
+        // 쓰다 만 임시 파일을 남기지 않는다.
+        let _ = std::fs::remove_file(&tmp);
+        AppError::new(ErrorCode::VaultWriteFailed).detail(e)
+    })?;
     std::fs::rename(&tmp, path).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
         AppError::new(ErrorCode::VaultWriteFailed).detail(e)
@@ -258,6 +326,10 @@ pub fn write_atomically(path: &std::path::Path, bytes: &[u8]) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{b:02x}")).collect()
+    }
 
     const PW: &str = "학교비밀번호2027";
 
@@ -461,6 +533,45 @@ mod tests {
         );
         assert_eq!(std::fs::read(&target).unwrap(), "새로 쓴 것".as_bytes());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// **열쇠를 뽑는 방법이 굳어 있는가.**
+    ///
+    /// 같은 비밀번호·같은 솔트에서 늘 같은 열쇠가 나와야 한다. 알고리즘·판·비용
+    /// 어느 하나라도 바뀌면 여기서 선다 — 크레이트가 기본값을 바꿔도 마찬가지다.
+    /// 이 시험이 서면 **이미 나간 파일이 안 열린다는 뜻**이고, 화면에는 "비밀번호가
+    /// 맞지 않거나…" 가 뜬다. 그 자리를 여기서 잡는다.
+    #[test]
+    fn the_key_recipe_is_pinned() {
+        let key = derive_key("학교비밀번호2027", b"goe-navi-salt-16").unwrap();
+        assert_eq!(
+            hex(&key),
+            "8febb810076c7f36afb488444be4e63346d68940d16533b446bfe1e584f856c5",
+            "\n열쇠를 뽑는 방법이 달라졌습니다. 비용·알고리즘·판 중 무엇이 바뀌었는지\n\
+             확인하세요. 이미 나간 파일이 있으면 그 파일들은 열리지 않습니다.\n"
+        );
+        let p = kdf().unwrap().params().clone();
+        assert_eq!((p.m_cost(), p.t_cost(), p.p_cost()), (KDF_MEMORY_KIB, KDF_PASSES, KDF_LANES));
+    }
+
+    /// 그릇의 판이 더 새것이면 **푸는 방법을 모르는 파일**이다. 매직에 붙여
+    /// 두었을 때는 이것이 "우리 파일이 아니다" 로 나왔다.
+    #[test]
+    fn a_newer_container_says_so() {
+        let mut sealed = seeded().seal().unwrap();
+        sealed[7] = CONTAINER_VERSION + 1;
+        let e = Vault::open(&sealed, PW).unwrap_err();
+        assert_eq!(e.code, ErrorCode::VaultVersionTooNew);
+        // 매직은 그대로이므로 "우리 파일이 아니다" 가 되어서는 안 된다.
+        assert_ne!(e.code, ErrorCode::VaultFormatInvalid);
+    }
+
+    /// 학생 자료가 든 DB 는 **임시 파일을 디스크에 만들지 않는다.**
+    #[test]
+    fn the_student_database_keeps_its_scratch_in_memory() {
+        let v = Vault::create(PW).unwrap();
+        let mode: i64 = v.conn.query_row("PRAGMA temp_store", [], |r| r.get(0)).unwrap();
+        assert_eq!(mode, 2, "임시 파일이 디스크로 나갈 수 있다 (2 = MEMORY)");
     }
 
     #[test]
