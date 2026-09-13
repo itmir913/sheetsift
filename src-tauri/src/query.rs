@@ -345,7 +345,7 @@ pub fn run(
         "SELECT {select_list} FROM (\
            SELECT * FROM {base} t{where_sql}{order_sql} LIMIT {limit} OFFSET {offset}\
          ) t{joins}{order_sql}",
-        base = &screen.base,
+        base = screen.base,
         joins = screen.dict_joins(),
         offset = req.offset,
     );
@@ -403,7 +403,7 @@ pub fn column_values(
     let inner = format!(
         "SELECT {base} AS v, COUNT(*) AS n FROM {table} t{where_sql} \
          GROUP BY v ORDER BY v LIMIT {over}",
-        table = &screen.base,
+        table = screen.base,
     );
     let sql = if col.dict {
         format!("SELECT d.s, c.n FROM ({inner}) c LEFT JOIN dict d ON d.id = c.v")
