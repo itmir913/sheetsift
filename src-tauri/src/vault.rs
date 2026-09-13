@@ -31,7 +31,8 @@
 //! 쓸모 있다. CRC 는 암호문에서 계산한 값이라 비밀번호에 대해 아무것도 말하지
 //! 않는다(누구나 다시 계산할 수 있다). 손보는 쪽이 CRC 까지 맞춰 오면 그때는 태그가
 //! 막고, 그건 이미 "깨진 파일" 이 아니다.
-//! 앞 40바이트(헤더)는 AAD 로 함께 인증한다. 헤더 한 바이트만 고쳐도 복호화가 실패한다.
+//! **앞 40바이트(셈 앞까지)가 AAD 로 함께 인증된다.** 한 바이트만 고쳐도 복호화가
+//! 실패한다. 셈이 든 네 바이트는 인증 밖이다 — 까닭은 아래에 적는다.
 //!
 //! 비밀번호는 담당교사가 정하고, 담임에게 파일과 **다른 경로로** 전달한다.
 //! (zip 은 메일, 비밀번호는 문자 — 파일만 새어 나가도 열리지 않는다.)
@@ -254,17 +255,24 @@ fn memory_db() -> AppResult<Connection> {
     Ok(conn)
 }
 
-/// 알맹이가 오는 길에 깨졌는지 보는 셈. **암호가 아니라 진단이다.**
+/// 파일이 오는 길에 깨졌는지 보는 셈. **암호가 아니라 진단이다.**
 ///
 /// CRC-32(IEEE). 바이트가 바뀌거나 잘려 나가면 사실상 언제나 걸린다. 일부러 맞춰
 /// 오는 것을 막는 장치가 아니다 — 그건 인증 태그가 한다.
-fn crc32(bytes: &[u8]) -> u32 {
+///
+/// **머리와 알맹이를 함께 센다.** 알맹이만 세던 때에는 솔트나 논스가 깨진 파일이
+/// "비밀번호가 맞지 않습니다" 로, 판 칸이 깨진 파일이 "최신 프로그램을 요청하세요"
+/// 로 나갔다 — 이 셈을 넣은 이유가 바로 그 두 문구를 없애자는 것이었는데 정작
+/// 머리 서른두 바이트를 비워 두고 있었다. 제 셈이 든 네 바이트만 뺀다.
+fn crc32(parts: &[&[u8]]) -> u32 {
     let mut crc = 0xFFFF_FFFFu32;
-    for b in bytes {
-        crc ^= u32::from(*b);
-        for _ in 0..8 {
-            let mask = (crc & 1).wrapping_neg();
-            crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+    for part in parts {
+        for b in *part {
+            crc ^= u32::from(*b);
+            for _ in 0..8 {
+                let mask = (crc & 1).wrapping_neg();
+                crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+            }
         }
     }
     !crc
@@ -364,14 +372,33 @@ impl Vault {
                 .with("fileVersion", container)
                 .with("appVersion", app_container));
         }
+        // 인증하는 머리는 셈 앞까지다(봉하는 쪽과 같아야 한다).
+        let header = &bytes[..HEADER_LEN - CRC_LEN];
+        let ciphertext = &bytes[HEADER_LEN..];
+
+        /* **오는 길에 깨졌는지 먼저 본다.** 태그가 막는 것과 같은 결과지만 말이
+           다르다 — 여기서 걸리면 "파일을 다시 받으세요" 이고, 태그에서 걸리면
+           "비밀번호를 확인하세요" 다. 맞는 비밀번호를 쥔 사람이 비밀번호를 의심하며
+           하루를 보내지 않게 하는 것이 이 네 바이트가 하는 일의 전부다.
+
+           **그릇 판 검사 뒤에 둔다.** 판이 오르면 머리 모양이 달라질 수 있는데, 그때
+           옛 앱이 새 파일을 "손상" 이라 부르면 안 된다. 그건 모르는 파일이지 깨진
+           파일이 아니다. 반대로 **스키마 판 검사보다는 앞이다** — 그 칸이 깨진 것을
+           "더 새 프로그램을 구하세요" 라고 말하면 없는 것을 찾으러 간다. */
+        let recorded = u32::from_le_bytes(
+            bytes[HEADER_LEN - CRC_LEN..HEADER_LEN].try_into().expect("length checked above"),
+        );
+        if crc32(&[header, ciphertext]) != recorded {
+            return Err(AppError::new(ErrorCode::VaultFileDamaged));
+        }
+
         // 머리에 적힌 스키마 판. **알맹이를 풀기 전에** 상위 판을 걸러 낸다 —
         // 모르는 구조를 애써 풀어 놓고 그제야 막을 까닭이 없다.
         //
-        // 머리는 AAD 로 함께 인증되므로 **위조는 못 한다** — 한 바이트만 고쳐도
-        // 복호화가 반드시 실패한다. 다만 이 미리 거르기는 인증보다 앞서 돌므로,
-        // 망가진 파일이 `더 새 판입니다` 로 잘못 갈릴 수는 있다. 그 값으로 하는
-        // 일이 거절뿐이라 더 나빠질 것은 없다. 근거는 어디까지나 복호화 뒤에 읽는
-        // DB 안의 `user_version` 이고, 이건 미리 거르려고 두는 사본이다.
+        // 함께 인증되므로 **위조는 못 한다** — 한 바이트만 고쳐도
+        // 복호화가 반드시 실패한다. 깨진 파일이 이 자리에서 `더 새 판입니다` 로
+        // 잘못 갈리던 것은 위의 셈이 먼저 잡는다. 근거는 어디까지나 복호화 뒤에
+        // 읽는 DB 안의 `user_version` 이고, 이건 미리 거르려고 두는 사본이다.
         let header_version =
             u32::from_le_bytes(bytes[8..12].try_into().expect("length checked above"));
         if header_version > SCHEMA_VERSION {
@@ -386,19 +413,7 @@ impl Vault {
             .try_into()
             .expect("length checked above");
         // 인증하는 머리는 CRC 앞까지다(봉하는 쪽과 같아야 한다).
-        let header = &bytes[..HEADER_LEN - CRC_LEN];
-        let ciphertext = &bytes[HEADER_LEN..];
 
-        /* **오는 길에 깨졌는지 먼저 본다.** 태그가 막는 것과 같은 결과지만 말이
-           다르다 — 여기서 걸리면 "파일을 다시 받으세요" 이고, 태그에서 걸리면
-           "비밀번호를 확인하세요" 다. 맞는 비밀번호를 쥔 사람이 비밀번호를 의심하며
-           하루를 보내지 않게 하는 것이 이 네 바이트가 하는 일의 전부다. */
-        let recorded = u32::from_le_bytes(
-            bytes[HEADER_LEN - CRC_LEN..HEADER_LEN].try_into().expect("length checked above"),
-        );
-        if crc32(ciphertext) != recorded {
-            return Err(AppError::new(ErrorCode::VaultFileDamaged));
-        }
 
         // **그 파일의 판으로 뽑는다.** 비용이 판마다 다를 수 있다.
         let key = derive_key_for(container, password, &salt)?;
@@ -488,7 +503,8 @@ impl Vault {
         let ct = cipher
             .encrypt(&Nonce::from(nonce), Payload { msg: &data, aad: &out })
             .map_err(|e| AppError::new(ErrorCode::VaultSealFailed).detail(e))?;
-        out.extend_from_slice(&crc32(&ct).to_le_bytes());
+        let crc = crc32(&[&out, &ct]);
+        out.extend_from_slice(&crc.to_le_bytes());
         out.extend_from_slice(&ct);
         Ok(out)
     }
@@ -651,7 +667,8 @@ mod tests {
         let last = sealed.len() - 30;
         sealed[last] ^= 0xff;
         // 손보는 쪽이 셈을 다시 맞춰 온 상황.
-        let fixed = crc32(&sealed[HEADER_LEN..]).to_le_bytes();
+        let fixed =
+            crc32(&[&sealed[..HEADER_LEN - CRC_LEN], &sealed[HEADER_LEN..]]).to_le_bytes();
         sealed[40..44].copy_from_slice(&fixed);
         assert_eq!(Vault::open(&sealed, PW).unwrap_err().code, ErrorCode::VaultPasswordWrong);
     }
@@ -666,10 +683,32 @@ mod tests {
         );
     }
 
+    /// **머리가 깨진 것도 깨졌다고 말한다.**
+    ///
+    /// 솔트·논스·판 칸은 오는 길에 깨지기 쉬운 자리인데, 셈이 알맹이만 덮던 때에는
+    /// 이것이 "비밀번호가 맞지 않습니다" 로 나갔다. 맞는 비밀번호를 쥔 담임이
+    /// 하루를 엉뚱한 데서 보낸다.
+    #[test]
+    fn a_damaged_header_says_damaged_not_wrong_password() {
+        for at in [8, 12, 20, 28, 39] {
+            let mut sealed = seeded().seal().unwrap();
+            sealed[at] ^= 0x01;
+            assert_eq!(
+                Vault::open(&sealed, PW).unwrap_err().code,
+                ErrorCode::VaultFileDamaged,
+                "{at}번 바이트가 깨졌는데 손상이라 말하지 않는다"
+            );
+        }
+    }
+
+    /// 머리를 **셈까지 맞춰** 고쳐 오면 그때는 태그가 막는다. AAD 가 하는 일이다.
     #[test]
     fn header_tampering_is_detected() {
         let mut sealed = seeded().seal().unwrap();
         sealed[20] ^= 0x01; // 솔트를 건드린다 → 키가 달라지므로 실패
+        let fixed =
+            crc32(&[&sealed[..HEADER_LEN - CRC_LEN], &sealed[HEADER_LEN..]]).to_le_bytes();
+        sealed[40..44].copy_from_slice(&fixed);
         assert_eq!(Vault::open(&sealed, PW).unwrap_err().code, ErrorCode::VaultPasswordWrong);
     }
 
@@ -696,6 +735,11 @@ mod tests {
     fn future_schema_version_is_rejected() {
         let mut sealed = seeded().seal().unwrap();
         sealed[8..12].copy_from_slice(&(SCHEMA_VERSION + 5).to_le_bytes());
+        // 셈을 맞춰 둔다 — 그러지 않으면 "깨진 파일" 로 먼저 걸린다. 여기서 보려는
+        // 것은 **성한 파일이 더 새 판일 때** 무슨 말을 하는가다.
+        let fixed =
+            crc32(&[&sealed[..HEADER_LEN - CRC_LEN], &sealed[HEADER_LEN..]]).to_le_bytes();
+        sealed[40..44].copy_from_slice(&fixed);
         assert_eq!(Vault::open(&sealed, PW).unwrap_err().code, ErrorCode::VaultVersionTooNew);
     }
 
@@ -921,8 +965,8 @@ mod tests {
         );
         assert_eq!(
             u32::from_le_bytes(sealed[40..44].try_into().unwrap()),
-            crc32(&sealed[HEADER_LEN..]),
-            "머리에 적힌 셈이 알맹이와 맞지 않는다"
+            crc32(&[&sealed[..HEADER_LEN - CRC_LEN], &sealed[HEADER_LEN..]]),
+            "머리에 적힌 셈이 머리·알맹이와 맞지 않는다"
         );
         assert_eq!(sealed.len(), HEADER_LEN + TAG_LEN + serialized_len());
     }
