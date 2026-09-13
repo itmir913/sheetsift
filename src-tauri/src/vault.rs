@@ -406,6 +406,13 @@ impl Vault {
         key: &[u8; 32],
         salt: &[u8; SALT_LEN],
     ) -> AppResult<Vec<u8>> {
+        /* **이 평문은 지울 수 없다.** `serialize` 는 먼저 `NOCOPY` 로 SQLite 가 쥐고
+           있는 **살아 있는 페이지**를 가리키게 한다. 여기서 지우면 열려 있는 DB 가
+           그 자리에서 깨진다. 사본이 오는 경우에도 `&mut` 로 받을 길이 없다.
+
+           그래서 이 앱이 도는 동안 학생 자료는 메모리에 평문으로 있다 — 그것이
+           설계다(파일만 암호화한다). 잠근 뒤에 남는 것을 줄이려면 SQLite 의 할당기를
+           갈아야 하고, 그건 이 그릇이 답할 수 있는 물음이 아니다. */
         let data = self
             .conn
             .serialize("main")
@@ -906,7 +913,7 @@ mod tests {
            로 돌리라고 적어 둔 다른 연장(`opening_takes`)이 있어서, 필터 없이 한 번
            치면 함께 돌아 고정 파일이 새로 떠진다. 그 뒤로 그릇 고정 시험은 무엇을
            바꾸든 영원히 통과한다. 일부러 켜야만 쓴다. */
-        if std::env::var("GOE_NAVI_WRITE_FIXTURE").is_err() {
+        if std::env::var("GOE_NAVI_WRITE_FIXTURE").unwrap_or_default() != "1" {
             eprintln!("  GOE_NAVI_WRITE_FIXTURE=1 이 없어 다시 뜨지 않았다");
             return;
         }
@@ -1032,6 +1039,67 @@ mod tests {
         }
     }
 
+    /// **통계 표 이름에 짐을 실어 숨길 수 없다.**
+    ///
+    /// 이름만 보던 시절에는 `sqliteZstat1` 이 빠졌고, 글의 앞머리만 보던 시절에는
+    /// `sqlite_stat1(tbl,idx,stat,payload)` 가 빠졌다 — 여는 괄호 뒤가 자유였다.
+    /// 이제 `ANALYZE` 가 적는 글과 **글자 하나까지** 같아야 빠진다.
+    #[test]
+    fn a_statistics_table_carrying_cargo_does_not_open() {
+        // 그 이름은 SQL 로 못 만든다(예약어다). 손보는 쪽은 스키마를 직접 고친다.
+        let hidden = doctored(|c| {
+            c.execute_batch(
+                "CREATE TABLE zzz(tbl,idx,stat,payload TEXT);
+                 INSERT INTO zzz VALUES('a','b','c','숨긴자료');
+                 PRAGMA writable_schema = ON;
+                 UPDATE sqlite_master
+                    SET name = 'sqlite_stat1', tbl_name = 'sqlite_stat1',
+                        sql = 'CREATE TABLE sqlite_stat1(tbl,idx,stat,payload TEXT)'
+                  WHERE name = 'zzz';
+                 PRAGMA writable_schema = OFF;",
+            )
+            .unwrap()
+        });
+        assert_eq!(
+            Vault::open(&hidden, PW).unwrap_err().code,
+            ErrorCode::VaultFormatInvalid,
+            "통계 표 이름 뒤에 짐을 실은 표가 지나갔다"
+        );
+
+        // 열 이름만 바꾼 것도 마찬가지다.
+        let renamed = doctored(|c| {
+            c.execute_batch(
+                "CREATE TABLE zzz(a,b,c);
+                 PRAGMA writable_schema = ON;
+                 UPDATE sqlite_master
+                    SET name = 'sqlite_stat1', tbl_name = 'sqlite_stat1',
+                        sql = 'CREATE TABLE sqlite_stat1(a,b,c)'
+                  WHERE name = 'zzz';
+                 PRAGMA writable_schema = OFF;",
+            )
+            .unwrap()
+        });
+        assert_eq!(
+            Vault::open(&renamed, PW).unwrap_err().code,
+            ErrorCode::VaultFormatInvalid
+        );
+    }
+
+    /// 견주는 자리가 **앞의 빈 줄을 지우지 않는다.**
+    ///
+    /// `trim()` 이던 시절, 종류도 이름도 글도 없는 줄은 한 칸으로 그려져 맨 앞에
+    /// 서는데 그 다듬기가 통째로 지웠다. 지문 원문끼리는 달라 보이는데 실제로
+    /// 견주는 자리에서만 같아졌다 — 시험이 원문을 보고 있어 못 잡았다.
+    #[test]
+    fn the_comparison_does_not_swallow_a_blank_first_row() {
+        let empty_row = format!("{} {}\n{}", "", "", "");
+        assert_ne!(
+            crate::migrate::same_lines(&format!("{empty_row}\n\ntable students\nCREATE …")),
+            crate::migrate::same_lines("table students\nCREATE …"),
+            "앞의 빈 줄이 견주는 자리에서 지워진다"
+        );
+    }
+
     /// 이름이 없는 줄도 지문에 오른다. NULL 은 `AND`·`NOT` 에서 조용히 빠진다.
     #[test]
     fn a_row_with_no_name_does_not_slip_past_the_fingerprint() {
@@ -1046,8 +1114,8 @@ mod tests {
         )
         .unwrap();
         assert_ne!(
-            crate::migrate::fingerprint(&conn).unwrap(),
-            before,
+            crate::migrate::same_lines(&crate::migrate::fingerprint(&conn).unwrap()),
+            crate::migrate::same_lines(&before),
             "이름 없는 줄이 지문에서 빠졌다"
         );
     }
@@ -1123,9 +1191,11 @@ mod tests {
         )
         .unwrap();
 
+        // **`same_lines` 를 거쳐 견준다.** 원문끼리 견주면 production 이 쓰는 자리를
+        // 시험하지 않는 셈이고, 실제로 그 다듬기가 줄을 지우고 있었다.
         assert_ne!(
-            crate::migrate::fingerprint(&conn).unwrap(),
-            before,
+            crate::migrate::same_lines(&crate::migrate::fingerprint(&conn).unwrap()),
+            crate::migrate::same_lines(&before),
             "종류가 없는 줄이 지문에서 빠졌다"
         );
     }
@@ -1186,9 +1256,10 @@ mod tests {
         assert!(Vault::open_as(&sealed, PW, 1).is_ok());
     }
 
-    /// 비밀번호 바꾸기는 **늘 지금 판**으로 봉한다.
+    /// 비밀번호 바꾸기는 **그 금고의 판**으로 봉한다. 상수를 쓰면 판이 갈린 금고에서
+    /// 맞는 비밀번호를 틀렸다고 하게 된다.
     #[test]
-    fn rekeying_moves_the_file_to_the_current_container() {
+    fn rekeying_keeps_the_file_on_its_own_container() {
         const NEXT: u8 = 2;
         let sealed = seeded().seal().unwrap();
         // 진짜로 올려서 연 금고를 쓴다. 판만 손으로 바꿔 두면 열쇠와 어긋나
