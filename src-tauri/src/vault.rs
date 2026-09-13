@@ -153,6 +153,10 @@ impl Vault {
     /// 현재 내용을 암호화한 바이트로 만든다. 파일 쓰기는 호출 쪽이 한다.
     /// 논스는 저장할 때마다 새로 뽑는다(같은 키로 논스를 재사용하지 않는다).
     pub fn seal(&self) -> AppResult<Vec<u8>> {
+        self.seal_with(&self.key, &self.salt)
+    }
+
+    fn seal_with(&self, key: &[u8; 32], salt: &[u8; SALT_LEN]) -> AppResult<Vec<u8>> {
         let data = self
             .conn
             .serialize("main")
@@ -168,16 +172,68 @@ impl Vault {
         let mut out = Vec::with_capacity(HEADER_LEN + data.len() + TAG_LEN);
         out.extend_from_slice(MAGIC);
         out.extend_from_slice(&version.to_le_bytes());
-        out.extend_from_slice(&self.salt);
+        out.extend_from_slice(salt);
         out.extend_from_slice(&nonce);
 
-        let cipher = Aes256Gcm::new((&self.key).into());
+        let cipher = Aes256Gcm::new(key.into());
         let ct = cipher
             .encrypt(&Nonce::from(nonce), Payload { msg: &data, aad: &out })
             .map_err(|e| AppError::new(ErrorCode::VaultSealFailed).detail(e))?;
         out.extend_from_slice(&ct);
         Ok(out)
     }
+
+    /// 비밀번호를 바꾸고, 그 자리에서 파일까지 쓴다.
+    ///
+    /// ## 왜 쓰기를 여기서 받나
+    ///
+    /// 키만 갈아 끼우고 저장을 나중에 받으면, **파일은 옛 비밀번호로 봉해진 채
+    /// 앱만 새 비밀번호를 쥔 상태**가 생긴다. 담당자는 바꿨다고 알고 있는데
+    /// 파일은 안 바뀐 것이다. 그래서 쓰기까지가 한 동작이다.
+    ///
+    /// 차례도 뒤집을 수 없다. **쓰기가 끝난 뒤에야** `self` 의 키를 간다 —
+    /// 디스크가 가득 차 쓰기가 실패했는데 앱만 새 키를 쥐고 있으면, 다음
+    /// 저장이 담당자가 모르는 비밀번호로 파일을 덮어쓴다.
+    ///
+    /// 현재 비밀번호를 다시 묻는 까닭은, 파일을 열어 둔 채 자리를 비우는 일이
+    /// 흔해서다. 옆에 앉은 사람이 비밀번호만 바꿔 잠가 버릴 수 있으면 안 된다.
+    pub fn rekey(
+        &mut self,
+        current: &str,
+        next: &str,
+        write: impl FnOnce(&[u8]) -> AppResult<()>,
+    ) -> AppResult<()> {
+        let mut proof = derive_key(current, &self.salt)?;
+        let ok = constant_time_eq(&proof, &self.key);
+        proof.zeroize();
+        if !ok {
+            return Err(AppError::new(ErrorCode::VaultPasswordWrong));
+        }
+        check_password(next)?;
+
+        // 솔트도 새로 뽑는다. 같은 솔트를 이어 쓰면 옛 비밀번호로 만든 무지개표가
+        // 그대로 먹힌다.
+        let mut salt = [0u8; SALT_LEN];
+        rand::rng().fill_bytes(&mut salt);
+        let mut key = derive_key(next, &salt)?;
+
+        let result = self.seal_with(&key, &salt).and_then(|bytes| write(&bytes));
+        if let Err(e) = result {
+            key.zeroize();
+            return Err(e);
+        }
+
+        self.key.zeroize();
+        self.key = key;
+        self.salt = salt;
+        Ok(())
+    }
+}
+
+/// 길이가 같은 두 바이트열을 **끝까지** 견준다. 다른 자리를 만나 곧바로
+/// 돌아가면 걸린 시간이 "몇 글자까지 맞았는지" 를 말해 준다.
+fn constant_time_eq(a: &[u8; 32], b: &[u8; 32]) -> bool {
+    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 /// 파일로 안전하게 쓴다. 임시 파일에 쓴 뒤 바꿔치기해서,
@@ -306,6 +362,77 @@ mod tests {
         assert_eq!(
             u32::from_le_bytes(sealed[8..12].try_into().unwrap()),
             SCHEMA_VERSION
+        );
+    }
+
+    const NEW_PW: &str = "바뀐비밀번호2027";
+
+    /// 비밀번호를 바꾸면 **새 것으로 열리고 옛 것으로는 안 열린다.**
+    #[test]
+    fn rekeying_changes_which_password_opens_the_file() {
+        let mut v = seeded();
+        let mut saved = Vec::new();
+        v.rekey(PW, NEW_PW, |b| {
+            saved = b.to_vec();
+            Ok(())
+        })
+        .unwrap();
+
+        let opened = Vault::open(&saved, NEW_PW).unwrap();
+        let name: String = opened
+            .conn
+            .query_row("SELECT name FROM students", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(name, "김우현", "알맹이가 함께 넘어오지 않았다");
+        assert_eq!(
+            Vault::open(&saved, PW).unwrap_err().code,
+            ErrorCode::VaultPasswordWrong,
+            "옛 비밀번호로 아직 열린다"
+        );
+    }
+
+    /// 바꾼 뒤 그냥 저장해도 새 비밀번호로 봉해져야 한다. 키를 실제로
+    /// 갈아 끼웠는지 보는 자리다.
+    #[test]
+    fn saving_after_a_rekey_uses_the_new_password() {
+        let mut v = seeded();
+        v.rekey(PW, NEW_PW, |_| Ok(())).unwrap();
+        let sealed = v.seal().unwrap();
+        assert!(Vault::open(&sealed, NEW_PW).is_ok());
+    }
+
+    #[test]
+    fn rekeying_needs_the_current_password() {
+        let mut v = seeded();
+        let e = v.rekey("틀린비밀번호", NEW_PW, |_| panic!("쓰기까지 갔다")).unwrap_err();
+        assert_eq!(e.code, ErrorCode::VaultPasswordWrong);
+        assert!(Vault::open(&v.seal().unwrap(), PW).is_ok(), "키가 바뀌었다");
+    }
+
+    #[test]
+    fn a_short_new_password_is_rejected() {
+        let mut v = seeded();
+        let e = v.rekey(PW, "1234", |_| panic!("쓰기까지 갔다")).unwrap_err();
+        assert_eq!(e.code, ErrorCode::VaultPasswordTooShort);
+    }
+
+    /// **쓰기가 실패하면 키도 그대로다.** 파일은 옛 비밀번호로 봉해져 있는데
+    /// 앱만 새 키를 쥐고 있으면, 다음 저장이 아무도 모르는 비밀번호로 덮는다.
+    #[test]
+    fn a_failed_write_leaves_the_old_password_in_force() {
+        let mut v = seeded();
+        let e = v
+            .rekey(PW, NEW_PW, |_| {
+                Err(AppError::new(ErrorCode::VaultWriteFailed).detail("디스크가 가득 찼다"))
+            })
+            .unwrap_err();
+        assert_eq!(e.code, ErrorCode::VaultWriteFailed);
+
+        let sealed = v.seal().unwrap();
+        assert!(Vault::open(&sealed, PW).is_ok(), "쓰기가 실패했는데 키가 바뀌었다");
+        assert_eq!(
+            Vault::open(&sealed, NEW_PW).unwrap_err().code,
+            ErrorCode::VaultPasswordWrong
         );
     }
 
