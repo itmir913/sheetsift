@@ -84,8 +84,36 @@ const KDF_MEMORY_KIB: u32 = 65_536;
 const KDF_PASSES: u32 = 3;
 const KDF_LANES: u32 = 1;
 
-fn kdf() -> AppResult<Argon2<'static>> {
-    let params = argon2::Params::new(KDF_MEMORY_KIB, KDF_PASSES, KDF_LANES, None)
+/// 그릇 판마다의 열쇠 뽑는 법. **`CONTAINERS[v-1]` 이 판 v 의 것이다.**
+///
+/// 비용을 못 박아 두는 것만으로는 부족하다. 나중에 비용을 올리려면 판을 올려야
+/// 하는데, **여는 쪽이 판을 보고 갈라 쓰지 않으면** 이미 나간 파일이 새 비용으로
+/// 풀려 전부 안 열린다. 그때 화면에 뜨는 말은 "비밀번호가 맞지 않거나…" 다.
+///
+/// 그래서 판을 올리는 길을 지금 뚫어 둔다. 올릴 때 하는 일은 이 배열에 한 줄
+/// 더하고 `CONTAINER_VERSION` 을 올리는 것뿐이고, **옛 파일은 옛 줄로 열린다.**
+const CONTAINERS: &[Kdf] = &[Kdf { memory_kib: KDF_MEMORY_KIB, passes: KDF_PASSES, lanes: KDF_LANES }];
+
+#[derive(Clone, Copy)]
+struct Kdf {
+    memory_kib: u32,
+    passes: u32,
+    lanes: u32,
+}
+
+/// 판 수와 비용 줄 수가 어긋나면 **컴파일이 선다.**
+const _: () = assert!(
+    CONTAINER_VERSION as usize == CONTAINERS.len(),
+    "그릇 판마다 열쇠 뽑는 법이 한 줄씩 있어야 한다"
+);
+
+fn kdf_for(container: u8) -> AppResult<Argon2<'static>> {
+    let Some(cost) = CONTAINERS.get(container as usize - 1) else {
+        return Err(AppError::new(ErrorCode::VaultContainerUnknown)
+            .with("fileVersion", container)
+            .with("appVersion", CONTAINER_VERSION));
+    };
+    let params = argon2::Params::new(cost.memory_kib, cost.passes, cost.lanes, None)
         .map_err(|e| AppError::new(ErrorCode::VaultKeyDerivationFailed).detail(e))?;
     Ok(Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params))
 }
@@ -101,13 +129,23 @@ fn kdf() -> AppResult<Argon2<'static>> {
 /// 어느 표기로 도착할지 우리가 정할 수 없다. 그래서 받는 쪽에서 맞춘다.
 fn normalize(password: &str) -> String {
     use unicode_normalization::UnicodeNormalization;
-    password.nfc().collect()
+    // **자리를 한 번에 잡는다.** `collect()` 에 맡기면 8→16→32→… 로 옮겨 다니며,
+    // 옮기기 전 버퍼에 비밀번호 앞부분이 **지워지지 않은 채** 해제된다. NFC 는
+    // 길이를 늘리지 않으므로 원래 길이면 넉넉하다.
+    let mut out = String::with_capacity(password.len());
+    out.extend(password.nfc());
+    out
 }
 
 fn derive_key(password: &str, salt: &[u8]) -> AppResult<[u8; 32]> {
+    derive_key_for(CONTAINER_VERSION, password, salt)
+}
+
+/// 판 `container` 의 법으로 열쇠를 뽑는다. 옛 파일은 옛 법으로 푼다.
+fn derive_key_for(container: u8, password: &str, salt: &[u8]) -> AppResult<[u8; 32]> {
     let mut key = [0u8; 32];
     let mut normalized = normalize(password);
-    let hashed = kdf()?.hash_password_into(normalized.as_bytes(), salt, &mut key);
+    let hashed = kdf_for(container)?.hash_password_into(normalized.as_bytes(), salt, &mut key);
     normalized.zeroize();
     hashed.map_err(|e| AppError::new(ErrorCode::VaultKeyDerivationFailed).detail(e))?;
     Ok(key)
@@ -124,14 +162,34 @@ fn derive_key(password: &str, salt: &[u8]) -> AppResult<[u8; 32]> {
 /// 장부가 앞뒤가 맞는지 훑는다. 학생 수백 명짜리 파일에서 눈에 띄는 시간이 들지
 /// 않는다.
 fn check_image(conn: &Connection) -> AppResult<()> {
-    conn.set_db_config(rusqlite::config::DbConfig::SQLITE_DBCONFIG_DEFENSIVE, true)
-        .map_err(|e| AppError::new(ErrorCode::VaultFormatInvalid).detail(e))?;
-
     let verdict: String = conn
         .query_row("PRAGMA integrity_check", [], |r| r.get(0))
         .map_err(|e| AppError::new(ErrorCode::VaultFormatInvalid).detail(e))?;
     if verdict != "ok" {
         return Err(AppError::new(ErrorCode::VaultFormatInvalid).detail(verdict));
+    }
+
+    /* **표의 생김새가 우리가 만든 그대로인가.**
+
+       장부가 성한 것과 담긴 것이 우리 것인 것은 다른 말이다. `integrity_check` 는
+       b-tree 가 앞뒤 맞는지만 본다 — 표를 뷰로 바꿔치우거나, 트리거를 심거나,
+       열을 하나 더해도 `ok` 다. 비밀번호를 아는 쪽이 만든 파일이면 태그도 맞는다.
+
+       막을 재료는 이미 있었다. 판마다 스키마 전문을 박아 두고(판 폴더의
+       schema.txt) 시험에서만 쓰고 있었다. 여는 길에서도 그것과 견준다.
+
+       담긴 **값**이 바뀐 것은 여전히 못 잡는다. 그건 암호가 답할 수 있는 물음이
+       아니다 — 비밀번호를 가진 사람은 언제나 제 파일을 고쳐 쓸 수 있다. 여기서
+       막는 것은 **프로그램이 모르는 구조**가 실려 오는 것이다. */
+    let v = crate::migrate::user_version(conn)?;
+    let Some(want) = crate::migrate::expected_fingerprint(v) else {
+        return Err(AppError::new(ErrorCode::VaultFormatInvalid)
+            .detail(format!("no recorded schema for version {v}")));
+    };
+    let got = crate::migrate::fingerprint(conn)?;
+    if crate::migrate::same_lines(&got) != crate::migrate::same_lines(want) {
+        return Err(AppError::new(ErrorCode::VaultFormatInvalid)
+            .detail("schema does not match the recorded one"));
     }
     Ok(())
 }
@@ -147,13 +205,26 @@ fn memory_db() -> AppResult<Connection> {
         .map_err(|e| AppError::new(ErrorCode::VaultOpenFailed).detail(e))?;
     conn.execute_batch("PRAGMA temp_store = MEMORY;")
         .map_err(|e| AppError::new(ErrorCode::VaultOpenFailed).detail(e))?;
+
+    // **만드는 길에도 건다.** 예전에는 여는 길에만 걸어, 같은 학생 자료를 담는
+    // 같은 연결인데 어느 길로 왔느냐에 따라 깃발이 달랐다. 켜졌는지도 확인한다 —
+    // `set_db_config` 는 **적용된 값**을 돌려주는데 그냥 버리고 있었다.
+    let on = conn
+        .set_db_config(rusqlite::config::DbConfig::SQLITE_DBCONFIG_DEFENSIVE, true)
+        .map_err(|e| AppError::new(ErrorCode::VaultOpenFailed).detail(e))?;
+    if !on {
+        return Err(AppError::new(ErrorCode::VaultOpenFailed).detail("defensive mode refused"));
+    }
     Ok(conn)
 }
 
 fn check_password(password: &str) -> AppResult<()> {
     // 길이도 **맞춘 뒤에** 센다. NFD 로 온 `한글비밀번호` 는 자모 하나하나가
     // 글자로 세어져, 같은 비밀번호가 표기에 따라 되기도 하고 안 되기도 한다.
-    if normalize(password).chars().count() < MIN_PASSWORD_LEN {
+    let mut normalized = normalize(password);
+    let count = normalized.chars().count();
+    normalized.zeroize();
+    if count < MIN_PASSWORD_LEN {
         return Err(AppError::new(ErrorCode::VaultPasswordTooShort)
             .with("min", MIN_PASSWORD_LEN));
     }
@@ -206,10 +277,16 @@ impl Vault {
             return Err(AppError::new(ErrorCode::VaultFormatInvalid)
                 .detail("magic mismatch or file too short"));
         }
-        // 그릇의 판. 더 새것이면 **푸는 방법 자체를 모르는** 파일이다.
-        if bytes[7] > CONTAINER_VERSION {
-            return Err(AppError::new(ErrorCode::VaultVersionTooNew)
-                .with("fileVersion", bytes[7])
+        /* 그릇의 판. **아는 판이 아니면 푸는 방법을 모르는 파일이다.**
+
+           `>` 가 아니라 `!=` 다. 판 0 인 그릇은 존재한 적이 없으므로, 0 을 적어 둔
+           파일은 더 새것도 옛것도 아니고 그냥 우리 것이 아니다. 한 바이트가 망가진
+           파일도 여기서 걸린다 — 그때 "더 새 프로그램을 구하세요" 라고 말하면
+           담당자는 있지도 않은 것을 찾으러 간다. */
+        let container = bytes[7];
+        if container == 0 || container > CONTAINER_VERSION {
+            return Err(AppError::new(ErrorCode::VaultContainerUnknown)
+                .with("fileVersion", container)
                 .with("appVersion", CONTAINER_VERSION));
         }
         // 머리에 적힌 스키마 판. **알맹이를 풀기 전에** 상위 판을 걸러 낸다 —
@@ -236,7 +313,8 @@ impl Vault {
         let header = &bytes[..HEADER_LEN];
         let ciphertext = &bytes[HEADER_LEN..];
 
-        let key = derive_key(password, &salt)?;
+        // **그 파일의 판으로 뽑는다.** 비용이 판마다 다를 수 있다.
+        let key = derive_key_for(container, password, &salt)?;
         let cipher = Aes256Gcm::new((&key).into());
         let mut plain = cipher
             .decrypt(&Nonce::from(nonce), Payload { msg: ciphertext, aad: header })
@@ -762,6 +840,16 @@ mod tests {
     #[test]
     #[ignore = "저장소의 고정 파일을 덮어쓴다. 그릇을 일부러 고쳤을 때만 돌린다."]
     fn write_the_fixture() {
+        // **나간 뒤에는 다시 뜨지 않는다.** `#[ignore]` 하나로는 모자란다 —
+        // 누군가 `cargo test -- --ignored` 를 한 번 치면 고정 파일이 새로 떠지고,
+        // 그 뒤로 고정 시험은 무엇을 바꾸든 영원히 통과한다.
+        #[allow(clippy::assertions_on_constants)] // 값이 상수인 것이 요점이다.
+        {
+            assert!(
+                !crate::migrate::RELEASED,
+                "이미 나간 뒤입니다. 고정 파일은 그때의 약속이라 다시 뜨면 안 됩니다."
+            );
+        }
         let v = Vault::create(FIXTURE_PW).unwrap();
         // 어휘는 `exam.rs` 에서 가져온다. 글자로 적으면 자료 검사가 막고,
         // 어휘가 바뀌면 고정 파일만 옛말로 남는다.
@@ -795,6 +883,97 @@ mod tests {
         eprintln!("  다시 떴다: {}", dir.join("released-v1.navi").display());
     }
 
+    /// **비밀번호를 아는 쪽이 손본 파일을 그냥 받아들이지 않는다.**
+    ///
+    /// 태그가 맞았다는 것은 "만든 사람이 비밀번호를 알았다" 까지만 말한다. 이
+    /// 프로그램은 파일과 비밀번호를 함께 건네는 것이 정상 흐름이라, 받은 사람이
+    /// 손본 파일을 되돌려 주는 길이 열려 있다.
+    ///
+    /// 아래 셋은 감사에서 **실제로 만들어 통과시킨** 것들이다. `integrity_check` 는
+    /// 셋 다 `ok` 를 내고 `DEFENSIVE` 도 막지 않는다. 스키마 지문이 막는다.
+    #[test]
+    fn a_doctored_schema_does_not_open() {
+        // 표를 뷰로 바꿔치운다. 이름은 그대로라 화면은 아무것도 모른다.
+        let swapped = doctored(|c| {
+            c.execute_batch(
+                "PRAGMA writable_schema = ON;
+                 UPDATE sqlite_master SET type='view', sql='CREATE VIEW students AS
+                   SELECT 1 AS id, 3 AS grade, 1 AS class_no, 1 AS number, ''가짜'' AS name'
+                 WHERE name='students';
+                 PRAGMA writable_schema = OFF;",
+            )
+            .unwrap()
+        });
+        assert_eq!(
+            Vault::open(&swapped, PW).unwrap_err().code,
+            ErrorCode::VaultFormatInvalid,
+            "표가 뷰로 바뀐 파일이 열렸다"
+        );
+
+        // 트리거를 심는다. 담당자가 학생을 하나 넣는 순간 돈다.
+        let trapped = doctored(|c| {
+            c.execute_batch(
+                "CREATE TRIGGER wipe AFTER INSERT ON students BEGIN
+                   UPDATE students SET name = 'X';
+                 END;",
+            )
+            .unwrap()
+        });
+        assert_eq!(
+            Vault::open(&trapped, PW).unwrap_err().code,
+            ErrorCode::VaultFormatInvalid,
+            "트리거가 심긴 파일이 열렸다"
+        );
+
+        // 열을 하나 더한다. 우리가 모르는 자리다.
+        let widened = doctored(|c| {
+            c.execute_batch("ALTER TABLE students ADD COLUMN secret TEXT").unwrap()
+        });
+        assert_eq!(
+            Vault::open(&widened, PW).unwrap_err().code,
+            ErrorCode::VaultFormatInvalid,
+            "열이 늘어난 파일이 열렸다"
+        );
+    }
+
+    /// 비밀번호를 아는 쪽이 손본 파일을 만든다. 태그는 맞는다.
+    ///
+    /// **우리 연결로는 만들 수 없다.** `DEFENSIVE` 를 걸어 둔 뒤로 `writable_schema`
+    /// 가 막힌다(`table sqlite_master may not be modified`). 그래서 맨 연결에서
+    /// 손본 뒤, 같은 열쇠로 봉해 되돌려 준다 — 파일을 받아 든 사람이 할 수 있는
+    /// 일이 꼭 그만큼이다.
+    fn doctored(change: impl FnOnce(&Connection)) -> Vec<u8> {
+        let v = seeded();
+        let image = v.conn.serialize("main").unwrap().to_vec();
+
+        let mut plain = Connection::open_in_memory().unwrap();
+        plain
+            .deserialize_read_exact("main", std::io::Cursor::new(&image), image.len(), false)
+            .unwrap();
+        change(&plain);
+
+        let doctored = Vault { conn: plain, key: v.key, salt: v.salt, schema_version: v.schema_version };
+        doctored.seal().unwrap()
+    }
+
+    /// **값이 바뀐 것까지 막지는 못한다.** 막을 수 없는 것이라 적어 둔다 —
+    /// 비밀번호를 가진 사람은 언제나 제 파일을 고쳐 쓸 수 있다. 여기서 지키는
+    /// 것은 프로그램이 **모르는 구조**가 실려 오지 않는 것뿐이다.
+    #[test]
+    fn a_changed_grade_is_not_something_the_container_can_catch() {
+        let changed = doctored(|c| {
+            c.execute_batch(
+                &format!(
+                    "INSERT INTO naesin(student_id, subject_set, term, grade_avg)
+                       SELECT id, '{}', '1-1', 9.0 FROM students",
+                    crate::exam::SUBJECT_SETS[0]
+                ),
+            )
+            .unwrap()
+        });
+        assert!(Vault::open(&changed, PW).is_ok());
+    }
+
     /// **열쇠를 뽑는 방법이 굳어 있는가.**
     ///
     /// 같은 비밀번호·같은 솔트에서 늘 같은 열쇠가 나와야 한다. 알고리즘·판·비용
@@ -810,7 +989,7 @@ mod tests {
             "\n열쇠를 뽑는 방법이 달라졌습니다. 비용·알고리즘·판 중 무엇이 바뀌었는지\n\
              확인하세요. 이미 나간 파일이 있으면 그 파일들은 열리지 않습니다.\n"
         );
-        let p = kdf().unwrap().params().clone();
+        let p = kdf_for(CONTAINER_VERSION).unwrap().params().clone();
         assert_eq!((p.m_cost(), p.t_cost(), p.p_cost()), (KDF_MEMORY_KIB, KDF_PASSES, KDF_LANES));
     }
 
@@ -821,9 +1000,17 @@ mod tests {
         let mut sealed = seeded().seal().unwrap();
         sealed[7] = CONTAINER_VERSION + 1;
         let e = Vault::open(&sealed, PW).unwrap_err();
-        assert_eq!(e.code, ErrorCode::VaultVersionTooNew);
+        assert_eq!(e.code, ErrorCode::VaultContainerUnknown);
         // 매직은 그대로이므로 "우리 파일이 아니다" 가 되어서는 안 된다.
         assert_ne!(e.code, ErrorCode::VaultFormatInvalid);
+
+        // 있은 적 없는 판 0 도 아는 판이 아니다. 한 바이트가 망가진 파일이 여기 온다.
+        let mut zeroed = seeded().seal().unwrap();
+        zeroed[7] = 0;
+        assert_eq!(
+            Vault::open(&zeroed, PW).unwrap_err().code,
+            ErrorCode::VaultContainerUnknown
+        );
     }
 
     /// 학생 자료가 든 DB 는 **임시 파일을 디스크에 만들지 않는다.**
