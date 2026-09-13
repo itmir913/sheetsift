@@ -15,8 +15,22 @@
 //!      8     4  schema_version (little endian)  안의 표가 바뀌면 오른다
 //!     12    16  Argon2id 솔트
 //!     28    12  AES-GCM 논스
-//!     40     …  AES-256-GCM(직렬화된 SQLite) + 인증 태그 16 B
+//!     40     4  알맹이의 CRC-32 — **깨진 것과 비밀번호를 가르는 데만 쓴다**
+//!     44     …  AES-256-GCM(직렬화된 SQLite) + 인증 태그 16 B
 //! ```
+//!
+//! ## 깨진 파일과 틀린 비밀번호를 가른다
+//!
+//! 인증 태그는 **한 바이트만 달라도** 복호화를 거절한다. 그것이 암호가 하는 일이라
+//! 어떤 설계로도 깨진 파일을 열 수는 없다. 그런데 그때 담임에게 "비밀번호가 맞지
+//! 않거나 파일이 손상되었습니다" 라고만 말하면, **맞는 비밀번호를 하루 종일 다시
+//! 쳐 보게 된다.** 학교에서 그 하루가 비싸다.
+//!
+//! 그래서 알맹이의 CRC 를 머리에 적어 둔다. 열 때 먼저 대 보아 다르면 **전송 중에
+//! 깨졌다**고 말한다 — 파일을 다시 받으라는 말이 비밀번호를 의심하라는 말보다 훨씬
+//! 쓸모 있다. CRC 는 암호문에서 계산한 값이라 비밀번호에 대해 아무것도 말하지
+//! 않는다(누구나 다시 계산할 수 있다). 손보는 쪽이 CRC 까지 맞춰 오면 그때는 태그가
+//! 막고, 그건 이미 "깨진 파일" 이 아니다.
 //! 앞 40바이트(헤더)는 AAD 로 함께 인증한다. 헤더 한 바이트만 고쳐도 복호화가 실패한다.
 //!
 //! 비밀번호는 담당교사가 정하고, 담임에게 파일과 **다른 경로로** 전달한다.
@@ -53,7 +67,8 @@ const CONTAINER_VERSION: u8 = 1;
 
 const SALT_LEN: usize = 16;
 const NONCE_LEN: usize = 12;
-const HEADER_LEN: usize = 7 + 1 + 4 + SALT_LEN + NONCE_LEN;
+const CRC_LEN: usize = 4;
+const HEADER_LEN: usize = 7 + 1 + 4 + SALT_LEN + NONCE_LEN + CRC_LEN;
 /// GCM 인증 태그 길이.
 const TAG_LEN: usize = 16;
 
@@ -239,6 +254,22 @@ fn memory_db() -> AppResult<Connection> {
     Ok(conn)
 }
 
+/// 알맹이가 오는 길에 깨졌는지 보는 셈. **암호가 아니라 진단이다.**
+///
+/// CRC-32(IEEE). 바이트가 바뀌거나 잘려 나가면 사실상 언제나 걸린다. 일부러 맞춰
+/// 오는 것을 막는 장치가 아니다 — 그건 인증 태그가 한다.
+fn crc32(bytes: &[u8]) -> u32 {
+    let mut crc = 0xFFFF_FFFFu32;
+    for b in bytes {
+        crc ^= u32::from(*b);
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+        }
+    }
+    !crc
+}
+
 fn check_password(password: &str) -> AppResult<()> {
     // 길이도 **맞춘 뒤에** 센다. NFD 로 온 `한글비밀번호` 는 자모 하나하나가
     // 글자로 세어져, 같은 비밀번호가 표기에 따라 되기도 하고 안 되기도 한다.
@@ -351,11 +382,23 @@ impl Vault {
 
         let mut salt = [0u8; SALT_LEN];
         salt.copy_from_slice(&bytes[12..12 + SALT_LEN]);
-        let nonce: [u8; NONCE_LEN] = bytes[12 + SALT_LEN..HEADER_LEN]
+        let nonce: [u8; NONCE_LEN] = bytes[12 + SALT_LEN..12 + SALT_LEN + NONCE_LEN]
             .try_into()
             .expect("length checked above");
-        let header = &bytes[..HEADER_LEN];
+        // 인증하는 머리는 CRC 앞까지다(봉하는 쪽과 같아야 한다).
+        let header = &bytes[..HEADER_LEN - CRC_LEN];
         let ciphertext = &bytes[HEADER_LEN..];
+
+        /* **오는 길에 깨졌는지 먼저 본다.** 태그가 막는 것과 같은 결과지만 말이
+           다르다 — 여기서 걸리면 "파일을 다시 받으세요" 이고, 태그에서 걸리면
+           "비밀번호를 확인하세요" 다. 맞는 비밀번호를 쥔 사람이 비밀번호를 의심하며
+           하루를 보내지 않게 하는 것이 이 네 바이트가 하는 일의 전부다. */
+        let recorded = u32::from_le_bytes(
+            bytes[HEADER_LEN - CRC_LEN..HEADER_LEN].try_into().expect("length checked above"),
+        );
+        if crc32(ciphertext) != recorded {
+            return Err(AppError::new(ErrorCode::VaultFileDamaged));
+        }
 
         // **그 파일의 판으로 뽑는다.** 비용이 판마다 다를 수 있다.
         let key = derive_key_for(container, password, &salt)?;
@@ -434,10 +477,18 @@ impl Vault {
         out.extend_from_slice(salt);
         out.extend_from_slice(&nonce);
 
+        /* **인증 범위는 CRC 앞까지다.** 넣을 수가 없다 — CRC 는 알맹이를 만든 뒤에야
+           나오는데, 그 알맹이가 머리를 AAD 로 삼아 만들어지기 때문이다. 서로가 서로를
+           기다린다.
+
+           빼도 잃는 것이 없다. CRC 는 **깨진 것과 틀린 비밀번호를 가르는 말**일 뿐이고,
+           거기를 손대 봐야 "손상되었습니다" 와 "비밀번호가 맞지 않습니다" 가 뒤바뀔
+           뿐이다. 위조는 여전히 태그가 막는다. */
         let cipher = Aes256Gcm::new(key.into());
         let ct = cipher
             .encrypt(&Nonce::from(nonce), Payload { msg: &data, aad: &out })
             .map_err(|e| AppError::new(ErrorCode::VaultSealFailed).detail(e))?;
+        out.extend_from_slice(&crc32(&ct).to_le_bytes());
         out.extend_from_slice(&ct);
         Ok(out)
     }
@@ -571,13 +622,48 @@ mod tests {
         assert_eq!(e.code, ErrorCode::VaultPasswordWrong);
     }
 
+    /// **오는 길에 깨진 것과 비밀번호가 틀린 것을 가른다.**
+    ///
+    /// 둘 다 열리지 않는 것은 같다 — 암호가 그렇게 만들어져 있다. 다른 것은 담임에게
+    /// 하는 말이다. 맞는 비밀번호를 쥔 사람에게 "비밀번호를 확인하세요" 라고 하면
+    /// 하루를 엉뚱한 데서 보낸다.
+    #[test]
+    fn a_file_damaged_in_transit_says_so_instead_of_blaming_the_password() {
+        let mut sealed = seeded().seal().unwrap();
+        let last = sealed.len() - 30;
+        sealed[last] ^= 0xff;
+        assert_eq!(
+            Vault::open(&sealed, PW).unwrap_err().code,
+            ErrorCode::VaultFileDamaged,
+            "깨진 파일을 비밀번호 탓으로 돌린다"
+        );
+
+        // 잘려서 온 파일도 마찬가지다(클라우드가 반만 내려 주는 일이 있다).
+        let mut cut = seeded().seal().unwrap();
+        cut.truncate(cut.len() - 40);
+        assert_eq!(Vault::open(&cut, PW).unwrap_err().code, ErrorCode::VaultFileDamaged);
+    }
+
+    /// **셈까지 맞춰 온 위조는 태그가 막는다.** 그때는 깨진 파일이 아니다.
     #[test]
     fn tampering_is_detected() {
         let mut sealed = seeded().seal().unwrap();
-        // 본문 한 바이트를 바꾼다 → GCM 태그 검증 실패
         let last = sealed.len() - 30;
         sealed[last] ^= 0xff;
+        // 손보는 쪽이 셈을 다시 맞춰 온 상황.
+        let fixed = crc32(&sealed[HEADER_LEN..]).to_le_bytes();
+        sealed[40..44].copy_from_slice(&fixed);
         assert_eq!(Vault::open(&sealed, PW).unwrap_err().code, ErrorCode::VaultPasswordWrong);
+    }
+
+    /// 성한 파일에 틀린 비밀번호는 **비밀번호 문제로** 말한다.
+    #[test]
+    fn a_wrong_password_on_an_intact_file_is_not_called_damage() {
+        let sealed = seeded().seal().unwrap();
+        assert_eq!(
+            Vault::open(&sealed, "틀린비밀번호").unwrap_err().code,
+            ErrorCode::VaultPasswordWrong
+        );
     }
 
     #[test]
@@ -822,7 +908,8 @@ mod tests {
         assert_eq!(SALT_LEN, 16);
         assert_eq!(NONCE_LEN, 12);
         assert_eq!(TAG_LEN, 16);
-        assert_eq!(HEADER_LEN, 40, "머리 길이가 달라졌습니다");
+        assert_eq!(CRC_LEN, 4);
+        assert_eq!(HEADER_LEN, 44, "머리 길이가 달라졌습니다");
 
         // 자리까지 본다. 길이의 합이 같아도 차례가 바뀌면 못 읽는다.
         let sealed = seeded().seal().unwrap();
@@ -831,6 +918,11 @@ mod tests {
         assert_eq!(
             u32::from_le_bytes(sealed[8..12].try_into().unwrap()),
             SCHEMA_VERSION
+        );
+        assert_eq!(
+            u32::from_le_bytes(sealed[40..44].try_into().unwrap()),
+            crc32(&sealed[HEADER_LEN..]),
+            "머리에 적힌 셈이 알맹이와 맞지 않는다"
         );
         assert_eq!(sealed.len(), HEADER_LEN + TAG_LEN + serialized_len());
     }
