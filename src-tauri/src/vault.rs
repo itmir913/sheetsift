@@ -240,7 +240,15 @@ fn check_image(conn: &Connection) -> AppResult<()> {
 fn memory_db() -> AppResult<Connection> {
     let conn = Connection::open_in_memory()
         .map_err(|e| AppError::new(ErrorCode::VaultOpenFailed).detail(e))?;
-    conn.execute_batch("PRAGMA temp_store = MEMORY;")
+    /* `foreign_keys` 는 SQLite 에서 **기본이 꺼짐**이다. 스키마는 성적이 학생을
+       따라 지워지도록(`ON DELETE CASCADE`) 적어 두었는데, 켜지 않으면 그 선언이
+       아무 일도 하지 않는다. 지금은 학생을 지우는 길이 없어 틀린 것이 아니지만,
+       삭제가 생기는 날 **지운 학생의 성적이 파일 안에 고아로 남는다** — 개인정보
+       파일에서 삭제가 삭제가 아니게 된다. 그날 아무도 이 한 줄을 떠올리지 못한다.
+
+       이미 든 자료에는 영향이 없다(이 설정은 앞으로의 쓰기에만 걸린다). 그래서
+       손에 있는 파일이 이것 때문에 안 열리는 일은 없다. */
+    conn.execute_batch("PRAGMA temp_store = MEMORY; PRAGMA foreign_keys = ON;")
         .map_err(|e| AppError::new(ErrorCode::VaultOpenFailed).detail(e))?;
 
     // **만드는 길에도 건다.** 예전에는 여는 길에만 걸어, 같은 학생 자료를 담는
@@ -425,9 +433,13 @@ impl Vault {
 
         let mut conn = memory_db()?;
         let len = plain.len();
-        conn.deserialize_read_exact("main", std::io::Cursor::new(&plain), len, false)
-            .map_err(|e| AppError::new(ErrorCode::VaultOpenFailed).detail(e))?;
+        /* **성패와 무관하게 지운다.** 예전에는 `?` 를 먼저 써서, SQLite 가 이미지를
+           거절하면 지우는 줄에 닿지도 못했다. 그때 힙에 남는 것이 학생 전원의 평문
+           DB 다 — 지우려고 둔 줄이 정작 지워야 할 때 건너뛰어지고 있었다. */
+        let loaded =
+            conn.deserialize_read_exact("main", std::io::Cursor::new(&plain), len, false);
         plain.zeroize();
+        loaded.map_err(|e| AppError::new(ErrorCode::VaultOpenFailed).detail(e))?;
 
         check_image(&conn)?;
 
@@ -1540,6 +1552,66 @@ mod tests {
             Vault::open(&zeroed, PW).unwrap_err().code,
             ErrorCode::VaultContainerUnknown
         );
+    }
+
+    /// **선언해 둔 `ON DELETE CASCADE` 가 실제로 돈다.**
+    ///
+    /// SQLite 는 외래 키를 기본으로 끄고 연다. 켜지 않으면 스키마에 적어 둔 그 말이
+    /// 아무 일도 하지 않아, 학생을 지워도 성적이 파일 안에 고아로 남는다 — 개인정보
+    /// 파일에서 삭제가 삭제가 아니게 된다. 지금은 지우는 길이 없지만, 생기는 날
+    /// 아무도 이 한 줄을 떠올리지 못한다.
+    #[test]
+    fn deleting_a_student_takes_their_scores_with_them() {
+        let v = seeded();
+        v.conn
+            .execute(
+                "INSERT INTO naesin(student_id, subject_set, term, grade_avg)
+                   VALUES(1, ?1, '1-1', 2.0)",
+                rusqlite::params![crate::exam::SUBJECT_SETS[0]],
+            )
+            .unwrap();
+        v.conn.execute("DELETE FROM students WHERE id = 1", []).unwrap();
+
+        let left: i64 = v
+            .conn
+            .query_row("SELECT COUNT(*) FROM naesin WHERE student_id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(left, 0, "지운 학생의 성적이 파일에 남는다");
+
+        // 파일을 거쳐 와도 마찬가지다(설정은 연결마다 다시 걸어야 한다).
+        let reopened = Vault::open(&v.seal().unwrap(), PW).unwrap();
+        reopened
+            .conn
+            .execute(
+                "INSERT INTO students(id, grade, class_no, number, name) VALUES(2, 3, 1, 2, ?1)",
+                rusqlite::params!["아무개"],
+            )
+            .unwrap();
+        reopened
+            .conn
+            .execute(
+                "INSERT INTO mock(student_id, month, area, percentile) VALUES(2, '9월', ?1, 90.0)",
+                rusqlite::params![crate::exam::AREA_KOR],
+            )
+            .unwrap();
+        reopened.conn.execute("DELETE FROM students WHERE id = 2", []).unwrap();
+        let left: i64 = reopened
+            .conn
+            .query_row("SELECT COUNT(*) FROM mock WHERE student_id = 2", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(left, 0, "다시 연 파일에서는 따라 지워지지 않는다");
+    }
+
+    /// 없는 학생의 성적은 **애초에 들어가지 않는다.** 외래 키를 켠 덕이다.
+    #[test]
+    fn scores_cannot_point_at_a_student_who_is_not_there() {
+        let v = seeded();
+        let e = v.conn.execute(
+            "INSERT INTO naesin(student_id, subject_set, term, grade_avg)
+               VALUES(9999, ?1, '1-1', 2.0)",
+            rusqlite::params![crate::exam::SUBJECT_SETS[0]],
+        );
+        assert!(e.is_err(), "없는 학생에게 성적이 붙었다");
     }
 
     /// 학생 자료가 든 DB 는 **임시 파일을 디스크에 만들지 않는다.**
