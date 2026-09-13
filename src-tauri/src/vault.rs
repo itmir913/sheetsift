@@ -608,6 +608,66 @@ mod tests {
     ///
     /// 칸을 하나 늘리거나 차례를 바꾸면 이미 나간 파일은 영영 안 열린다. 숫자를
     /// 여기 적어 두는 것은 문서가 아니라 **자물쇠**다.
+    /// **이 기계에서 파일 하나 여는 데 얼마나 걸리는가.**
+    ///
+    /// ```text
+    /// cargo test --manifest-path src-tauri/Cargo.toml --release opening_takes -- --ignored --nocapture
+    /// ```
+    ///
+    /// 열쇠 뽑는 비용(`KDF_MEMORY_KIB`·`KDF_PASSES`)은 **모든 기계에서 같아야 한다** —
+    /// 낮은 기계에 맞춰 낮추면 그 값으로 만든 파일은 어디서나 그만큼 약하다. 그래서
+    /// 값을 정하기 전에 **가장 느린 기계**에서 재 본다. 학교 업무용 PC 가 그것이다.
+    ///
+    /// `--release` 로 재야 한다. 그냥 돌리면 담당자가 쓰지 않는 빌드를 재는 셈이다.
+    #[test]
+    #[ignore = "재기만 한다. 값을 정하기 전에 느린 기계에서 돌려 본다."]
+    fn opening_takes() {
+        // 학교 하나 크기로 채운다.
+        let v = Vault::create(PW).unwrap();
+        v.conn
+            .execute(
+                "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<336)
+                 INSERT INTO students(id, grade, class_no, number, name)
+                   SELECT i, 3, (i%10)+1, i, ?1 FROM n",
+                rusqlite::params!["아무개"],
+            )
+            .unwrap();
+        for set in crate::exam::SUBJECT_SETS {
+            v.conn
+                .execute(
+                    "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<336)
+                     INSERT INTO naesin(student_id, subject_set, term, grade_avg)
+                       SELECT i, ?1, '1-1', 1.5 FROM n",
+                    rusqlite::params![set],
+                )
+                .unwrap();
+        }
+        let sealed = v.seal().unwrap();
+
+        let ms = |t: std::time::Instant| t.elapsed().as_secs_f64() * 1000.0;
+
+        let t = std::time::Instant::now();
+        let opened = Vault::open(&sealed, PW).unwrap();
+        let whole = ms(t);
+
+        let t = std::time::Instant::now();
+        derive_key(PW, &[7u8; SALT_LEN]).unwrap();
+        let kdf = ms(t);
+
+        let t = std::time::Instant::now();
+        check_image(&opened.conn).unwrap();
+        let image = ms(t);
+
+        eprintln!(
+            "\n  파일 {} KB · 여는 데 {whole:.0} ms\n\
+               그중 열쇠 뽑기 {kdf:.0} ms · 알맹이 검사 {image:.0} ms\n\
+               (메모리 {} MiB · {}회)\n",
+            sealed.len() / 1024,
+            KDF_MEMORY_KIB / 1024,
+            KDF_PASSES,
+        );
+    }
+
     #[test]
     fn the_header_layout_is_pinned() {
         assert_eq!(MAGIC, b"GOENAVI", "매직이 달라졌습니다");
