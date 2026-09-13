@@ -108,7 +108,7 @@ const _: () = assert!(
 );
 
 fn kdf_for(container: u8) -> AppResult<Argon2<'static>> {
-    let Some(cost) = CONTAINERS.get(container as usize - 1) else {
+    let Some(cost) = container.checked_sub(1).and_then(|i| CONTAINERS.get(i as usize)) else {
         return Err(AppError::new(ErrorCode::VaultContainerUnknown)
             .with("fileVersion", container)
             .with("appVersion", CONTAINER_VERSION));
@@ -130,9 +130,11 @@ fn kdf_for(container: u8) -> AppResult<Argon2<'static>> {
 fn normalize(password: &str) -> String {
     use unicode_normalization::UnicodeNormalization;
     // **자리를 한 번에 잡는다.** `collect()` 에 맡기면 8→16→32→… 로 옮겨 다니며,
-    // 옮기기 전 버퍼에 비밀번호 앞부분이 **지워지지 않은 채** 해제된다. NFC 는
-    // 길이를 늘리지 않으므로 원래 길이면 넉넉하다.
-    let mut out = String::with_capacity(password.len());
+    // 옮기기 전 버퍼에 비밀번호 앞부분이 **지워지지 않은 채** 해제된다.
+    //
+    // 세 배로 잡는 까닭: NFC 는 대개 줄이지만 늘리는 글자도 있다(`U+0344` 는 두
+    // 배가 된다). 모자라면 다시 옮겨 다녀 막으려던 일이 그대로 일어난다.
+    let mut out = String::with_capacity(password.len() * 3);
     out.extend(password.nfc());
     out
 }
@@ -238,6 +240,12 @@ pub struct Vault {
     key: [u8; 32],
     /// 키를 유도한 솔트. 같은 키를 계속 쓰려면 함께 보관해야 한다.
     salt: [u8; SALT_LEN],
+    /// **이 열쇠를 뽑은 그릇의 판.** 봉할 때 머리에 적는 값이다.
+    ///
+    /// 상수를 적어 넣으면 안 된다. 옛 판 파일을 새 앱에서 열면 열쇠는 옛 비용으로
+    /// 뽑혀 있는데 머리에는 새 판이 적히고, 다음에 열 때 새 비용으로 뽑아 열쇠가
+    /// 달라진다 — 한 번 저장하는 것만으로 파일이 영영 안 열린다.
+    container: u8,
     pub schema_version: u32,
 }
 
@@ -268,7 +276,7 @@ impl Vault {
         let conn = memory_db()?;
         crate::migrate::run(&conn)?;
 
-        Ok(Self { conn, key, salt, schema_version: SCHEMA_VERSION })
+        Ok(Self { conn, key, salt, container: CONTAINER_VERSION, schema_version: SCHEMA_VERSION })
     }
 
     /// 파일 내용을 복호화해 메모리에서 연다.
@@ -334,16 +342,35 @@ impl Vault {
         crate::migrate::run(&conn)?;
         let schema_version = crate::migrate::user_version(&conn)?;
 
-        Ok(Self { conn, key, salt, schema_version })
+        /* **옛 그릇은 열면서 새 그릇으로 올린다.** 비밀번호가 여기 있을 때만 할 수
+           있는 일이다 — 저장할 때는 이미 없다. 올린 열쇠는 다음 저장부터 쓰이고,
+           저장하지 않으면 파일은 그대로다. */
+        let mut vault = Self { conn, key, salt, container, schema_version };
+        if container < CONTAINER_VERSION {
+            let mut fresh = [0u8; SALT_LEN];
+            rand::rng().fill_bytes(&mut fresh);
+            let mut upgraded = derive_key_for(CONTAINER_VERSION, password, &fresh)?;
+            vault.key.zeroize();
+            vault.key = upgraded;
+            upgraded.zeroize();
+            vault.salt = fresh;
+            vault.container = CONTAINER_VERSION;
+        }
+        Ok(vault)
     }
 
     /// 현재 내용을 암호화한 바이트로 만든다. 파일 쓰기는 호출 쪽이 한다.
     /// 논스는 저장할 때마다 새로 뽑는다(같은 키로 논스를 재사용하지 않는다).
     pub fn seal(&self) -> AppResult<Vec<u8>> {
-        self.seal_with(&self.key, &self.salt)
+        self.seal_with(self.container, &self.key, &self.salt)
     }
 
-    fn seal_with(&self, key: &[u8; 32], salt: &[u8; SALT_LEN]) -> AppResult<Vec<u8>> {
+    fn seal_with(
+        &self,
+        container: u8,
+        key: &[u8; 32],
+        salt: &[u8; SALT_LEN],
+    ) -> AppResult<Vec<u8>> {
         let data = self
             .conn
             .serialize("main")
@@ -358,7 +385,9 @@ impl Vault {
 
         let mut out = Vec::with_capacity(HEADER_LEN + data.len() + TAG_LEN);
         out.extend_from_slice(MAGIC);
-        out.push(CONTAINER_VERSION);
+        // **상수가 아니라 이 열쇠를 뽑은 판을 적는다.** 둘이 어긋나면 다음에 열 때
+        // 다른 비용으로 뽑아 열쇠가 달라진다.
+        out.push(container);
         out.extend_from_slice(&version.to_le_bytes());
         out.extend_from_slice(salt);
         out.extend_from_slice(&nonce);
@@ -405,7 +434,10 @@ impl Vault {
         rand::rng().fill_bytes(&mut salt);
         let mut key = derive_key(next, &salt)?;
 
-        let result = self.seal_with(&key, &salt).and_then(|bytes| write(&bytes));
+        // 새 열쇠는 **지금 판**으로 뽑았다. 봉하는 판도 그것이다.
+        let result = self
+            .seal_with(CONTAINER_VERSION, &key, &salt)
+            .and_then(|bytes| write(&bytes));
         if let Err(e) = result {
             key.zeroize();
             return Err(e);
@@ -414,6 +446,7 @@ impl Vault {
         self.key.zeroize();
         self.key = key;
         self.salt = salt;
+        self.container = CONTAINER_VERSION;
         // `[u8; 32]` 는 Copy 라 옮겨도 지역 사본이 스택에 남는다.
         key.zeroize();
         Ok(())
@@ -556,6 +589,7 @@ mod tests {
             conn: Connection::open_in_memory().unwrap(),
             key: derive_key(PW, &salt).unwrap(),
             salt,
+            container: CONTAINER_VERSION,
             schema_version: 0,
         };
         let sealed = old.seal().unwrap();
@@ -936,6 +970,44 @@ mod tests {
         );
     }
 
+    /// **`sqlite_` 로 시작하는 이름으로 지문을 피해 갈 수 없다.**
+    ///
+    /// SQLite 가 그 이름을 막는 것은 SQL 로 만들 때뿐이다. `writable_schema` 로
+    /// 심으면 멀쩡히 불려 나간다. 재감사가 이 이름의 트리거로 실제로 통과했다.
+    #[test]
+    fn a_trigger_hiding_behind_a_reserved_name_does_not_open() {
+        let hidden = doctored(|c| {
+            c.execute_batch(
+                "PRAGMA writable_schema = ON;
+                 INSERT INTO sqlite_master(type, name, tbl_name, rootpage, sql)
+                   VALUES('trigger', 'sqlite_wipe', 'students', 0,
+                     'CREATE TRIGGER sqlite_wipe AFTER INSERT ON students BEGIN
+                        UPDATE students SET name = ''X''; END');
+                 PRAGMA writable_schema = OFF;",
+            )
+            .unwrap()
+        });
+        assert_eq!(
+            Vault::open(&hidden, PW).unwrap_err().code,
+            ErrorCode::VaultFormatInvalid,
+            "`sqlite_` 이름 뒤에 숨은 트리거가 지나갔다"
+        );
+    }
+
+    /// **봉할 때 적는 판은 그 열쇠를 뽑은 판이다.**
+    ///
+    /// 상수를 적어 넣으면, 옛 판 파일을 새 앱에서 열어 한 번 저장하는 것만으로
+    /// 머리와 알맹이가 어긋나 영영 안 열린다. 재감사가 짚은 자리다.
+    #[test]
+    fn sealing_writes_the_container_the_key_came_from() {
+        let mut v = seeded();
+        assert_eq!(v.seal().unwrap()[7], v.container);
+
+        // 판을 손으로 바꿔 두면 머리도 따라가야 한다(상수를 적지 않는다는 뜻).
+        v.container = 7;
+        assert_eq!(v.seal().unwrap()[7], 7, "머리에 상수를 적고 있다");
+    }
+
     /// 비밀번호를 아는 쪽이 손본 파일을 만든다. 태그는 맞는다.
     ///
     /// **우리 연결로는 만들 수 없다.** `DEFENSIVE` 를 걸어 둔 뒤로 `writable_schema`
@@ -952,8 +1024,60 @@ mod tests {
             .unwrap();
         change(&plain);
 
-        let doctored = Vault { conn: plain, key: v.key, salt: v.salt, schema_version: v.schema_version };
+        let doctored = Vault {
+            conn: plain,
+            key: v.key,
+            salt: v.salt,
+            container: v.container,
+            schema_version: v.schema_version,
+        };
         doctored.seal().unwrap()
+    }
+
+    /// **앱을 거쳐 간 수정은 적법하다.** 6월에 만든 파일에 9월 성적을 더해
+    /// 저장하고, 다른 자리에서 다시 여는 것이 이 프로그램의 보통 하루다.
+    ///
+    /// 스키마 지문은 표의 **생김새**만 본다. 줄을 넣고 고치고 지우는 것은 지문을
+    /// 건드리지 않는다. 이 시험이 서면 담당자가 제 파일에 성적을 못 넣는다는 뜻이고,
+    /// 그건 막으려던 어떤 공격보다 나쁘다.
+    #[test]
+    fn adding_scores_later_and_saving_again_is_fine() {
+        // 6월 — 파일을 만들고 내신을 넣는다.
+        let june = seeded();
+        june.conn
+            .execute(
+                "INSERT INTO naesin(student_id, subject_set, term, grade_avg)
+                   VALUES(1, ?1, '1-1', 2.5)",
+                rusqlite::params![crate::exam::SUBJECT_SETS[0]],
+            )
+            .unwrap();
+        let sealed = june.seal().unwrap();
+
+        // 9월 — 다른 자리에서 열어 모의고사를 더하고 다시 저장한다.
+        let september = Vault::open(&sealed, PW).expect("6월 파일이 안 열린다");
+        september
+            .conn
+            .execute(
+                "INSERT INTO mock(student_id, month, area, percentile, grade_band)
+                   VALUES(1, '9월', ?1, 92.0, 2)",
+                rusqlite::params![crate::exam::AREA_KOR],
+            )
+            .unwrap();
+        // 고치는 것도, 지우는 것도 마찬가지다.
+        september
+            .conn
+            .execute("UPDATE naesin SET grade_avg = 2.1 WHERE student_id = 1", [])
+            .unwrap();
+        september.conn.execute("DELETE FROM mock WHERE month = '3월'", []).unwrap();
+        let again = september.seal().unwrap();
+
+        // 11월 — 또 연다.
+        let november = Vault::open(&again, PW).expect("9월에 저장한 파일이 안 열린다");
+        let n: i64 = november
+            .conn
+            .query_row("SELECT COUNT(*) FROM mock WHERE month = '9월'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1, "더한 성적이 없다");
     }
 
     /// **값이 바뀐 것까지 막지는 못한다.** 막을 수 없는 것이라 적어 둔다 —
