@@ -202,7 +202,16 @@ pub struct Screens {
     /// 이 자료가 언제 것인가. 옛 navi.db 에는 없으므로 비어 있을 수 있다.
     #[serde(default, rename = "dataVersion")]
     pub data_version: String,
+    /// 숫자 칸을 몇 자리로 보여 줄 것인가. **양식이 아니라 계산이 정한다** —
+    /// 환산점수를 확정하는 자릿수와 같아야 화면의 숫자와 밴드 라벨이 같은
+    /// 수를 본다. 그래서 manifest 에서 읽지 않고 늘 코드에서 채운다.
+    #[serde(skip_deserializing, default = "fixed_decimals")]
+    pub decimals: u32,
     pub screens: Vec<ScreenDef>,
+}
+
+fn fixed_decimals() -> u32 {
+    crate::score::FIXED_DECIMALS
 }
 
 impl Screens {
