@@ -420,8 +420,12 @@ impl Vault {
         let nonce: [u8; NONCE_LEN] = bytes[12 + SALT_LEN..12 + SALT_LEN + NONCE_LEN]
             .try_into()
             .expect("length checked above");
-        // 인증하는 머리는 CRC 앞까지다(봉하는 쪽과 같아야 한다).
-
+        /* **빈 그릇을 평문보다 먼저 연다.** 여는 일 자체는 아래에서 해도 되지만,
+           그러면 이 줄의 `?` 가 평문이 생긴 뒤에 돌게 된다 — 자리가 모자라 SQLite
+           가 연결을 못 열면 학생 전원의 평문 DB 가 안 지워진 채 힙에 남는다.
+           **평문이 살아 있는 동안에는 조기 반환이 하나도 없어야 한다.** 지우는
+           줄 하나를 옳게 두는 것보다, 건너뛸 길을 없애는 편이 확실하다. */
+        let mut conn = memory_db()?;
 
         // **그 파일의 판으로 뽑는다.** 비용이 판마다 다를 수 있다.
         let key = derive_key_for(container, password, &salt)?;
@@ -431,7 +435,6 @@ impl Vault {
             // 비밀번호 오류와 파일 손상은 구분할 수 없다. 구분해서도 안 된다.
             .map_err(|_| AppError::new(ErrorCode::VaultPasswordWrong))?;
 
-        let mut conn = memory_db()?;
         let len = plain.len();
         /* **성패와 무관하게 지운다.** 예전에는 `?` 를 먼저 써서, SQLite 가 이미지를
            거절하면 지우는 줄에 닿지도 못했다. 그때 힙에 남는 것이 학생 전원의 평문
