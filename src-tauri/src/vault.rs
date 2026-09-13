@@ -151,15 +151,22 @@ fn normalize(password: &str) -> String {
     out
 }
 
-fn derive_key(password: &str, salt: &[u8]) -> AppResult<[u8; 32]> {
+fn derive_key(password: &str, salt: &[u8]) -> AppResult<zeroize::Zeroizing<[u8; 32]>> {
     derive_key_for(CONTAINER_VERSION, password, salt)
 }
 
 /// 판 `container` 의 법으로 열쇠를 뽑는다. 옛 파일은 옛 법으로 푼다.
-fn derive_key_for(container: u8, password: &str, salt: &[u8]) -> AppResult<[u8; 32]> {
-    let mut key = [0u8; 32];
+///
+/// **감싸서 돌려준다.** `[u8; 32]` 는 Copy 라 그냥 돌려주면 이 함수의 자리에 사본이
+/// 남는다 — 잠근 뒤에도 스택에 열쇠가 있는 셈이다. `Zeroizing` 은 떨어질 때 지운다.
+fn derive_key_for(
+    container: u8,
+    password: &str,
+    salt: &[u8],
+) -> AppResult<zeroize::Zeroizing<[u8; 32]>> {
+    let mut key = zeroize::Zeroizing::new([0u8; 32]);
     let mut normalized = normalize(password);
-    let hashed = kdf_for(container)?.hash_password_into(normalized.as_bytes(), salt, &mut key);
+    let hashed = kdf_for(container)?.hash_password_into(normalized.as_bytes(), salt, key.as_mut());
     normalized.zeroize();
     hashed.map_err(|e| AppError::new(ErrorCode::VaultKeyDerivationFailed).detail(e))?;
     Ok(key)
@@ -283,16 +290,18 @@ impl Vault {
         check_password(password)?;
         let mut salt = [0u8; SALT_LEN];
         rand::rng().fill_bytes(&mut salt);
-        let mut key = derive_key(password, &salt)?;
+        let key = derive_key(password, &salt)?;
 
         let conn = memory_db()?;
         crate::migrate::run(&conn)?;
 
-        // `[u8; 32]` 는 Copy 라 넣어도 지역 사본이 스택에 남는다.
-        let vault =
-            Self { conn, key, salt, container: CONTAINER_VERSION, schema_version: SCHEMA_VERSION };
-        key.zeroize();
-        Ok(vault)
+        Ok(Self {
+            conn,
+            key: *key,
+            salt,
+            container: CONTAINER_VERSION,
+            schema_version: SCHEMA_VERSION,
+        })
     }
 
     /// 파일 내용을 복호화해 메모리에서 연다.
@@ -349,8 +358,8 @@ impl Vault {
         let ciphertext = &bytes[HEADER_LEN..];
 
         // **그 파일의 판으로 뽑는다.** 비용이 판마다 다를 수 있다.
-        let mut key = derive_key_for(container, password, &salt)?;
-        let cipher = Aes256Gcm::new((&key).into());
+        let key = derive_key_for(container, password, &salt)?;
+        let cipher = Aes256Gcm::new((&*key).into());
         let mut plain = cipher
             .decrypt(&Nonce::from(nonce), Payload { msg: ciphertext, aad: header })
             // 비밀번호 오류와 파일 손상은 구분할 수 없다. 구분해서도 안 된다.
@@ -372,15 +381,13 @@ impl Vault {
         /* **옛 그릇은 열면서 새 그릇으로 올린다.** 비밀번호가 여기 있을 때만 할 수
            있는 일이다 — 저장할 때는 이미 없다. 올린 열쇠는 다음 저장부터 쓰이고,
            저장하지 않으면 파일은 그대로다. */
-        let mut vault = Self { conn, key, salt, container, schema_version };
-        key.zeroize();
+        let mut vault = Self { conn, key: *key, salt, container, schema_version };
         if container < app_container {
             let mut fresh = [0u8; SALT_LEN];
             rand::rng().fill_bytes(&mut fresh);
-            let mut upgraded = derive_key_for(app_container, password, &fresh)?;
+            let upgraded = derive_key_for(app_container, password, &fresh)?;
             vault.key.zeroize();
-            vault.key = upgraded;
-            upgraded.zeroize();
+            vault.key = *upgraded;
             vault.salt = fresh;
             vault.container = app_container;
         }
@@ -448,9 +455,10 @@ impl Vault {
         next: &str,
         write: impl FnOnce(&[u8]) -> AppResult<()>,
     ) -> AppResult<()> {
-        let mut proof = derive_key(current, &self.salt)?;
+        // **이 금고의 판으로 뽑는다.** `self.key` 가 그 판으로 뽑힌 것이라, 상수로
+        // 뽑으면 판이 갈린 금고에서 맞는 비밀번호를 틀렸다고 하게 된다.
+        let proof = derive_key_for(self.container, current, &self.salt)?;
         let ok = constant_time_eq(&proof, &self.key);
-        proof.zeroize();
         if !ok {
             return Err(AppError::new(ErrorCode::VaultPasswordWrong));
         }
@@ -460,23 +468,15 @@ impl Vault {
         // 그대로 먹힌다.
         let mut salt = [0u8; SALT_LEN];
         rand::rng().fill_bytes(&mut salt);
-        let mut key = derive_key(next, &salt)?;
-
-        // 새 열쇠는 **지금 판**으로 뽑았다. 봉하는 판도 그것이다.
-        let result = self
-            .seal_with(CONTAINER_VERSION, &key, &salt)
-            .and_then(|bytes| write(&bytes));
-        if let Err(e) = result {
-            key.zeroize();
-            return Err(e);
-        }
+        // **이 금고의 판으로 뽑고 그 판으로 봉한다.** 상수를 쓰면 판이 갈린
+        // 금고에서 뽑은 열쇠와 적은 판이 어긋난다 — 이 자리에서 이미 두 번 틀렸다.
+        let key = derive_key_for(self.container, next, &salt)?;
+        self.seal_with(self.container, &key, &salt)
+            .and_then(|bytes| write(&bytes))?;
 
         self.key.zeroize();
-        self.key = key;
+        self.key = *key;
         self.salt = salt;
-        self.container = CONTAINER_VERSION;
-        // `[u8; 32]` 는 Copy 라 옮겨도 지역 사본이 스택에 남는다.
-        key.zeroize();
         Ok(())
     }
 }
@@ -615,7 +615,7 @@ mod tests {
         rand::rng().fill_bytes(&mut salt);
         let old = Vault {
             conn: Connection::open_in_memory().unwrap(),
-            key: derive_key(PW, &salt).unwrap(),
+            key: *derive_key(PW, &salt).unwrap(),
             salt,
             container: CONTAINER_VERSION,
             schema_version: 0,
@@ -902,6 +902,14 @@ mod tests {
     #[test]
     #[ignore = "저장소의 고정 파일을 덮어쓴다. 그릇을 일부러 고쳤을 때만 돌린다."]
     fn write_the_fixture() {
+        /* **두 겹으로 막는다.** `#[ignore]` 하나로는 모자라다 — 이 파일 안에 `--ignored`
+           로 돌리라고 적어 둔 다른 연장(`opening_takes`)이 있어서, 필터 없이 한 번
+           치면 함께 돌아 고정 파일이 새로 떠진다. 그 뒤로 그릇 고정 시험은 무엇을
+           바꾸든 영원히 통과한다. 일부러 켜야만 쓴다. */
+        if std::env::var("GOE_NAVI_WRITE_FIXTURE").is_err() {
+            eprintln!("  GOE_NAVI_WRITE_FIXTURE=1 이 없어 다시 뜨지 않았다");
+            return;
+        }
         // **나간 뒤에는 다시 뜨지 않는다.** `#[ignore]` 하나로는 모자란다 —
         // 누군가 `cargo test -- --ignored` 를 한 번 치면 고정 파일이 새로 떠지고,
         // 그 뒤로 고정 시험은 무엇을 바꾸든 영원히 통과한다.
@@ -995,6 +1003,52 @@ mod tests {
             Vault::open(&widened, PW).unwrap_err().code,
             ErrorCode::VaultFormatInvalid,
             "열이 늘어난 파일이 열렸다"
+        );
+    }
+
+    /// **통계 표 이름 뒤에도 숨을 수 없다.**
+    ///
+    /// 통계 표는 지문에서 빼는데, 그 예외를 이름으로만 두면 아무 표나 그 이름을
+    /// 달고 사라진다. `LIKE` 였을 때는 더 나빴다 — `_` 가 와일드카드라
+    /// `sqliteZstat1` 도 함께 빠졌고, 대소문자도 안 가렸다.
+    #[test]
+    fn a_table_wearing_the_statistics_name_does_not_open() {
+        for name in ["sqlite_stat1", "sqliteZstat1", "SQLITE_STAT1"] {
+            let hidden = doctored(|c| {
+                c.execute_batch(&format!(
+                    "CREATE TABLE zzz(secret TEXT);
+                     PRAGMA writable_schema = ON;
+                     UPDATE sqlite_master SET name = '{name}', tbl_name = '{name}'
+                       WHERE name = 'zzz';
+                     PRAGMA writable_schema = OFF;"
+                ))
+                .unwrap()
+            });
+            assert_eq!(
+                Vault::open(&hidden, PW).unwrap_err().code,
+                ErrorCode::VaultFormatInvalid,
+                "'{name}' 이름 뒤에 숨은 표가 지나갔다"
+            );
+        }
+    }
+
+    /// 이름이 없는 줄도 지문에 오른다. NULL 은 `AND`·`NOT` 에서 조용히 빠진다.
+    #[test]
+    fn a_row_with_no_name_does_not_slip_past_the_fingerprint() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::migrate::run(&conn).unwrap();
+        let before = crate::migrate::fingerprint(&conn).unwrap();
+        conn.execute_batch(
+            "PRAGMA writable_schema = ON;
+             INSERT INTO sqlite_master(type, name, tbl_name, rootpage, sql)
+               VALUES('table', NULL, 'students', 0, NULL);
+             PRAGMA writable_schema = OFF;",
+        )
+        .unwrap();
+        assert_ne!(
+            crate::migrate::fingerprint(&conn).unwrap(),
+            before,
+            "이름 없는 줄이 지문에서 빠졌다"
         );
     }
 
@@ -1135,16 +1189,21 @@ mod tests {
     /// 비밀번호 바꾸기는 **늘 지금 판**으로 봉한다.
     #[test]
     fn rekeying_moves_the_file_to_the_current_container() {
-        let mut v = seeded();
-        v.container = 2; // 올려서 연 것처럼 둔다
+        const NEXT: u8 = 2;
+        let sealed = seeded().seal().unwrap();
+        // 진짜로 올려서 연 금고를 쓴다. 판만 손으로 바꿔 두면 열쇠와 어긋나
+        // "맞는 비밀번호를 틀렸다" 고 하는 자리를 못 본다.
+        let mut v = Vault::open_as(&sealed, PW, NEXT).unwrap();
         let mut saved = Vec::new();
         v.rekey(PW, "바뀐비밀번호2027", |b| {
             saved = b.to_vec();
             Ok(())
         })
         .unwrap();
-        assert_eq!(saved[7], CONTAINER_VERSION, "바꾼 뒤에도 옛 판이 적혔다");
-        assert_eq!(v.container, CONTAINER_VERSION);
+        assert_eq!(saved[7], NEXT, "바꾼 뒤에 판이 내려갔다");
+        assert_eq!(v.container, NEXT);
+        // 바꾼 비밀번호로 다시 열린다.
+        assert!(Vault::open_as(&saved, "바뀐비밀번호2027", NEXT).is_ok());
     }
 
     /// 비밀번호를 아는 쪽이 손본 파일을 만든다. 태그는 맞는다.
@@ -1247,7 +1306,7 @@ mod tests {
     fn the_key_recipe_is_pinned() {
         let key = derive_key("학교비밀번호2027", b"goe-navi-salt-16").unwrap();
         assert_eq!(
-            hex(&key),
+            hex(&*key),
             "dd5dcf8533250488be80b1df35c8df8c4653bec6e14403e20778576549c2993f",
             "\n열쇠를 뽑는 방법이 달라졌습니다. 비용·알고리즘·판 중 무엇이 바뀌었는지\n\
              확인하세요. 이미 나간 파일이 있으면 그 파일들은 열리지 않습니다.\n"
