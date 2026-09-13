@@ -199,6 +199,9 @@ pub struct Screens {
     /// 값이 없는 칸에 양식이 적어 두는 글자. **코드에 박지 않는다.**
     #[serde(default = "default_blank")]
     pub blank: String,
+    /// 이 자료가 언제 것인가. 옛 navi.db 에는 없으므로 비어 있을 수 있다.
+    #[serde(default, rename = "dataVersion")]
+    pub data_version: String,
     pub screens: Vec<ScreenDef>,
 }
 
