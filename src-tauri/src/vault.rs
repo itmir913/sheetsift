@@ -420,29 +420,27 @@ impl Vault {
         let nonce: [u8; NONCE_LEN] = bytes[12 + SALT_LEN..12 + SALT_LEN + NONCE_LEN]
             .try_into()
             .expect("length checked above");
-        /* **빈 그릇을 평문보다 먼저 연다.** 여는 일 자체는 아래에서 해도 되지만,
-           그러면 이 줄의 `?` 가 평문이 생긴 뒤에 돌게 된다 — 자리가 모자라 SQLite
-           가 연결을 못 열면 학생 전원의 평문 DB 가 안 지워진 채 힙에 남는다.
-           **평문이 살아 있는 동안에는 조기 반환이 하나도 없어야 한다.** 지우는
-           줄 하나를 옳게 두는 것보다, 건너뛸 길을 없애는 편이 확실하다. */
+        // 담을 빈 그릇을 먼저 연다.
         let mut conn = memory_db()?;
 
         // **그 파일의 판으로 뽑는다.** 비용이 판마다 다를 수 있다.
         let key = derive_key_for(container, password, &salt)?;
         let cipher = Aes256Gcm::new((&*key).into());
-        let mut plain = cipher
-            .decrypt(&Nonce::from(nonce), Payload { msg: ciphertext, aad: header })
-            // 비밀번호 오류와 파일 손상은 구분할 수 없다. 구분해서도 안 된다.
-            .map_err(|_| AppError::new(ErrorCode::VaultPasswordWrong))?;
+        /* **스스로 지워지는 그릇에 담는다.** 여기 든 것은 학생 전원의 평문 DB 다.
+           손으로 지우는 줄을 두었을 때 두 번 틀렸다 — 한 번은 `?` 가 그 줄 앞에서
+           돌아서, 한 번은 그릇을 여는 `?` 가 그 줄 앞에서 돌아서. 어느 쪽도 시험이
+           보지 못한다. 지우는 자리를 옳게 고르는 대신 **고를 일을 없앤다**:
+           `Zeroizing` 은 어떤 길로 함수를 빠져나가든, 되감기는 패닉에서도 지운다. */
+        let plain = zeroize::Zeroizing::new(
+            cipher
+                .decrypt(&Nonce::from(nonce), Payload { msg: ciphertext, aad: header })
+                // 비밀번호 오류와 파일 손상은 구분할 수 없다. 구분해서도 안 된다.
+                .map_err(|_| AppError::new(ErrorCode::VaultPasswordWrong))?,
+        );
 
         let len = plain.len();
-        /* **성패와 무관하게 지운다.** 예전에는 `?` 를 먼저 써서, SQLite 가 이미지를
-           거절하면 지우는 줄에 닿지도 못했다. 그때 힙에 남는 것이 학생 전원의 평문
-           DB 다 — 지우려고 둔 줄이 정작 지워야 할 때 건너뛰어지고 있었다. */
-        let loaded =
-            conn.deserialize_read_exact("main", std::io::Cursor::new(&plain), len, false);
-        plain.zeroize();
-        loaded.map_err(|e| AppError::new(ErrorCode::VaultOpenFailed).detail(e))?;
+        conn.deserialize_read_exact("main", std::io::Cursor::new(&*plain), len, false)
+            .map_err(|e| AppError::new(ErrorCode::VaultOpenFailed).detail(e))?;
 
         check_image(&conn)?;
 
