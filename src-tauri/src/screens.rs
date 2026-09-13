@@ -85,6 +85,8 @@ pub enum ScreenKind {
     RangeChart,
     /// 성적 검색 — 유일하게 계산을 하는 화면.
     Search,
+    /// 학생 선택 — 한 학생을 고르고 그 학생의 추이를 본다. 표를 읽지 않는다.
+    Student,
     /// 학생 데이터 관리. 표를 읽지 않는다.
     Admin,
 }
