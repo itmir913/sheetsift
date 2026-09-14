@@ -52,10 +52,6 @@
 //! 묶으면 **머리가 틀린 채 열리는 길이 구조적으로 없다.** 비용은 0 이다.
 //! `vault.rs` 도 같은 모양이다.
 
-use aes_gcm::{
-    aead::{Aead, KeyInit, Payload},
-    Aes256Gcm, Nonce,
-};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 
 use crate::{keys, version::Version, AppError, AppResult, ErrorCode};
@@ -173,11 +169,8 @@ pub fn open(bytes: &[u8]) -> AppResult<Vec<u8>> {
     let body = &bytes[HEAD_LEN..bytes.len() - SIGNATURE_LEN];
 
     let key = keys::data_key();
-    let cipher = Aes256Gcm::new_from_slice(&*key)
-        .map_err(|e| AppError::new(ErrorCode::DataSealInvalid).detail(e))?;
-    cipher
-        .decrypt(&Nonce::from(nonce), Payload { msg: body, aad: head })
-        .map_err(|e| AppError::new(ErrorCode::DataSealInvalid).detail(e))
+    navi_aead::open(&key, &nonce, head, body)
+        .ok_or_else(|| AppError::new(ErrorCode::DataSealInvalid).detail("authentication tag mismatch"))
 }
 
 /// 봉하고 서명한다. **`build_db` 전용.**
@@ -220,11 +213,8 @@ fn seal_with(
     debug_assert_eq!(out.len(), HEAD_LEN);
 
     let key = keys::data_key();
-    let cipher = Aes256Gcm::new_from_slice(&*key)
-        .map_err(|e| AppError::new(ErrorCode::DataSealInvalid).detail(e))?;
-    let body = cipher
-        .encrypt(&Nonce::from(nonce), Payload { msg: image, aad: &out[..HEAD_LEN] })
-        .map_err(|e| AppError::new(ErrorCode::DataSealInvalid).detail(e))?;
+    let body = navi_aead::seal(&key, &nonce, &out[..HEAD_LEN], image)
+        .ok_or_else(|| AppError::new(ErrorCode::DataSealInvalid).detail("could not seal"))?;
     out.extend_from_slice(&body);
 
     let signature = signing.sign(&out);

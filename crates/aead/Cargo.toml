@@ -1,0 +1,12 @@
+[package]
+name = "navi-aead"
+# 여기는 판을 적는 곳이 아니다. 앱 판은 tauri.conf.json 한 곳에 있다.
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.82"
+publish = false
+
+[dependencies]
+# zeroize 를 켜지 않으면 크레이트 안의 **지우는 코드가 통째로 빠진다.**
+# AES 라운드 키에서 원래 열쇠는 되돌릴 수 있다.
+aes-gcm = { version = "0.11", features = ["zeroize"] }
