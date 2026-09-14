@@ -1,7 +1,7 @@
 //! 화면 정의 — **데이터에서 읽는다.**
 //!
 //! 조회 화면은 코드가 아니라 `data/manifest.json` 의 항목 하나다. 빌드할 때
-//! `build_db` 가 그것을 navi.db 의 `screens_meta` 에 넣어 두고, 앱은 기동하면서
+//! `build_db` 가 그것을 navi.bin 의 `screens_meta` 에 넣어 두고, 앱은 기동하면서
 //! 여기로 읽어 온다. 교육청 자료에 표가 하나 늘어도 Rust 를 고칠 일이 없다.
 //!
 //! ## 사전 인코딩(Dict) 열
@@ -183,8 +183,8 @@ impl ScreenDef {
     }
 }
 
-/// navi.db 에 들어 있는 화면 정의 묶음.
-/// 양식이 "없음" 을 적을 때 쓰는 글자. navi.db 에 없으면(옛 파일) 이 값.
+/// navi.bin 에 들어 있는 화면 정의 묶음.
+/// 양식이 "없음" 을 적을 때 쓰는 글자. navi.bin 에 없으면(옛 파일) 이 값.
 fn default_blank() -> String {
     "-".into()
 }
@@ -199,7 +199,7 @@ pub struct Screens {
     /// 값이 없는 칸에 양식이 적어 두는 글자. **코드에 박지 않는다.**
     #[serde(default = "default_blank")]
     pub blank: String,
-    /// 이 자료가 언제 것인가. 옛 navi.db 에는 없으므로 비어 있을 수 있다.
+    /// 이 자료가 언제 것인가. 옛 navi.bin 에는 없으므로 비어 있을 수 있다.
     #[serde(default, rename = "dataVersion")]
     pub data_version: String,
     /// 숫자 칸을 몇 자리로 보여 줄 것인가. **양식이 아니라 계산이 정한다** —
