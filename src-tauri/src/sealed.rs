@@ -110,11 +110,14 @@ pub struct Head {
 ///
 /// **복호화하지 않는다.** 판 견주기는 여기까지만 필요하다.
 ///
-/// 공개키를 **인자로 받는다.** 앱은 [`keys::VERIFY_KEY`] 를 넘기고, `build_db`
-/// 는 서명 직후 스스로 검증할 때 릴리스 공개키를 넘긴다. 상수를 안에서 읽게
-/// 하면 시험이 제 키로 만든 자료를 못 보고, 그렇다고 시험만 갈래를 따로 두면
-/// `cargo test --release` 에서 그 시험이 통째로 사라진다.
-pub fn parse(bytes: &[u8], verify: &VerifyingKey) -> AppResult<Head> {
+/// 공개키를 **인자로 받는다.** 앱과 `build_db` 는 [`keys::verify_keys`] 를
+/// 넘기고, 시험은 제 키를 넘긴다. 상수를 안에서 읽게 하면 시험이 제 키로 만든
+/// 자료를 못 보고, 그렇다고 시험만 갈래를 따로 두면 `cargo test --release` 에서
+/// 그 시험이 통째로 사라진다.
+///
+/// **여럿을 받아 하나라도 맞으면 통과다.** 까닭은 [`keys::verify_keys`] 에 있다 —
+/// 릴리스 자료를 만드는 검사 잡이 debug 로 돌기 때문이다.
+pub fn parse(bytes: &[u8], verify: &[[u8; 32]]) -> AppResult<Head> {
     if bytes.len() < HEAD_LEN + TAG_LEN + SIGNATURE_LEN {
         return Err(AppError::new(ErrorCode::DataSealInvalid)
             .detail(format!("too short: {} bytes", bytes.len())));
@@ -127,9 +130,24 @@ pub fn parse(bytes: &[u8], verify: &VerifyingKey) -> AppResult<Head> {
     let signature = Signature::from_slice(signature).map_err(|e| {
         AppError::new(ErrorCode::DataSignatureInvalid).detail(format!("bad signature: {e}"))
     })?;
-    verify
-        .verify(signed, &signature)
-        .map_err(|e| AppError::new(ErrorCode::DataSignatureInvalid).detail(e))?;
+    // **읽지 못한 열쇠를 그냥 넘어가지 않는다.** 목록에 든 것이 공개키가 아니면
+    // 배선이 끊긴 것이지 서명이 틀린 것이 아니다. 조용히 건너뛰면 "아무 열쇠도
+    // 안 맞는다" 로 둔갑해, 오타 하나를 위조로 읽게 된다.
+    let mut matched = false;
+    for raw in verify {
+        let key = VerifyingKey::from_bytes(raw).map_err(|e| {
+            AppError::new(ErrorCode::DataSignatureInvalid)
+                .detail(format!("a configured verifying key is not a valid point: {e}"))
+        })?;
+        if key.verify(signed, &signature).is_ok() {
+            matched = true;
+            break;
+        }
+    }
+    if !matched {
+        return Err(AppError::new(ErrorCode::DataSignatureInvalid)
+            .detail(format!("no configured key verifies this signature ({} tried)", verify.len())));
+    }
 
     // 여기서부터 읽는 값은 전부 서명이 덮은 것이다.
     let container = bytes[MAGIC_LEN];
@@ -232,8 +250,8 @@ mod tests {
         SigningKey::from_bytes(&[7u8; 32])
     }
 
-    fn test_verify() -> VerifyingKey {
-        test_key().verifying_key()
+    fn test_verify() -> Vec<[u8; 32]> {
+        vec![test_key().verifying_key().to_bytes()]
     }
 
     /// 시험용 자료. 진짜 SQLite 일 까닭이 없다 — 이 층은 바이트만 다룬다.
