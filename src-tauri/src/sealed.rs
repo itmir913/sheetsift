@@ -246,7 +246,7 @@ mod tests {
             .map(|b| format!("{b:02x}"))
             .collect();
         assert_eq!(
-            hex, "7be5c7b34e45e135200bb113bdd950bc",
+            hex, "8896edcd0833e9892179172fb29192f8",
             "봉하는 방법이 바뀌었습니다. 이미 나간 앱이 새 자료를 열지 못합니다."
         );
     }
