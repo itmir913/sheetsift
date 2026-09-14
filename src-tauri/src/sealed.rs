@@ -67,6 +67,17 @@ const MAGIC: &[u8; 8] = &[0x9e, 0x4d, 0x1a, 0xc7, 0x60, 0xb3, 0x2f, 0x08];
 /// 다른 것이다 — 그쪽은 표가 바뀌는 것이고, 이쪽은 푸는 방법이 바뀌는 것이다.
 pub const CONTAINER_VERSION: u8 = 1;
 
+/// **봉인 형식이 처음 들어간 앱 판.** `minApp` 을 이보다 낮게 적을 수 없다 —
+/// 그보다 낮은 앱은 이 그릇을 모르므로, 받아도 열지 못한다.
+///
+/// 아직 값이 굳지 않았다. 첫 봉인 판이 몇 번으로 나갈지는 릴리스 키를 만드는
+/// 날 정해지므로, 그때까지는 **지금 판**과 같게 둔다. 그러면
+/// [`tests::the_floor_is_not_above_the_current_version`] 이 참이고, 낮추는
+/// 길도 당장은 열리지 않는다.
+pub fn sealed_since() -> AppResult<Version> {
+    Version::from_config()
+}
+
 const MAGIC_LEN: usize = 8;
 const DATA_VERSION_LEN: usize = 6;
 const NONCE_LEN: usize = 12;
@@ -75,6 +86,14 @@ const SIGNATURE_LEN: usize = 64;
 const HEAD_LEN: usize = MAGIC_LEN + 1 + DATA_VERSION_LEN + 3 + NONCE_LEN;
 /// GCM 태그. 알맹이가 비어 있어도 이만큼은 있다.
 const TAG_LEN: usize = 16;
+
+/// 매직만 본다. **판정이 아니라 눈짐작이다** — 진짜인지는 [`parse`] 가 본다.
+///
+/// 시험이 "봉인된 그릇이기는 한가" 를 물을 때 쓴다. 매직은 뜻 없는 바이트라
+/// 밖에서 견주려면 여기를 거쳐야 한다.
+pub fn starts_with_magic(bytes: &[u8]) -> bool {
+    bytes.starts_with(MAGIC)
+}
 
 /// 복호화하지 않고 읽어 낸 머리.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -351,6 +370,12 @@ mod tests {
         let b = seal(IMAGE, "260801", Version::parse("0.5.3").unwrap(), &test_key()).unwrap();
         assert_ne!(a[18..30], b[18..30], "논스가 같습니다");
         assert_ne!(a, b);
+    }
+
+    /// 바닥이 지금 판보다 높으면 **낮출 수 없는데 낮추라고 서는** 상태가 된다.
+    #[test]
+    fn the_floor_is_not_above_the_current_version() {
+        assert!(sealed_since().unwrap() <= Version::from_config().unwrap());
     }
 
     #[test]
