@@ -101,6 +101,41 @@ pub struct Head {
     pub min_app: Version,
 }
 
+/// **[`parse`] 를 지난 바이트.** 이 타입이 아니면 [`open`] 을 부를 수 없다.
+///
+/// 검사를 건너뛴 바이트를 복호화기에 밀어 넣는 것을 **구조로** 막는다. 주석이나
+/// 검사로 "먼저 `parse` 를 부르시오" 라고 적어 두는 것과 다르다 — 그런 약속은
+/// 지키는 사람이 있는 동안만 지켜진다.
+///
+/// 만드는 길이 [`parse`] 하나뿐이라, 이것을 손에 쥐었다는 사실이 곧 **매직이
+/// 맞고, 서명이 우리 열쇠 가운데 하나로 검증되었고, 그릇 판을 안다**는 뜻이다.
+pub struct Verified<'a> {
+    bytes: &'a [u8],
+    head: Head,
+}
+
+/// **바이트를 찍지 않는다.** 31MB 가 로그와 패닉 메시지로 쏟아진다.
+/// 머리만 보이면 어느 자료인지 가리기에 넉넉하다.
+impl std::fmt::Debug for Verified<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Verified")
+            .field("head", &self.head)
+            .field("bytes", &format_args!("{} B", self.bytes.len()))
+            .finish()
+    }
+}
+
+impl Verified<'_> {
+    pub fn head(&self) -> &Head {
+        &self.head
+    }
+
+    /// 봉인된 바이트 전체. 씨앗과 갱신본 중 이긴 쪽을 그대로 넘길 때 쓴다.
+    pub fn bytes(&self) -> &[u8] {
+        self.bytes
+    }
+}
+
 /// **매직 → 서명 → 그릇 판 → 나머지.** 이 차례가 규약이다.
 ///
 /// 매직을 먼저 보는 것은 "우리 파일이 아니다" 를 서명 실패와 가르기 위해서다.
@@ -117,7 +152,7 @@ pub struct Head {
 ///
 /// **여럿을 받아 하나라도 맞으면 통과다.** 까닭은 [`keys::verify_keys`] 에 있다 —
 /// 릴리스 자료를 만드는 검사 잡이 debug 로 돌기 때문이다.
-pub fn parse(bytes: &[u8], verify: &[[u8; 32]]) -> AppResult<Head> {
+pub fn parse<'a>(bytes: &'a [u8], verify: &[[u8; 32]]) -> AppResult<Verified<'a>> {
     if bytes.len() < HEAD_LEN + TAG_LEN + SIGNATURE_LEN {
         return Err(AppError::new(ErrorCode::DataSealInvalid)
             .detail(format!("too short: {} bytes", bytes.len())));
@@ -169,17 +204,16 @@ pub fn parse(bytes: &[u8], verify: &[[u8; 32]]) -> AppResult<Head> {
     let at = at + DATA_VERSION_LEN;
     let min_app = Version::from_bytes([bytes[at], bytes[at + 1], bytes[at + 2]]);
 
-    Ok(Head { container, data_version, min_app })
+    Ok(Verified { bytes, head: Head { container, data_version, min_app } })
 }
 
-/// 봉인을 푼다. **[`parse`] 를 지난 바이트만 넣는다.**
+/// 봉인을 푼다. **[`Verified`] 만 받는다** — 그 타입을 만드는 길이 [`parse`]
+/// 하나뿐이므로, 검사를 건너뛰고 여기 올 수 없다.
 ///
-/// 머리가 AAD 로 묶여 있어, 머리를 한 바이트라도 고친 것은 여기서 거절된다.
-pub fn open(bytes: &[u8]) -> AppResult<Vec<u8>> {
-    if bytes.len() < HEAD_LEN + TAG_LEN + SIGNATURE_LEN {
-        return Err(AppError::new(ErrorCode::DataSealInvalid)
-            .detail(format!("too short: {} bytes", bytes.len())));
-    }
+/// 머리가 AAD 로도 묶여 있어, 머리를 한 바이트라도 고친 것은 여기서 또 거절된다.
+/// 겹쳐 두는 까닭은 서명과 봉인이 서로 독립이기 때문이다.
+pub fn open(verified: &Verified<'_>) -> AppResult<Vec<u8>> {
+    let bytes = verified.bytes;
     let head = &bytes[..HEAD_LEN];
     let nonce: [u8; NONCE_LEN] = bytes[HEAD_LEN - NONCE_LEN..HEAD_LEN]
         .try_into()
@@ -293,10 +327,10 @@ mod tests {
     #[test]
     fn what_was_sealed_comes_back() {
         let bytes = sealed();
-        let head = parse(&bytes, &test_verify()).unwrap();
-        assert_eq!(head.data_version, "260801");
-        assert_eq!(head.min_app, Version::parse("0.5.3").unwrap());
-        assert_eq!(open(&bytes).unwrap(), IMAGE);
+        let verified = parse(&bytes, &test_verify()).unwrap();
+        assert_eq!(verified.head().data_version, "260801");
+        assert_eq!(verified.head().min_app, Version::parse("0.5.3").unwrap());
+        assert_eq!(open(&verified).unwrap(), IMAGE);
     }
 
     /// **평문이 파일에 남지 않는다.** 이 작업의 목적 그 자체다.
@@ -367,8 +401,8 @@ mod tests {
         let signed_len = bytes.len() - SIGNATURE_LEN;
         let signature = test_key().sign(&bytes[..signed_len]);
         bytes[signed_len..].copy_from_slice(&signature.to_bytes());
-        parse(&bytes, &test_verify()).expect("서명은 맞춰 왔으므로 여기는 지나간다");
-        assert_eq!(open(&bytes).unwrap_err().code, ErrorCode::DataSealInvalid);
+        let verified = parse(&bytes, &test_verify()).expect("서명은 맞춰 왔으므로 여기는 지나간다");
+        assert_eq!(open(&verified).unwrap_err().code, ErrorCode::DataSealInvalid);
     }
 
     /// 논스가 매번 달라야 한다. 되쓰면 GCM 이 무너진다.
