@@ -66,12 +66,14 @@ pub const CONTAINER_VERSION: u8 = 1;
 /// **봉인 형식이 처음 들어간 앱 판.** `minApp` 을 이보다 낮게 적을 수 없다 —
 /// 그보다 낮은 앱은 이 그릇을 모르므로, 받아도 열지 못한다.
 ///
-/// 아직 값이 굳지 않았다. 첫 봉인 판이 몇 번으로 나갈지는 릴리스 키를 만드는
-/// 날 정해지므로, 그때까지는 **지금 판**과 같게 둔다. 그러면
-/// [`tests::the_floor_is_not_above_the_current_version`] 이 참이고, 낮추는
-/// 길도 당장은 열리지 않는다.
+/// **값이 굳었다.** `0.6.0` 이 봉인된 자료를 싣고 나가는 첫 판이다. `0.5.3` 까지는
+/// 자료가 평문 SQLite 로 실행 파일에 들어 있었고, 갱신이라는 것 자체가 없었다.
+///
+/// "지금 판" 을 돌려주면 안 된다. 그러면 `0.7.0` 이 나오는 날 바닥이 따라 올라가
+/// **`minApp` 을 낮추는 길이 막힌다** — 자료만 갈아 끼우는 길이 사실상 죽는다.
+/// 낮추기가 그 길의 유일한 통로다.
 pub fn sealed_since() -> AppResult<Version> {
-    Version::from_config()
+    Version::parse("0.6.0")
 }
 
 const MAGIC_LEN: usize = 8;
@@ -415,9 +417,18 @@ mod tests {
     }
 
     /// 바닥이 지금 판보다 높으면 **낮출 수 없는데 낮추라고 서는** 상태가 된다.
+    ///
+    /// 판을 내리는 일은 없겠지만, 바닥을 손으로 올려 적는 실수는 있을 수 있다.
     #[test]
     fn the_floor_is_not_above_the_current_version() {
         assert!(sealed_since().unwrap() <= Version::from_config().unwrap());
+    }
+
+    /// **바닥은 굳은 값이다.** "지금 판" 을 돌려주면 판을 올릴 때마다 따라 올라가,
+    /// 자료만 갈아 끼우는 길이 사실상 죽는다.
+    #[test]
+    fn the_floor_does_not_follow_the_app_version() {
+        assert_eq!(sealed_since().unwrap(), Version::parse("0.6.0").unwrap());
     }
 
     #[test]
