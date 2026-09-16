@@ -871,7 +871,7 @@ mod tests {
     /// `<같은이름>.tmp` 를 말없이 덮어쓴다.
     #[test]
     fn the_temporary_name_does_not_eat_a_neighbours_file() {
-        let dir = std::env::temp_dir().join(format!("{}-tmp-name-test", crate::brand::SLUG));
+        let dir = crate::testing::temp_dir("tmp-name");
         std::fs::create_dir_all(&dir).unwrap();
         let neighbour = dir.join("학생데이터.tmp");
         std::fs::write(&neighbour, "담당자가 둔 파일").unwrap();
