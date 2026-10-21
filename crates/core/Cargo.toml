@@ -11,6 +11,7 @@ publish = false
 # 웹(wasm)이 같은 코드를 쓰려면 그래야 한다. 열쇠도 여기 없다. 부르는 쪽이 넣는다.
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 rand = "0.9"
 ed25519-dalek = { version = "2", default-features = false, features = ["std", "zeroize"] }
 sheetsift-aead = { path = "../aead" }

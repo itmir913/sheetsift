@@ -18,6 +18,9 @@ use serde::Serialize;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ErrorCode {
+    DbQueryFailed,
+    /// 정렬·필터·값 목록이 표에 없는 열을 가리켰다.
+    InvalidSortKey,
     DataSealInvalid,
     DataSignatureInvalid,
     DataContainerUnknown,
@@ -73,5 +76,11 @@ impl std::fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+impl From<rusqlite::Error> for Error {
+    fn from(e: rusqlite::Error) -> Self {
+        Error::new(ErrorCode::DbQueryFailed).detail(e)
+    }
+}
 
 pub type Result<T> = std::result::Result<T, Error>;

@@ -9,6 +9,7 @@
 //! - **tauri 와 파일 시스템.** 바이트를 받고 바이트를 돌려준다.
 
 mod error;
+pub mod grid;
 pub mod seal;
 pub mod vault;
 

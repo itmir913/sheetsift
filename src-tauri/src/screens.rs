@@ -4,36 +4,29 @@
 //! `build_db` 가 그것을 navi.bin 의 `screens_meta` 에 넣어 두고, 앱은 기동하면서
 //! 여기로 읽어 온다. 교육청 자료에 표가 하나 늘어도 Rust 를 고칠 일이 없다.
 //!
-//! ## 사전 인코딩(Dict) 열
-//! 대용량 표는 반복되는 문자열(대학명·전형명 등)을 `dict` 테이블의 정수 id 로
-//! 바꿔 저장한다. 이때 **id 를 가나다순으로 부여**했기 때문에
-//! `ORDER BY t.univ`(정수) 가 곧 가나다순 정렬이다.
-//! 덕분에 정렬·집계에는 조인이 전혀 필요 없고, 화면에 내보낼 행에만 조인한다.
+//! 열 하나가 조회에서 무엇을 뜻하는지(사전 인코딩 열 포함)는
+//! [`sheetsift_core::grid`] 에 있다. 여기는 그 위에 이 앱의 화면 — 묶음, 종류,
+//! 성적 검색의 열 — 을 얹는다.
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, AppResult, ErrorCode};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ColumnKind {
-    /// 문자열. 좌측 정렬, 부분일치 필터.
-    Text,
-    /// 숫자. 우측 정렬, 자릿수 맞춤.
-    Number,
-}
+pub use sheetsift_core::grid::ColumnKind;
+use sheetsift_core::grid::Column;
 
+/// 열 하나. 조회에 쓰는 몫은 [`Column`] 이고, 여기서는 성적 검색이 쓰는 두
+/// 칸만 더한다.
+///
+/// 조회 엔진은 `sheetsift-core` 의 것이라 이 앱의 칸을 모른다. 두 칸을 그쪽에
+/// 넣으면 범용 조회 도구가 성적 검색의 말을 알게 된다. 그래서 감싸서 **같은
+/// JSON 한 덩이**로 읽고(`flatten`), 나머지 코드는 `Deref` 로 그 안을 그대로 본다.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ColumnDef {
-    /// 결과 컬럼 별칭이자 프런트에서 쓰는 키.
-    pub key: String,
-    /// 화면에 보이는 이름.
-    pub label: String,
-    /// 기준 테이블의 열 이름. 계산으로 만드는 열은 비어 있다.
-    #[serde(skip_serializing)]
-    pub column: String,
+    #[serde(flatten)]
+    pub grid: Column,
     /// 등급제 토글에 따라 갈아 끼우는 컷 열의 이름(`search.cuts` 의 열쇠).
     #[serde(default, skip_serializing)]
     pub cut: String,
@@ -44,32 +37,18 @@ pub struct ColumnDef {
     /// 화면에 적어 두면 양식에서 머리글을 바꿀 때 설명만 옛말이 된다.
     #[serde(default)]
     pub compute: String,
-    pub kind: ColumnKind,
-    pub sortable: bool,
-    pub filterable: bool,
-    /// 양수에 `+` 를 붙일 숫자인가. 격차처럼 부호에 뜻이 있는 열에 쓴다.
-    #[serde(default)]
-    pub signed: bool,
-    /// 사전 인코딩 열인가. 그렇다면 값은 정수 id 이고 dict 를 조인해야 한다.
-    #[serde(skip_serializing)]
-    pub dict: bool,
-    /// dict 조인에 쓸 별칭. 읽어 들이면서 열마다 하나씩 매긴다.
-    #[serde(skip)]
-    pub alias: String,
 }
 
-impl ColumnDef {
-    /// 기준 테이블 안에서의 열 참조. 정렬·필터에 쓴다.
-    pub fn base_ref(&self) -> String {
-        format!("t.\"{}\"", self.column)
+impl std::ops::Deref for ColumnDef {
+    type Target = Column;
+    fn deref(&self) -> &Column {
+        &self.grid
     }
-    /// 화면에 내보낼 식. 사전 열은 조인한 문자열을 쓴다.
-    pub fn display_ref(&self) -> String {
-        if self.dict {
-            format!("{}.s", self.alias)
-        } else {
-            self.base_ref()
-        }
+}
+
+impl std::ops::DerefMut for ColumnDef {
+    fn deref_mut(&mut self) -> &mut Column {
+        &mut self.grid
     }
 }
 
@@ -160,26 +139,15 @@ pub struct ScreenDef {
     pub search: Option<SearchDef>,
 }
 
-impl ScreenDef {
-    pub fn column(&self, key: &str) -> Option<&ColumnDef> {
-        self.columns.iter().find(|c| c.key == key)
+impl sheetsift_core::grid::Table for ScreenDef {
+    fn id(&self) -> &str {
+        &self.id
     }
-
-    /// 화면에 필요한 dict 조인 절을 만든다. (중복 별칭 제거)
-    pub fn dict_joins(&self) -> String {
-        let mut seen: Vec<&str> = Vec::new();
-        let mut out = String::new();
-        for c in &self.columns {
-            if !c.dict || seen.contains(&c.alias.as_str()) {
-                continue;
-            }
-            seen.push(&c.alias);
-            out.push_str(&format!(
-                "\n     LEFT JOIN dict {} ON {}.id = t.\"{}\"",
-                c.alias, c.alias, c.column
-            ));
-        }
-        out
+    fn base(&self) -> &str {
+        &self.base
+    }
+    fn columns(&self) -> Box<dyn Iterator<Item = &Column> + '_> {
+        Box::new(self.columns.iter().map(|c| &c.grid))
     }
 }
 
@@ -247,21 +215,7 @@ pub fn load(conn: &Connection) -> AppResult<Screens> {
     })?;
 
     for s in &mut screens.screens {
-        let mut alias_of: Vec<(String, String)> = Vec::new();
-        for c in &mut s.columns {
-            if !c.dict {
-                continue;
-            }
-            let found = alias_of.iter().find(|(col, _)| *col == c.column).map(|(_, a)| a.clone());
-            c.alias = match found {
-                Some(a) => a,
-                None => {
-                    let a = format!("d{}", alias_of.len() + 1);
-                    alias_of.push((c.column.clone(), a.clone()));
-                    a
-                }
-            };
-        }
+        sheetsift_core::grid::assign_aliases(s.columns.iter_mut().map(|c| &mut c.grid));
     }
     Ok(screens)
 }
