@@ -1,0 +1,10 @@
+# **웹에서 난수를 어디서 받는지 적어 준다.**
+#
+# `getrandom` 0.3 은 wasm32-unknown-unknown 에서 기능 하나로는 모자라고 이
+# `--cfg` 까지 받아야 브라우저의 `crypto.getRandomValues` 를 쓴다. 적지 않으면
+# **컴파일이 선다** — 조용히 0 을 내놓는 쪽보다 낫다. 상자 파일에 적을 자리가
+# 없어 여기 둔다.
+#
+# 데스크톱 빌드는 이 줄을 보지 않는다. 그 target 에만 건다.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']

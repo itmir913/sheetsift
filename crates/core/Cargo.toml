@@ -28,3 +28,18 @@ zeroize = "1"
 
 [dev-dependencies]
 blake2 = "0.10"
+
+
+# **웹에서는 난수를 브라우저에서 받아야 한다.**
+#
+# `getrandom` 은 wasm32-unknown-unknown 에서 기본으로 아무 자리도 고르지 않고
+# **컴파일을 세운다** — 조용히 0 을 내놓는 쪽보다 낫다. 브라우저의
+# `crypto.getRandomValues` 를 쓰라고 적어 준다. 데스크톱에서는 이 줄이 없는
+# 것과 같다.
+# 판이 둘인 것은 우리 사정이 아니다. `rand` 가 0.3 을, 우리가 쓰는 다른 상자가
+# 0.4 를 들인다. **둘 다 적어 주어야** 한다 — 하나만 적으면 나머지 하나가 다시
+# 컴파일을 세운다. 0.3 은 기능만으로 모자라 `--cfg` 까지 받으므로 그 줄은
+# `.cargo/config.toml` 에 있다.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom_04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
+getrandom_03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
