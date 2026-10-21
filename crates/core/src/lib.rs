@@ -10,10 +10,20 @@
 
 mod error;
 pub mod grid;
-pub mod infer;
 pub mod seal;
 pub mod sheet;
-pub mod sift;
 pub mod vault;
+
+/* 아래 둘은 **켜야 들어온다.** 까닭은 상자 파일에 적어 두었다 — 간추리면,
+   오류 코드가 한 enum 이라 쓰지 않는 층의 코드까지 앱이 문구를 써야 한다.
+
+   **이 둘을 향한 길은 바깥에서만 들어온다.** 켜지 않은 조합이 컴파일되는지를
+   이 저장소의 `cargo test` 가 볼 수 없으므로, 그 대신 안쪽 코드가 이 둘을
+   부르지 않는다는 것을 시험이 글자로 본다(`tests/features.rs`). */
+
+#[cfg(feature = "infer")]
+pub mod infer;
+#[cfg(feature = "sift")]
+pub mod sift;
 
 pub use error::{Error, ErrorCode, Result};

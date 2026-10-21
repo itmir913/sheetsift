@@ -50,13 +50,17 @@ pub enum ErrorCode {
     /// 만든 DB 를 바이트로 꺼내지 못했다.
     SheetSerializeFailed,
     /// `.sift` 의 머리가 우리 것이 아니거나 속이 상했다.
+    #[cfg(feature = "sift")]
     SiftFormatInvalid,
     /// 풀어 낸 알맹이가 우리가 만든 생김새가 아니다.
+    #[cfg(feature = "sift")]
     SiftSchemaUnexpected,
     /// 담긴 지문·열 정보를 읽지 못했다.
+    #[cfg(feature = "sift")]
     SiftMetaInvalid,
     /// 이 앱이 모르는 판의 `.sift` 다. **빠진 칸을 기본값으로 채우지 않는다** —
     /// 그러면 그럴듯한 거짓이 나온다.
+    #[cfg(feature = "sift")]
     SiftVersionTooNew,
     /// 봉한 바이트를 쓰지 못했다. 쓰는 일은 앱이 하지만, 비밀번호 바꾸기처럼
     /// 쓰기가 그릇의 약속에 들어가는 자리가 있어 코드는 여기 둔다.
