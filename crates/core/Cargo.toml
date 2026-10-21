@@ -1,0 +1,19 @@
+[package]
+name = "sheetsift-core"
+# 여기는 판을 적는 곳이 아니다. 판은 이 크레이트를 쓰는 앱이 정한다.
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+publish = false
+
+# **tauri 도 파일 시스템도 모른다.** 바이트를 받고 바이트를 돌려준다 — 데스크톱과
+# 웹(wasm)이 같은 코드를 쓰려면 그래야 한다. 열쇠도 여기 없다. 부르는 쪽이 넣는다.
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+rand = "0.9"
+ed25519-dalek = { version = "2", default-features = false, features = ["std", "zeroize"] }
+sheetsift-aead = { path = "../aead" }
+
+[dev-dependencies]
+blake2 = "0.10"

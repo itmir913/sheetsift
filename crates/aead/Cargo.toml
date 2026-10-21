@@ -1,5 +1,5 @@
 [package]
-name = "navi-aead"
+name = "sheetsift-aead"
 # 여기는 판을 적는 곳이 아니다. 앱 판은 tauri.conf.json 한 곳에 있다.
 version = "0.0.0"
 edition = "2021"
