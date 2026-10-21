@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>sheetsift</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>sheetsift</h1>
+      <p class="lead">큰 표를 열어 정렬·필터로 조회합니다. 자료는 이 브라우저 밖으로 나가지 않습니다.</p>
+    </header>
+
+    <main>
+      <!-- 파일 고르기 -->
+      <section id="pick" class="pick">
+        <label class="drop" id="drop">
+          <input type="file" id="file" accept=".xlsx,.xls,.csv" />
+          <span class="drop-text">xlsx 또는 csv 파일을 고르거나 여기에 끌어다 놓습니다</span>
+        </label>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+      </section>
+
+      <!-- 시트 고르기 -->
+      <nav id="sheets" class="sheets" hidden aria-label="시트"></nav>
+
+      <!-- 조작부 -->
+      <section id="bar" class="bar" hidden>
+        <label class="search">
+          <span>전체 검색</span>
+          <input type="search" id="q" placeholder="모든 열에서 확인합니다" />
+        </label>
+        <p id="count" class="count"></p>
+        <div class="sorts" id="sorts"></div>
+      </section>
+
+      <!-- 표 -->
+      <div id="wrap" class="wrap" hidden>
+        <table id="grid">
+          <thead><tr id="head"></tr></thead>
+          <tbody id="body"></tbody>
+        </table>
+      </div>
+
+      <!-- 쪽 넘기기 -->
+      <section id="pager" class="pager" hidden>
+        <button type="button" id="prev">이전</button>
+        <span id="where"></span>
+        <button type="button" id="next">다음</button>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

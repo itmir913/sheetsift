@@ -12,6 +12,8 @@ xlsx 는 zip 안의 XML 이라 바로 읽어서는 빠르게 조회할 수 없�
 |---|---|
 | `crates/core` | 표 바꾸기(`sheet`), 생김새 알아보기(`infer`), 담는 형식(`sift`), 조회 엔진(`grid`), 비밀번호 봉투(`vault`), 서명한 그릇(`seal`) |
 | `crates/aead` | AES-256-GCM 한 겹. 개발 빌드에서도 최적화해 돌리려고 따로 둔다 |
+| `crates/web` | 바탕을 브라우저에 붙이는 겹. 알맹이는 보통 Rust 고, `wasm_bindgen` 은 한 파일에만 있다 |
+| `web/` | 그것을 쓰는 한 장짜리 화면. 번들러도 npm 도 쓰지 않는다 |
 
 ## 쓰지 않는 층은 들이지 않는다
 
@@ -72,3 +74,17 @@ cargo test -p sheetsift-core --target wasm32-unknown-unknown
 무엇이 되고 무엇이 안 되는지는 `docs/wasm.md` 에 적어 두었다.
 
 생김새를 알아보는 일(`infer`)이 어디까지 되는지는 `docs/infer.md` 에 있다.
+
+## 브라우저에서 열어 보기
+
+```bash
+cargo build -p sheetsift-web --target wasm32-unknown-unknown --release
+wasm-bindgen --target web --no-typescript --out-dir web/pkg \
+  target/wasm32-unknown-unknown/release/sheetsift_web.wasm
+cd web && python3 -m http.server 8080
+```
+
+파일을 고르면 그 자리에서 SQLite 로 바뀌고, 정렬·필터로 조회한다. **자료는
+브라우저 밖으로 나가지 않는다** — 올리는 곳이 없다.
+
+굽는 까닭과 안 되는 것은 `docs/web.md` 에 있다.

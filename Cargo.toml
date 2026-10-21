@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/aead", "crates/core"]
+members = ["crates/aead", "crates/core", "crates/web"]
 
 # 열쇠 뽑기와 암호만은 **시험에서도 최적화해서 돌린다.**
 #

@@ -1,0 +1,164 @@
+/*
+ * 색은 상수로만 다룬다. 어두운 쪽을 따로 적지 않고 같은 이름을 다시 매긴다 —
+ * 색을 자리마다 직접 적으면 한쪽만 바뀐 채로 남는다.
+ */
+:root {
+  --bg: #ffffff;
+  --fg: #16181d;
+  --dim: #5b6271;
+  --line: #e2e5ea;
+  --soft: #f5f6f8;
+  --accent: #2f5fd0;
+  --warn: #8a5a00;
+  --warn-bg: #fff6e0;
+  --bad: #a3242b;
+  --bad-bg: #fdeced;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171c;
+    --fg: #e7e9ee;
+    --dim: #9aa2b1;
+    --line: #2b2f38;
+    --soft: #1c1f26;
+    --accent: #7fa6ff;
+    --warn: #e5bd6a;
+    --warn-bg: #2d2615;
+    --bad: #f0969c;
+    --bad-bg: #2e1a1c;
+  }
+}
+
+* { box-sizing: border-box; }
+
+/*
+ * **`hidden` 이 `display` 를 이기게 한다.**
+ *
+ * 브라우저 기본 규칙은 `[hidden] { display: none }` 인데, 아래에서 `.bar` 같은
+ * 자리에 `display: flex` 를 주면 그쪽이 이긴다. 그러면 `hidden = true` 로
+ * 감춘 줄 알았던 조작부가 **그대로 보인 채** 앞 시트의 검색어와 정렬 칩을
+ * 들고 있게 된다. 화면과 자료가 어긋나는데 아무 오류도 나지 않는다.
+ *
+ * 실제로 한 번 그렇게 났다. 브라우저로 돌려 보고서야 보였다.
+ */
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  padding: 1.5rem clamp(1rem, 4vw, 3rem) 4rem;
+  background: var(--bg);
+  color: var(--fg);
+  /* 글꼴은 한 벌로 둔다. 고정폭 자리도 같은 글꼴을 쓴다. */
+  font-family: Pretendard, "Pretendard Variable", system-ui, -apple-system, "Segoe UI",
+    "Noto Sans KR", sans-serif;
+  font-size: 1rem;
+  line-height: 1.6;
+  /* 한글은 낱말 가운데서 끊지 않는다. */
+  word-break: keep-all;
+  /* 스크롤바 자리를 미리 잡는다. 생기고 없어지는 것으로 폭이 달라지지 않게. */
+  scrollbar-gutter: stable;
+}
+
+h1 { font-size: 1.5rem; margin: 0 0 0.25rem; letter-spacing: -0.01em; }
+.lead { margin: 0 0 1.5rem; color: var(--dim); }
+
+/* ── 파일 고르기 ─────────────────────────────────────────────── */
+
+.drop {
+  display: block;
+  border: 2px dashed var(--line);
+  border-radius: 0.75rem;
+  padding: 2rem 1rem;
+  text-align: center;
+  cursor: pointer;
+  background: var(--soft);
+}
+.drop:hover, .drop.over { border-color: var(--accent); }
+.drop input { display: block; margin: 0 auto 0.75rem; }
+.drop-text { color: var(--dim); }
+
+.status { min-height: 1.6em; margin: 0.75rem 0 0; }
+.status.bad { color: var(--bad); background: var(--bad-bg); padding: 0.5rem 0.75rem; border-radius: 0.5rem; }
+.status.warn { color: var(--warn); background: var(--warn-bg); padding: 0.5rem 0.75rem; border-radius: 0.5rem; }
+
+/* ── 시트 ────────────────────────────────────────────────────── */
+
+.sheets { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1.5rem 0 1rem; }
+.sheets button {
+  font: inherit;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+.sheets button[aria-current="true"] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+/* ── 조작부 ──────────────────────────────────────────────────── */
+
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; margin-bottom: 0.75rem; }
+.search { display: flex; align-items: center; gap: 0.5rem; }
+.search span { color: var(--dim); }
+.search input {
+  font: inherit;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--bg);
+  color: var(--fg);
+  min-width: 16rem;
+}
+.count { margin: 0; color: var(--dim); }
+
+/* 정렬 칩이 없을 때도 그 줄의 높이를 남긴다. 생기고 없어지며 표가 들썩이지
+   않게 하려는 것이다. */
+.sorts { display: flex; gap: 0.5rem; flex-basis: 100%; min-height: 2rem; align-items: center; }
+.sorts button {
+  font: inherit;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+/* ── 표 ──────────────────────────────────────────────────────── */
+
+.wrap { overflow: auto; border: 1px solid var(--line); border-radius: 0.5rem; max-height: 70vh; }
+table { border-collapse: collapse; width: 100%; }
+th, td {
+  padding: 0.4rem 0.7rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+thead th {
+  position: sticky;
+  top: 0;
+  background: var(--soft);
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+}
+thead th:hover { color: var(--accent); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+tbody tr:hover { background: var(--soft); }
+/* 짐작한 열임을 표에서 바로 알 수 있게 둔다. */
+th .guessed { color: var(--warn); font-weight: 400; }
+
+/* ── 쪽 넘기기 ───────────────────────────────────────────────── */
+
+.pager { display: flex; align-items: center; gap: 1rem; margin-top: 0.75rem; }
+.pager button {
+  font: inherit;
+  padding: 0.35rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+.pager button:disabled { opacity: 0.45; cursor: default; }
