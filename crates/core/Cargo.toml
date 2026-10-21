@@ -39,6 +39,8 @@ csv = "1"
 # **csv 의 글자 표기를 알아낸다.** 이 땅의 csv 는 UTF-8 이 아니면 대개
 # CP949 다. encoding_rs 의 `EUC_KR` 이 그 표(windows-949)다.
 encoding_rs = "0.8"
+# 원본의 지문. sha256 인 까닭은 사람이 `sha256sum` 으로 혼자 맞춰 볼 수 있어서다.
+sha2 = "0.10"
 
 [dev-dependencies]
 blake2 = "0.10"
