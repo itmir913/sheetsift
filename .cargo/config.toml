@@ -6,5 +6,15 @@
 # 없어 여기 둔다.
 #
 # 데스크톱 빌드는 이 줄을 보지 않는다. 그 target 에만 건다.
+# **웹에서 도는 시험을 무엇이 돌리는가.**
+#
+# wasm 은 그냥 실행할 수 없다. `cargo test --target wasm32-unknown-unknown` 이
+# 구운 것을 이 도구가 받아 노드(또는 브라우저)에서 부른다. 없으면 받는다:
+#
+#     cargo install wasm-bindgen-cli --locked
+#
+# 판은 `wasm-bindgen` 크레이트와 **같아야** 한다. 어긋나면 도구가 그렇다고
+# 말하고 선다 — 조용히 틀리지 않는다.
 [target.wasm32-unknown-unknown]
+runner = 'wasm-bindgen-test-runner'
 rustflags = ['--cfg', 'getrandom_backend="wasm_js"']

@@ -395,7 +395,9 @@ fn value_to_json(v: ValueRef<'_>) -> Json {
 
 /// 한 쪽을 읽는다.
 pub fn run(conn: &Connection, table: &dyn Table, blank: &str, q: &Query) -> Result<Page> {
-    let started = std::time::Instant::now();
+    // `std::time::Instant` 가 아닌 까닭은 상자 파일에 적어 두었다. wasm 에는
+    // 운영체제의 시계가 없어 **부르는 순간 패닉한다.**
+    let started = web_time::Instant::now();
 
     let (where_sql, binds) = build_where(table, &q.filters, blank, None)?;
     let order_sql = build_order(table, &q.sorts, blank)?;
@@ -454,7 +456,7 @@ pub fn column_values(
     key: &str,
     filters: &[Filter],
 ) -> Result<ColumnValues> {
-    let started = std::time::Instant::now();
+    let started = web_time::Instant::now();
 
     let col = table
         .column(key)

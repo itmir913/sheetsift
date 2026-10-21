@@ -25,6 +25,14 @@ argon2 = { version = "0.6", features = ["zeroize"] }
 # 윈도우가 내는 NFC 는 **바이트가 달라** 같은 글자에서 다른 열쇠가 나온다.
 unicode-normalization = "0.1"
 zeroize = "1"
+# **시계는 운영체제의 것이라, wasm 에는 없다.**
+#
+# `std::time::Instant::now()` 는 wasm32-unknown-unknown 에서 컴파일은 멀쩡히
+# 되고 **부르는 순간 패닉한다**("time not implemented on this platform").
+# 글자로는 보이지 않고 데스크톱 시험도 보지 못한다 — 웹에서 돌려 보고서야
+# 알았다. 데스크톱에서는 그대로 `std` 를 쓰고, wasm 에서는 브라우저의
+# `performance.now()` 를 쓴다.
+web-time = "1"
 
 [dev-dependencies]
 blake2 = "0.10"
@@ -40,6 +48,12 @@ blake2 = "0.10"
 # 0.4 를 들인다. **둘 다 적어 주어야** 한다 — 하나만 적으면 나머지 하나가 다시
 # 컴파일을 세운다. 0.3 은 기능만으로 모자라 `--cfg` 까지 받으므로 그 줄은
 # `.cargo/config.toml` 에 있다.
+
+# 웹에서 도는 시험. 시험 하나하나를 wasm 모듈의 내보내기로 만들어, 노드나
+# 브라우저가 부를 수 있게 한다. 데스크톱 시험은 이것을 쓰지 않는다.
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom_04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
 getrandom_03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }

@@ -36,3 +36,12 @@ cargo test --workspace
 서는지를 같은 파일에서 본다.
 
 명령을 새로 만들지 않는다. `cargo test --workspace` 하나가 관문이다.
+
+웹에서도 도는지는 **거기서 한 번 돌려 봐야** 안다. 컴파일되는 것과 도는 것은
+다르다 — 운영체제가 없어서 부르는 순간 패닉하는 함수가 있다.
+
+```bash
+cargo test -p sheetsift-core --target wasm32-unknown-unknown
+```
+
+무엇이 되고 무엇이 안 되는지는 `docs/wasm.md` 에 적어 두었다.
