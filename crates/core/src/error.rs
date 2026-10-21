@@ -33,6 +33,24 @@ pub enum ErrorCode {
     VaultFileDamaged,
     VaultKeyDerivationFailed,
     VaultSealFailed,
+    /// 양식을 열지 못했다. zip 이 아니거나 속이 상했다.
+    SheetWorkbookUnreadable,
+    /// 양식 안의 시트 하나를 읽지 못했다. **건너뛰지 않는다** — 조용히 빠진
+    /// 시트는 표 하나가 없는 DB 가 되고, 그것은 화면에서야 드러난다.
+    SheetUnreadable,
+    /// 정의가 가리키는 시트가 양식에 없다.
+    SheetMissing,
+    /// 시트에 머리글 줄조차 없다.
+    SheetEmpty,
+    /// 정의가 가리키는 열이 시트에 없다.
+    SheetColumnMissing,
+    /// 표를 만들거나 줄을 넣지 못했다.
+    SheetTableFailed,
+    /// csv 의 글자 표기를 알아내지 못했다. UTF-8 도 CP949 도 아니다.
+    /// **깨진 글자를 보이지 않는다** — 그러면 사전이 조용히 갈린다.
+    SheetEncodingUnknown,
+    /// 만든 DB 를 바이트로 꺼내지 못했다.
+    SheetSerializeFailed,
     /// 봉한 바이트를 쓰지 못했다. 쓰는 일은 앱이 하지만, 비밀번호 바꾸기처럼
     /// 쓰기가 그릇의 약속에 들어가는 자리가 있어 코드는 여기 둔다.
     VaultWriteFailed,

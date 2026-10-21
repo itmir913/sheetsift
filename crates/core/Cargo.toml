@@ -33,6 +33,12 @@ zeroize = "1"
 # 알았다. 데스크톱에서는 그대로 `std` 를 쓰고, wasm 에서는 브라우저의
 # `performance.now()` 를 쓴다.
 web-time = "1"
+# 들어오는 표. xlsx 는 zip 안의 XML 이고, csv 는 그냥 글자다.
+calamine = "0.36"
+csv = "1"
+# **csv 의 글자 표기를 알아낸다.** 이 땅의 csv 는 UTF-8 이 아니면 대개
+# CP949 다. encoding_rs 의 `EUC_KR` 이 그 표(windows-949)다.
+encoding_rs = "0.8"
 
 [dev-dependencies]
 blake2 = "0.10"

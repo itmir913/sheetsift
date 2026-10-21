@@ -15,10 +15,17 @@
 #![cfg(target_arch = "wasm32")]
 
 use sheetsift_core::grid::{self, Column, ColumnKind, Query, Table};
+use sheetsift_core::sheet::{self, ColumnMap, Sheet, TablePlan, ValueType};
 use wasm_bindgen_test::wasm_bindgen_test;
+
+/// 아주 작은 양식. 웹에는 파일 시스템이 없으므로 **실행 파일 안에 넣어** 둔다.
+/// 이름을 아스키로 두는 까닭은 맥이 한글 이름을 NFD 로 바꿔 두면
+/// `include_bytes!` 가 빌드 때 못 찾기 때문이다.
+const TINY_XLSX: &[u8] = include_bytes!("fixtures/tiny.xlsx");
 
 /// 열 하나짜리 표. 조회가 도는지만 보려는 것이라 가장 작게 둔다.
 struct One {
+    base: &'static str,
     columns: Vec<Column>,
 }
 
@@ -27,7 +34,7 @@ impl Table for One {
         "one"
     }
     fn base(&self) -> &str {
-        "rows"
+        self.base
     }
     fn columns(&self) -> Box<dyn Iterator<Item = &Column> + '_> {
         Box::new(self.columns.iter())
@@ -36,6 +43,7 @@ impl Table for One {
 
 fn one() -> One {
     One {
+        base: "rows",
         columns: vec![Column {
             key: "name".into(),
             label: "이름".into(),
@@ -144,4 +152,56 @@ fn the_vault_seals_and_opens_in_the_browser() {
 
     // 틀린 비밀번호로는 열리지 않는다.
     assert!(Vault::<Plain>::open(&sealed, "틀린비밀번호").is_err());
+}
+
+/// **양식 바이트에서 DB 바이트까지 웹에서 한 바퀴.**
+///
+/// 이 바탕이 웹에서 하려는 일 전부가 이 한 바퀴다 — 양식을 받아 SQLite 로
+/// 바꾸고, 조회하고, 바이트로 꺼낸다. 어느 한 토막이 데스크톱에서만 되면
+/// 웹 껍데기는 지을 수 없다.
+#[wasm_bindgen_test]
+fn a_workbook_becomes_a_queryable_db_in_the_browser() {
+    let sheets = sheet::from_xlsx(TINY_XLSX).expect("양식을 열지 못했습니다");
+    // 탭 차례대로 온다. 안내 시트는 표로 만들지 않는다 — 무엇을 만들지는
+    // 부르는 쪽이 정한다.
+    assert_eq!(sheets.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["사람", "안내"]);
+
+    let people: Sheet = sheets.into_iter().find(|(n, _)| n == "사람").unwrap().1;
+    let plan = TablePlan {
+        table: "people".into(),
+        map: vec![
+            ColumnMap { sheet: "이름".into(), column: "name".into(), ty: ValueType::Dict },
+            ColumnMap { sheet: "지역".into(), column: "region".into(), ty: ValueType::Dict },
+            ColumnMap { sheet: "점수".into(), column: "score".into(), ty: ValueType::Int },
+        ],
+        indexes: vec![vec!["region".into()]],
+    };
+
+    let conn = rusqlite::Connection::open_in_memory().expect("메모리 DB 를 열지 못했습니다");
+    let made = sheet::build(&conn, &[(plan, people)], "-").expect("바꾸지 못했습니다");
+    assert_eq!(made["people"].rows, 3);
+
+    // **조회가 돈다.** 사전 열은 조인한 글자로 나온다.
+    let mut table = One {
+        base: "people",
+        columns: vec![Column {
+            key: "name".into(),
+            label: "이름".into(),
+            column: "name".into(),
+            kind: ColumnKind::Text,
+            sortable: true,
+            filterable: true,
+            signed: false,
+            dict: true,
+            alias: String::new(),
+        }],
+    };
+    grid::assign_aliases(table.columns.iter_mut());
+    let page = grid::run(&conn, &table, "-", &Query { limit: 10, ..Query::default() })
+        .expect("조회가 돌지 않았습니다");
+    assert_eq!(page.total, 3);
+
+    // **바이트로 꺼내 다시 열린다.** 내보내기가 이 자리에서 나온다.
+    let bytes = sheet::serialize(&conn).expect("바이트로 꺼내지 못했습니다");
+    assert!(bytes.starts_with(b"SQLite format 3\0"), "SQLite 머리가 아니다");
 }

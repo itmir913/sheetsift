@@ -10,7 +10,7 @@ xlsx 는 zip 안의 XML 이라 바로 읽어서는 빠르게 조회할 수 없�
 
 | 상자 | 하는 일 |
 |---|---|
-| `crates/core` | 조회 엔진(`grid`), 비밀번호 봉투(`vault`), 서명한 그릇(`seal`) |
+| `crates/core` | 표 바꾸기(`sheet`), 조회 엔진(`grid`), 비밀번호 봉투(`vault`), 서명한 그릇(`seal`) |
 | `crates/aead` | AES-256-GCM 한 겹. 개발 빌드에서도 최적화해 돌리려고 따로 둔다 |
 
 `core` 는 tauri 도 파일 시스템도 모른다. 바이트를 받고 바이트를 돌려준다 —

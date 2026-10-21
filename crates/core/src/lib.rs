@@ -11,6 +11,7 @@
 mod error;
 pub mod grid;
 pub mod seal;
+pub mod sheet;
 pub mod vault;
 
 pub use error::{Error, ErrorCode, Result};
