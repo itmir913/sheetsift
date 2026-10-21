@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = ["crates/aead", "crates/core"]
+
+# 열쇠 뽑기와 암호만은 **시험에서도 최적화해서 돌린다.**
+#
+# Argon2 는 64 MiB 를 세 번 훑는 일이라 최적화를 끄면 한 번에 몇 초가 걸린다.
+# 비용(메모리·횟수)은 그대로이므로 **지키는 것은 달라지지 않는다** — 같은 일을
+# 빠른 코드로 할 뿐이다.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3
+
+# 이 덮기는 **그 상자 안에서 컴파일되는 코드에만 듣는다.** AES-GCM 은 제네릭이라
+# 부르는 쪽에서 구체화되므로, 제네릭이 아닌 한 겹(sheetsift-aead)을 따로 두고
+# 거기에 준다. 까닭은 crates/aead 의 머리 주석에 있다.
+[profile.dev.package.sheetsift-aead]
+opt-level = 3
+
+[profile.dev.package.curve25519-dalek]
+opt-level = 3
