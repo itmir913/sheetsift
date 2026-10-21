@@ -21,6 +21,18 @@ pub enum ErrorCode {
     DataSealInvalid,
     DataSignatureInvalid,
     DataContainerUnknown,
+    VaultOpenFailed,
+    VaultFormatInvalid,
+    VaultPasswordWrong,
+    VaultPasswordTooShort,
+    VaultVersionTooNew,
+    VaultContainerUnknown,
+    VaultFileDamaged,
+    VaultKeyDerivationFailed,
+    VaultSealFailed,
+    /// 봉한 바이트를 쓰지 못했다. 쓰는 일은 앱이 하지만, 비밀번호 바꾸기처럼
+    /// 쓰기가 그릇의 약속에 들어가는 자리가 있어 코드는 여기 둔다.
+    VaultWriteFailed,
 }
 
 #[derive(Debug, Clone, Serialize)]

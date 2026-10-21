@@ -10,5 +10,6 @@
 
 mod error;
 pub mod seal;
+pub mod vault;
 
 pub use error::{Error, ErrorCode, Result};

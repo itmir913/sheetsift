@@ -14,6 +14,16 @@ serde = { version = "1.0", features = ["derive"] }
 rand = "0.9"
 ed25519-dalek = { version = "2", default-features = false, features = ["std", "zeroize"] }
 sheetsift-aead = { path = "../aead" }
+# serialize: 봉한 알맹이를 임시 파일 없이 메모리에서 연다.
+rusqlite = { version = "0.40", features = ["bundled", "serialize"] }
+# `zeroize` 는 기본에 없다. 켜지 않으면 크레이트 안의 **지우는 코드가
+# 컴파일에서 통째로 빠진다** — 64 MiB 짜리 Argon2 작업 메모리가 지워지지 않은
+# 채 해제된다.
+argon2 = { version = "0.6", features = ["zeroize"] }
+# 비밀번호의 유니코드 표기를 한 가지로 맞춘다. 맥 자판이 내는 NFD 와
+# 윈도우가 내는 NFC 는 **바이트가 달라** 같은 글자에서 다른 열쇠가 나온다.
+unicode-normalization = "0.1"
+zeroize = "1"
 
 [dev-dependencies]
 blake2 = "0.10"
