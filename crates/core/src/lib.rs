@@ -27,3 +27,10 @@ pub mod infer;
 pub mod sift;
 
 pub use error::{Error, ErrorCode, Result};
+
+/// **이 바탕이 쓰는 SQLite 연결.**
+///
+/// 공개 API 가 이 타입을 주고받으므로(`grid::run` · `sheet::build` …) 여기서
+/// 함께 내보낸다. 쓰는 쪽이 `rusqlite` 를 따로 적으면 판을 맞혀야 하고,
+/// 어긋나면 **같은 이름의 다른 타입**이 되어 까닭을 알기 어려운 오류가 난다.
+pub use rusqlite::Connection;
