@@ -15,7 +15,13 @@
 
 use wasm_bindgen::prelude::*;
 
-use crate::{Ask, Viewer};
+use crate::{Ask, Limits, Viewer};
+
+/// 화면이 손으로 적으면 안 되는 값들 (JSON). 띄울 때 한 번 받는다.
+#[wasm_bindgen]
+pub fn limits() -> std::result::Result<String, JsValue> {
+    json(&Limits::default())
+}
 
 /// 바탕의 오류를 브라우저로 넘긴다.
 ///
@@ -70,15 +76,21 @@ impl Book {
         json(&page)
     }
 
-    /// 값 선택 목록. `filters` 는 지금 걸린 필터들(JSON 배열)이다.
-    pub fn values(&self, key: &str, filters: &str) -> std::result::Result<String, JsValue> {
+    /// 값 선택 목록. `filters` 는 지금 걸린 필터들(JSON 배열), `needle` 은
+    /// 후보를 좁히는 글자다.
+    pub fn values(
+        &self,
+        key: &str,
+        filters: &str,
+        needle: &str,
+    ) -> std::result::Result<String, JsValue> {
         let filters: Vec<sheetsift_core::grid::Filter> =
             serde_json::from_str(filters).map_err(|e| {
                 thrown(
                     sheetsift_core::Error::new(sheetsift_core::ErrorCode::DbQueryFailed).detail(e),
                 )
             })?;
-        let values = self.inner.values(key, &filters).map_err(thrown)?;
+        let values = self.inner.values(key, &filters, needle).map_err(thrown)?;
         json(&values)
     }
 }

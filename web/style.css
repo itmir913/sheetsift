@@ -162,3 +162,82 @@ th .guessed { color: var(--warn); font-weight: 400; }
   cursor: pointer;
 }
 .pager button:disabled { opacity: 0.45; cursor: default; }
+
+/* ── 값 선택 ─────────────────────────────────────────────────── */
+
+/* 값 선택 단추가 앉을 자리를 머리글 오른쪽에 비워 둔다. 글자와 겹치면
+   긴 이름이 단추 밑으로 들어간다. */
+thead th { padding-right: 1.9rem; }
+th .name { cursor: pointer; }
+th .pick-btn {
+  position: absolute;
+  right: 0.35rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font: inherit;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid transparent;
+  border-radius: 0.3rem;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+}
+th .pick-btn:hover { border-color: var(--line); color: var(--fg); }
+/* 걸린 열은 머리글에서 바로 보인다. 어디가 걸렸는지 모르면 자료가 없는
+   줄 안다. */
+th.filtered { color: var(--accent); }
+th.filtered .pick-btn { color: var(--accent); border-color: var(--accent); }
+
+/*
+ * 패널은 **표 바깥에** 띄운다. 표 안에 넣으면 그 칸이 넓어져 열 폭이 통째로
+ * 움직인다 — 단추를 눌렀다고 화면이 흔들리면 안 된다.
+ */
+.picker {
+  position: absolute;
+  z-index: 10;
+  width: 17rem;
+  max-height: 24rem;
+  display: flex;
+  flex-direction: column;
+  padding: 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--bg);
+  box-shadow: 0 0.5rem 1.5rem rgb(0 0 0 / 0.18);
+}
+.picker.bad { color: var(--bad); }
+.picker-head input {
+  font: inherit;
+  width: 100%;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--bg);
+  color: var(--fg);
+}
+.picker-tools { display: flex; gap: 0.4rem; margin: 0.5rem 0; }
+.picker-tools button {
+  font: inherit;
+  flex: 1;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+.picker-warn { margin: 0 0 0.5rem; color: var(--warn); }
+.picker-list { overflow: auto; scrollbar-gutter: stable; }
+.picker-list label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0.1rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.picker-list label:hover { background: var(--soft); }
+.picker-value { overflow: hidden; text-overflow: ellipsis; }
+.picker-count { margin-left: auto; color: var(--dim); font-variant-numeric: tabular-nums; }

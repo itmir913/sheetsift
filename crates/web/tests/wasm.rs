@@ -48,7 +48,7 @@ fn a_value_list_comes_back() {
     let view = book.open_sheet(0).expect("시트를 열지 못했습니다");
     // 둘째 열이 지역이다. key 는 머리글에서 고른 DB 열 이름이다.
     let key = view.split("\"key\":\"").nth(2).unwrap().split('"').next().unwrap().to_string();
-    let values = book.values(&key, "[]").expect("값 목록이 오지 않았습니다");
+    let values = book.values(&key, "[]", "").expect("값 목록이 오지 않았습니다");
     assert!(values.contains("서울") && values.contains("부산"), "{values}");
 }
 

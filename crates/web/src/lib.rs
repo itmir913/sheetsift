@@ -44,6 +44,30 @@ pub struct ColumnView {
     pub guessed: bool,
 }
 
+/// **화면이 손으로 적으면 안 되는 값들.**
+///
+/// 빈칸 표식은 값 선택 목록에 그대로 나오고 **거를 때도 그 글자로 돌려줘야**
+/// 한다. 쪽 크기 상한을 모르면 그보다 큰 수를 달라고 하고선 말없이 적게 받은
+/// 것을 다 받은 줄 안다. 어느 쪽도 오류가 나지 않는다 — 그래서 화면에 적지
+/// 않고 여기서 내준다.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Limits {
+    pub blank_token: String,
+    pub max_values: u32,
+    pub max_page: u32,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            blank_token: grid::BLANK_TOKEN.to_string(),
+            max_values: grid::MAX_VALUES,
+            max_page: grid::MAX_LIMIT,
+        }
+    }
+}
+
 /// 양식을 연 직후 화면이 알아야 하는 것.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -218,9 +242,18 @@ impl Viewer {
     }
 
     /// 값 선택 목록. 엑셀 필터 드롭다운에 해당한다.
-    pub fn values(&self, key: &str, filters: &[grid::Filter]) -> Result<grid::ColumnValues> {
+    ///
+    /// `needle` 은 후보를 좁히는 글자다. **받은 목록을 화면이 걸러 보여 주는
+    /// 것으로는 안 된다** — 값이 많으면 바탕이 앞에서 잘라 보내므로, 찾는 값이
+    /// 그 뒤에 있으면 "없습니다" 가 뜬다.
+    pub fn values(
+        &self,
+        key: &str,
+        filters: &[grid::Filter],
+        needle: &str,
+    ) -> Result<grid::ColumnValues> {
         let open = self.table()?;
-        grid::column_values(&open.conn, open, BLANK, key, filters)
+        grid::column_values(&open.conn, open, BLANK, key, filters, needle)
     }
 
     /// 열어 둔 표의 줄 수. 필터를 걸기 전의 값이다.
@@ -361,7 +394,7 @@ mod tests {
 
         // 값 목록은 **그 열 자신의 필터를 빼고** 센다. 그래야 체크를 풀었다
         // 걸었다 해도 후보가 사라지지 않는다.
-        let values = v.values(&region, &filters).unwrap();
+        let values = v.values(&region, &filters, "").unwrap();
         let got: Vec<&str> = values.values.iter().map(|v| v.value.as_str()).collect();
         assert!(got.contains(&"부산"), "제 필터 때문에 후보가 사라졌다");
     }
@@ -390,6 +423,120 @@ mod tests {
     fn asking_before_opening_a_sheet_stops() {
         let v = Viewer::open(TINY_XLSX, "tiny.xlsx").unwrap();
         assert!(v.page(&ask(10)).is_err());
+    }
+
+    /* ── 값 선택 목록 ───────────────────────────────────────────── */
+
+    /// 목록은 **세어서** 온다. 화면이 "몇 건" 을 보여 줄 수 있어야 고를 때
+    /// 무엇이 큰 덩이인지 안다.
+    #[test]
+    fn a_value_list_comes_back_counted_and_sorted() {
+        let csv = "지역\n서울\n부산\n서울\n서울\n".as_bytes();
+        let mut v = Viewer::open(csv, "지역.csv").unwrap();
+        let view = v.open_sheet(0).unwrap();
+        let key = view.columns[0].key.clone();
+        let got = v.values(&key, &[], "").unwrap();
+        let pairs: Vec<(&str, u32)> =
+            got.values.iter().map(|x| (x.value.as_str(), x.count)).collect();
+        assert_eq!(pairs, [("부산", 1), ("서울", 3)]);
+        assert!(!got.truncated);
+    }
+
+    /// **값이 없는 칸도 고를 수 있어야 한다.** 바탕이 쓰는 표식 그대로 오고,
+    /// 그 글자로 되돌려 주면 걸린다. 화면이 그 글자를 손으로 적으면 두 벌이
+    /// 되어 한쪽만 바뀌는 날 0건이 된다.
+    #[test]
+    fn a_blank_can_be_picked_with_the_token_core_gives() {
+        let csv = "점수\n90\n-\n75\n".as_bytes();
+        let mut v = Viewer::open(csv, "점수.csv").unwrap();
+        let view = v.open_sheet(0).unwrap();
+        let key = view.columns[0].key.clone();
+
+        let token = Limits::default().blank_token;
+        let got = v.values(&key, &[], "").unwrap();
+        assert!(got.values.iter().any(|x| x.value == token), "빈칸이 목록에 없다");
+
+        let picked: Vec<grid::Filter> = vec![serde_json::from_value(serde_json::json!({
+            "key": key, "values": [token]
+        }))
+        .unwrap()];
+        let page = v.page(&Ask { filters: picked, ..ask(10) }).unwrap();
+        assert_eq!(page.total, 1, "빈칸 표식으로 걸리지 않았다");
+    }
+
+    /// **좁히는 글자는 잘린 뒤가 아니라 열 전체를 본다.**
+    ///
+    /// 값이 상한을 넘으면 바탕이 앞에서 잘라 보낸다. 받은 목록을 화면이 걸러
+    /// 보여 주면, 찾는 값이 그 뒤에 있을 때 "없습니다" 가 뜬다 — 사람은 그런
+    /// 값이 없는 줄 안다. 그래서 좁히는 일을 바탕이 한다.
+    #[test]
+    fn the_needle_looks_past_where_the_list_was_cut() {
+        let max = Limits::default().max_values as usize;
+        // 상한을 넘기도록 값을 만들고, 찾을 값은 **가나다순으로 맨 뒤**에 둔다.
+        let mut csv = String::from("이름\n");
+        for i in 0..(max + 50) {
+            csv.push_str(&format!("가{i:06}\n"));
+        }
+        csv.push_str("힣찾을값\n");
+        let mut v = Viewer::open(csv.as_bytes(), "많은값.csv").unwrap();
+        let view = v.open_sheet(0).unwrap();
+        let key = view.columns[0].key.clone();
+
+        // 좁히지 않으면 잘린다. 그리고 찾는 값은 그 뒤에 있다.
+        let all = v.values(&key, &[], "").unwrap();
+        assert!(all.truncated, "상한을 넘기지 못했다 — 시험 자료를 늘리세요");
+        assert!(!all.values.iter().any(|x| x.value == "힣찾을값"), "잘린 뒤에 있어야 한다");
+
+        // 좁히면 찾아진다.
+        let found = v.values(&key, &[], "찾을값").unwrap();
+        assert_eq!(found.values.len(), 1);
+        assert_eq!(found.values[0].value, "힣찾을값");
+        assert!(!found.truncated);
+    }
+
+    /// 좁히는 글자는 **고른 값을 지우지 않는다.** 둘은 다른 일이다 — 좁히는
+    /// 것은 후보를 보는 창이고, 고른 것은 표에 걸리는 조건이다.
+    #[test]
+    fn the_needle_does_not_disturb_what_is_picked() {
+        let csv = "지역\n서울\n부산\n대구\n".as_bytes();
+        let mut v = Viewer::open(csv, "지역.csv").unwrap();
+        let view = v.open_sheet(0).unwrap();
+        let key = view.columns[0].key.clone();
+        let picked: Vec<grid::Filter> = vec![serde_json::from_value(serde_json::json!({
+            "key": key, "values": ["서울"]
+        }))
+        .unwrap()];
+        // 제 열의 선택은 후보 목록에서 빠진다(엑셀과 같다). 좁히기는 그 위에 건다.
+        let got = v.values(&key, &picked, "부").unwrap();
+        let names: Vec<&str> = got.values.iter().map(|x| x.value.as_str()).collect();
+        assert_eq!(names, ["부산"]);
+        // 표에 걸린 것은 그대로 '서울' 이다.
+        assert_eq!(v.page(&Ask { filters: picked, ..ask(10) }).unwrap().total, 1);
+    }
+
+    /// 고른 값으로 좁혀진다. 여럿 고르면 OR 다.
+    #[test]
+    fn picking_values_narrows_the_page() {
+        let csv = "지역\n서울\n부산\n대구\n서울\n".as_bytes();
+        let mut v = Viewer::open(csv, "지역.csv").unwrap();
+        let view = v.open_sheet(0).unwrap();
+        let key = view.columns[0].key.clone();
+        let pick = |names: &[&str]| -> Vec<grid::Filter> {
+            vec![serde_json::from_value(serde_json::json!({ "key": key, "values": names })).unwrap()]
+        };
+        assert_eq!(v.page(&Ask { filters: pick(&["서울"]), ..ask(10) }).unwrap().total, 2);
+        assert_eq!(v.page(&Ask { filters: pick(&["서울", "대구"]), ..ask(10) }).unwrap().total, 3);
+    }
+
+    /// **화면이 손으로 적으면 안 되는 값들**이 실제 바탕의 것과 같아야 한다.
+    /// 여기서 베껴 두면 바탕이 바뀌는 날 조용히 갈린다.
+    #[test]
+    fn the_limits_come_from_core_not_from_here() {
+        let l = Limits::default();
+        assert_eq!(l.blank_token, grid::BLANK_TOKEN);
+        assert_eq!(l.max_values, grid::MAX_VALUES);
+        assert_eq!(l.max_page, grid::MAX_LIMIT);
+        assert!(l.max_page > 0 && !l.blank_token.is_empty());
     }
 
     /* ── csv ────────────────────────────────────────────────────── */
