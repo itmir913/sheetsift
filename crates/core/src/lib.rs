@@ -10,6 +10,7 @@
 
 mod error;
 pub mod grid;
+pub mod infer;
 pub mod seal;
 pub mod sheet;
 pub mod sift;

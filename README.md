@@ -10,7 +10,7 @@ xlsx 는 zip 안의 XML 이라 바로 읽어서는 빠르게 조회할 수 없�
 
 | 상자 | 하는 일 |
 |---|---|
-| `crates/core` | 표 바꾸기(`sheet`), 담는 형식(`sift`), 조회 엔진(`grid`), 비밀번호 봉투(`vault`), 서명한 그릇(`seal`) |
+| `crates/core` | 표 바꾸기(`sheet`), 생김새 알아보기(`infer`), 담는 형식(`sift`), 조회 엔진(`grid`), 비밀번호 봉투(`vault`), 서명한 그릇(`seal`) |
 | `crates/aead` | AES-256-GCM 한 겹. 개발 빌드에서도 최적화해 돌리려고 따로 둔다 |
 
 `core` 는 tauri 도 파일 시스템도 모른다. 바이트를 받고 바이트를 돌려준다 —
@@ -56,3 +56,5 @@ cargo test -p sheetsift-core --target wasm32-unknown-unknown
 ```
 
 무엇이 되고 무엇이 안 되는지는 `docs/wasm.md` 에 적어 두었다.
+
+생김새를 알아보는 일(`infer`)이 어디까지 되는지는 `docs/infer.md` 에 있다.
