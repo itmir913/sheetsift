@@ -99,7 +99,7 @@ fn column_values_run_in_the_browser() {
     conn.execute_batch("CREATE TABLE rows (name TEXT); INSERT INTO rows VALUES ('가'), ('가'), ('나');")
         .expect("표를 만들지 못했습니다");
     let table = one();
-    let values = grid::column_values(&conn, &table, "-", "name", &[])
+    let values = grid::column_values(&conn, &table, "-", "name", &[], "")
         .expect("값 목록이 돌지 않았습니다");
     assert_eq!(values.values.len(), 2);
 }

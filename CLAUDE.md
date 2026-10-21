@@ -60,6 +60,21 @@
 실패다.** 그런 검사는 제 눈이 멀어도 조용하므로, 일부러 어긋낸 소스를 먹여
 서는지를 같은 파일에서 함께 본다.
 
+## wasm 시험 파일은 관문이 보지 못한다
+
+`tests/wasm.rs` 들은 맨 위가 `#![cfg(target_arch = "wasm32")]` 라, 데스크톱에서
+`cargo test --workspace` 를 돌리면 **통째로 빈 파일이 된다.** 공개 함수의 모양을
+바꾸고 그 파일의 부르는 자리를 안 고쳐도 관문은 초록불이다.
+
+```bash
+cargo test -p sheetsift-core --target wasm32-unknown-unknown
+cargo test -p sheetsift-web  --target wasm32-unknown-unknown
+```
+
+**관문이 둘이라는 뜻**이지 관문 밖이 아니다. 알맹이는 보통 Rust 로 두어 첫째
+관문이 최대한 많이 보게 하고, 웹에서만 드러나는 자리만 둘째에 남긴다. 셋째를
+만들지 않는다.
+
 ## 조용히 틀리느니 선다
 
 자료가 어긋났을 때 아무 말 없이 그럴듯한 값이 나오는 길을 남기지 않는다.

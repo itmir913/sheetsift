@@ -25,7 +25,10 @@ use serde_json::Value as Json;
 use crate::{Error, ErrorCode, Result};
 
 /// 한 번에 가져갈 수 있는 행 수의 상한.
-const MAX_LIMIT: u32 = 500;
+///
+/// **부르는 쪽이 알아야 하는 값이다.** 이보다 큰 수를 넣으면 말없이 여기까지만
+/// 온다 — 모르고 1000 을 달라고 한 화면은 500 줄을 받고도 다 받은 줄 안다.
+pub const MAX_LIMIT: u32 = 500;
 /// 값 선택 목록의 상한. 넘으면 잘라서 보내고 검색으로 좁히게 한다.
 pub const MAX_VALUES: u32 = 1000;
 /// 화면에서 비어 있는 값을 나타내는 표식. 실제 데이터의 빈칸/NULL 에 대응한다.
@@ -449,12 +452,24 @@ pub fn run(conn: &Connection, table: &dyn Table, blank: &str, q: &Query) -> Resu
 ///
 /// 엑셀 필터 드롭다운처럼, **그 열 자신의 필터는 빼고** 나머지 필터를 반영한다.
 /// 그래야 체크를 풀었다 걸었다 해도 후보 목록이 사라지지 않는다.
+///
+/// `needle` 은 **후보 자체를 좁히는 글자**다. 비면 좁히지 않는다.
+///
+/// 이것이 필터와 따로 있는 까닭이 있다. 값이 [`MAX_VALUES`] 를 넘으면 잘라서
+/// 보내는데, 그 뒤를 볼 길이 없으면 **목록에 없는 값을 없는 값으로 읽는다.**
+/// 받은 쪽에서 걸러 보여 주는 것으로는 안 된다 — 거기 온 것이 이미 앞에서
+/// 잘린 것이라, 찾는 값이 그 뒤에 있으면 "없습니다" 가 뜬다. 조용히 틀리는
+/// 쪽이다.
+///
+/// 필터로 넘길 수도 없다. 제 열의 필터는 위에서 말한 까닭으로 **일부러**
+/// 빠지고, 전체 검색처럼 그 열을 걸치는 필터도 함께 빠진다.
 pub fn column_values(
     conn: &Connection,
     table: &dyn Table,
     blank: &str,
     key: &str,
     filters: &[Filter],
+    needle: &str,
 ) -> Result<ColumnValues> {
     let started = web_time::Instant::now();
 
@@ -462,7 +477,21 @@ pub fn column_values(
         .column(key)
         .ok_or_else(|| unknown_column(table, key, "unknown column for value list"))?;
 
-    let (where_sql, binds) = build_where(table, filters, blank, Some(key))?;
+    let (mut where_sql, mut binds) = build_where(table, filters, blank, Some(key))?;
+
+    /* 좁히는 글자는 **이 열에 거는 부분일치**다. 사전 열이면 사전에서 찾는다 —
+       그 처리를 여기 한 벌 더 적지 않고 필터 한 조각을 빌려 쓴다. */
+    if !needle.trim().is_empty() {
+        let only = Filter { contains: needle.to_string(), ..Filter::default() };
+        if let Some(clause) = filter_clause(col, &only, blank, &mut binds) {
+            where_sql = if where_sql.is_empty() {
+                format!(" WHERE {clause}")
+            } else {
+                format!("{where_sql} AND {clause}")
+            };
+        }
+    }
+
     let params: Vec<&dyn rusqlite::ToSql> =
         binds.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
@@ -690,12 +719,12 @@ mod tests {
     #[test]
     fn value_list_ignores_its_own_column_filter_and_merges_blanks() {
         let (conn, t) = fixture();
-        let res = column_values(&conn, &t, BLANK, "score", &[picked("score", &["90"])]).unwrap();
+        let res = column_values(&conn, &t, BLANK, "score", &[picked("score", &["90"])], "").unwrap();
         let blank = res.values.iter().find(|v| v.value == BLANK_TOKEN).unwrap();
         assert_eq!(blank.count, 2);
         assert_eq!(res.values.len(), 5, "자기 열 필터를 제외하지 않았다");
         // 다른 열의 필터는 반영한다.
-        let res = column_values(&conn, &t, BLANK, "name", &[picked("city", &["서울"])]).unwrap();
+        let res = column_values(&conn, &t, BLANK, "name", &[picked("city", &["서울"])], "").unwrap();
         assert_eq!(res.values.len(), 2);
     }
 
@@ -704,7 +733,7 @@ mod tests {
         let (conn, t) = fixture();
         let e = run(&conn, &t, BLANK, &query(vec![s("no_such", SortDir::Asc)], vec![])).unwrap_err();
         assert_eq!(e.code, ErrorCode::InvalidSortKey);
-        let e = column_values(&conn, &t, BLANK, "no_such", &[]).unwrap_err();
+        let e = column_values(&conn, &t, BLANK, "no_such", &[], "").unwrap_err();
         assert_eq!(e.code, ErrorCode::InvalidSortKey);
     }
 
