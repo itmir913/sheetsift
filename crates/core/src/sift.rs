@@ -1,29 +1,31 @@
-//! **`.sift` — 한 번 바꿔 둔 표를 담는 파일.**
+//! **`.sift` — 1회 변환해 둔 표를 수용하는 파일.**
 //!
-//! xlsx 를 열어 SQLite 로 바꾸는 데는 시간이 든다. 같은 표를 다시 볼 때마다 그
-//! 값을 치를 까닭이 없으므로, 바꿔 둔 것을 파일로 담는다.
+//! xlsx 를 개방해 SQLite 로 변환하는 데는 시간이 소요된다. 동일한 표를 재열람할
+//! 때마다 그 비용을 지불할 사유가 없으므로, 변환한 것을 파일로 수용한다.
 //!
-//! ## 담기는 것
+//! ## 수용되는 것
 //!
-//! 알맹이는 [`sheet`](crate::sheet) 가 만든 SQLite 그대로다. 거기에 표 하나를
-//! 더 둔다 — 어디서 온 자료이고 어떤 열이 있는지([`Meta`]).
+//! 알맹이는 [`sheet`](crate::sheet) 가 생성한 SQLite 그대로다. 거기에 표 하나를
+//! 추가 배치한다 — 어디서 유래한 자료이고 어떤 열이 존재하는지([`Meta`]).
 //!
-//! **지문을 함께 담는 까닭**이 있다. `.sift` 는 원본의 사본이라, 원본이 바뀌면
-//! 낡는다. 이름·크기·해시를 적어 두면 다시 열 때 **같은 원본에서 나온
-//! 것인지**를 그 자리에서 알 수 있다. 낡은 사본을 최신으로 보여 주는 것이
-//! 이 형식이 할 수 있는 가장 나쁜 일이다.
+//! **지문을 함께 수용하는 사유**가 존재한다. `.sift` 는 원본의 사본이라, 원본이
+//! 변경되면 노후한다. 명칭·용량·해시를 기재해 두면 재개방 시 **동일한 원본에서
+//! 유래한 것인지**를 그 위치에서 판별할 수 있다. 노후한 사본을 최신으로 표시하는
+//! 것이 이 형식이 범할 수 있는 최악의 행위다.
 //!
 //! ## 비밀번호가 기본이다
 //!
-//! [`vault`](crate::vault) 봉투에 넣는다. 표에는 사람 이름이나 성적이 들어
-//! 있을 수 있고, **담을 때 고르게 하면 아무도 고르지 않는다.** 평문으로
-//! 담는 길([`seal_plain`])은 따로 있고, 쓰는 쪽이 일부러 불러야 한다.
+//! [`vault`](crate::vault) 봉투에 수용한다. 표에는 사람의 성명이나 성적이 포함될
+//! 수 있고, **수용 시점에 선택하게 하면 누구도 선택하지 않는다.** 평문으로
+//! 수용하는 경로([`seal_plain`])는 별도로 존재하고, 쓰는 곳이 의도적으로
+//! 호출해야 한다.
 //!
-//! ## 판을 올리는 법
+//! ## 판을 상승시키는 방법
 //!
-//! 머리의 매직과 스키마 판은 [`vault`] 가 본다. 알맹이 안의 [`Meta`] 판은
-//! [`FORMAT_VERSION`] 이다. 둘 다 **고정값 시험이 못 박는다** — 그 시험이
-//! 서면 이미 나간 파일이 안 열린다는 뜻이다. 값을 고치지 말고 판을 올린다.
+//! 머리의 매직과 스키마 판은 [`vault`] 가 판정한다. 알맹이 내부의 [`Meta`] 판은
+//! [`FORMAT_VERSION`] 이다. 양자 모두 **고정값 시험이 고정한다** — 그 시험이
+//! 중단되면 이미 배포된 파일이 개방되지 않는다는 의미다. 값을 변경하지 말고 판을
+//! 상승시킨다.
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -31,43 +33,43 @@ use serde::{Deserialize, Serialize};
 use crate::vault::{self, Vault};
 use crate::{Error, ErrorCode, Result};
 
-/// 파일 맨 앞의 일곱 바이트. **이것이 `.sift` 라는 이름표다.**
+/// 파일 최선두의 7바이트. **이것이 `.sift` 라는 표식이다.**
 ///
-/// 열쇠가 아니라 **형식의 일부**라 여기 적는다. 봉인 대칭키와 서명 열쇠는
-/// 부르는 앱이 넣지만(그래야 공개 저장소에 둘 수 있다), 이름표를 앱마다 다르게
-/// 두면 같은 `.sift` 가 앱마다 다른 파일이 된다.
+/// 열쇠가 아니라 **형식의 일부**라 여기 기재한다. 봉인 대칭키와 서명 열쇠는
+/// 부르는 앱이 주입하지만(그래야 공개 저장소에 배치할 수 있다), 표식을 앱마다
+/// 상이하게 배치하면 동일한 `.sift` 가 앱마다 상이한 파일이 된다.
 pub const MAGIC: [u8; vault::MAGIC_LEN] = *b"SIFT\0v1";
 
-/// 알맹이의 스키마 판. 표가 늘거나 바뀌면 올린다.
+/// 알맹이의 스키마 판. 표가 증가하거나 변경되면 상승시킨다.
 pub const SCHEMA_VERSION: u32 = 1;
 
-/// [`Meta`] 의 판. 담기는 값이 늘거나 뜻이 바뀌면 올린다.
+/// [`Meta`] 의 판. 수용되는 값이 증가하거나 의미가 변경되면 상승시킨다.
 pub const FORMAT_VERSION: u32 = 1;
 
-/// 지문과 열 정보를 담는 표. **한 줄만 담긴다** — `CHECK` 가 SQLite 에서
-/// 그것을 지킨다. 두 줄이 되는 길을 코드로 막으면 언젠가 그 길이 생긴다.
+/// 지문과 열 정보를 수용하는 표. **단일 행만 수용된다** — `CHECK` 가 SQLite 에서
+/// 그것을 보장한다. 2행이 되는 경로를 코드로 차단하면 언젠가 그 경로가 발생한다.
 const META_DDL: &str =
     "CREATE TABLE sift_meta(id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL)";
 
 /* ── 담기는 것 ──────────────────────────────────────────────────── */
 
-/// 어디서 온 자료인가. **사본이 낡았는지 보는 데 쓴다.**
+/// 어디서 유래한 자료인가. **사본의 노후 여부를 판정하는 데 사용한다.**
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Source {
-    /// 원본 파일의 이름. 경로가 아니라 이름이다 — 경로는 사람의 컴퓨터 사정이고,
-    /// 파일을 주고받으면 뜻이 없어진다.
+    /// 원본 파일의 명칭. 경로가 아니라 명칭이다 — 경로는 개인 컴퓨터의 사정이고,
+    /// 파일을 수수하면 의미가 소멸한다.
     pub name: String,
-    /// 원본의 바이트 수. 해시보다 먼저 보는 값이다.
+    /// 원본의 바이트 수. 해시보다 선행해 판정하는 값이다.
     pub bytes: u64,
-    /// 원본의 sha256, 소문자 열여섯 진수.
+    /// 원본의 sha256, 소문자 16진수.
     ///
-    /// 글자로 담는 까닭은 사람이 `sha256sum` 으로 혼자 맞춰 볼 수 있어서다.
+    /// 문자로 수용하는 사유는 사람이 `sha256sum` 으로 단독 대조할 수 있어서다.
     pub sha256: String,
 }
 
 impl Source {
-    /// 원본 바이트에서 지문을 뜬다.
+    /// 원본 바이트에서 지문을 산출한다.
     pub fn of(name: &str, bytes: &[u8]) -> Self {
         use sha2::Digest;
         let digest = sha2::Sha256::digest(bytes);
@@ -78,24 +80,24 @@ impl Source {
         }
     }
 
-    /// 이 지문이 그 바이트에서 나온 것인가.
+    /// 이 지문이 그 바이트에서 유래한 것인가.
     pub fn matches(&self, bytes: &[u8]) -> bool {
         self.bytes == bytes.len() as u64 && self.sha256 == Self::of(&self.name, bytes).sha256
     }
 }
 
-/// 열 하나. 조회 화면이 무엇을 그릴지 아는 데 필요한 만큼만 담는다.
+/// 열 하나. 조회 화면이 무엇을 묘사할지 판단하는 데 필요한 만큼만 수용한다.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ColumnInfo {
-    /// DB 열 이름.
+    /// DB 열 명칭.
     pub column: String,
-    /// 화면에 보이는 이름. 원본 머리글이다.
+    /// 화면에 노출되는 명칭. 원본 머리글이다.
     pub label: String,
-    /// 숫자 열인가. **값의 생김새로 짐작하지 않는다** — 바꿀 때 알았던 것을
-    /// 적어 둔다.
+    /// 숫자 열인가. **값의 구조로 추정하지 않는다** — 변환 시점에 판명된 것을
+    /// 기재한다.
     pub number: bool,
-    /// 사전으로 눌러 담은 열인가. 그렇다면 값은 정수 id 이고 `dict` 를 조인한다.
+    /// 사전으로 압축한 열인가. 해당하면 값은 정수 id 이고 `dict` 를 조인한다.
     pub dict: bool,
 }
 
@@ -104,17 +106,17 @@ pub struct ColumnInfo {
 #[serde(rename_all = "camelCase")]
 pub struct TableInfo {
     pub table: String,
-    /// 원본에서 이 표가 된 시트의 이름.
+    /// 원본에서 이 표로 전환된 시트의 명칭.
     pub sheet: String,
     pub rows: u64,
     pub columns: Vec<ColumnInfo>,
 }
 
-/// `.sift` 가 알맹이와 함께 담는 것.
+/// `.sift` 가 알맹이와 함께 수용하는 것.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Meta {
-    /// [`FORMAT_VERSION`]. **먼저 적는다** — 모르는 판이면 나머지를 읽지 않는다.
+    /// [`FORMAT_VERSION`]. **선행 기재한다** — 미지의 판이면 나머지를 판독하지 않는다.
     pub format: u32,
     pub source: Source,
     pub tables: Vec<TableInfo>,
@@ -122,7 +124,7 @@ pub struct Meta {
 
 /* ── 그릇 ───────────────────────────────────────────────────────── */
 
-/// `.sift` 의 그릇 약속. [`vault`] 가 이것을 보고 봉하고 푼다.
+/// `.sift` 의 그릇 약정. [`vault`] 가 이것을 참조해 봉인하고 해제한다.
 pub struct Sift;
 
 impl vault::Format for Sift {
@@ -130,24 +132,25 @@ impl vault::Format for Sift {
     const MAGIC: [u8; vault::MAGIC_LEN] = MAGIC;
     const SCHEMA_VERSION: u32 = SCHEMA_VERSION;
 
-    /// 지문 표를 만들거나 옛 판에서 올린다. **알맹이의 표는 만들지 않는다** —
-    /// 무엇이 들어올지 모르고, 그것은 [`sheet`](crate::sheet) 가 만든다.
+    /// 지문 표를 생성하거나 구 판에서 상승시킨다. **알맹이의 표는 생성하지
+    /// 않는다** — 무엇이 유입될지 인지하지 못하고, 그것은
+    /// [`sheet`](crate::sheet) 가 생성한다.
     ///
-    /// **빈 DB 에도, 풀어 낸 옛 파일에도 불린다.** 그래서 적힌 판을 보고
-    /// 가른다. `IF NOT EXISTS` 로 두지 않는 까닭은 그것이 "이미 있으면 됐다"
-    /// 는 말이어서다 — 열이 빠진 옛 표가 있어도 그냥 지나간다.
+    /// **공백 DB 에도, 해제한 구 파일에도 호출된다.** 그래서 기재된 판을 참조해
+    /// 분기한다. `IF NOT EXISTS` 로 배치하지 않는 사유는 그것이 "이미 존재하면
+    /// 충분하다" 는 의미여서다 — 열이 누락된 구 표가 존재해도 그대로 통과한다.
     fn migrate(conn: &Connection) -> Result<()> {
         let bad = |e: rusqlite::Error| Error::new(ErrorCode::SiftSchemaUnexpected).detail(e);
         let at: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(bad)?;
         match at {
-            // 빈 DB. 처음 만든다.
+            // 공백 DB. 최초 생성한다.
             0 => conn
                 .execute_batch(&format!("{META_DDL}; PRAGMA user_version = {SCHEMA_VERSION};"))
                 .map_err(bad),
-            // 이미 이 판이다. 할 일이 없다.
+            // 이미 해당 판이다. 수행할 작업이 없다.
             SCHEMA_VERSION => Ok(()),
-            // **모르는 판이면 짐작하지 않는다.** 판이 둘 이상이 되는 날 여기에
-            // 한 줄이 늘고, 옛 파일은 옛 줄을 거쳐 올라온다.
+            // **미지의 판이면 추정하지 않는다.** 판이 둘 이상이 되는 시점에 여기에
+            // 한 행이 증가하고, 구 파일은 구 행을 경유해 상승한다.
             other => Err(Error::new(ErrorCode::SiftSchemaUnexpected)
                 .with("fileVersion", other)
                 .with("appVersion", SCHEMA_VERSION)
@@ -155,10 +158,11 @@ impl vault::Format for Sift {
         }
     }
 
-    /// 풀어 낸 알맹이가 **우리가 만든 생김새인지** 본다.
+    /// 해제한 알맹이가 **우리가 생성한 구조인지** 판정한다.
     ///
-    /// 표를 뷰로 바꿔치우거나 트리거를 심은 것은 `integrity_check` 가 못 잡는다.
-    /// 비밀번호를 아는 사람이 풀어서 손보고 다시 봉할 수 있으므로, 여는 쪽이 본다.
+    /// 표를 뷰로 교체하거나 트리거를 삽입한 것은 `integrity_check` 가 포착하지
+    /// 못한다. 비밀번호를 인지하는 자가 해제해 변조하고 재봉인할 수 있으므로,
+    /// 개방하는 곳이 판정한다.
     fn check(conn: &Connection) -> Result<()> {
         let kind: String = conn
             .query_row("SELECT type FROM sqlite_master WHERE name = 'sift_meta'", [], |r| r.get(0))
@@ -168,8 +172,8 @@ impl vault::Format for Sift {
                 .with("found", &kind)
                 .detail("sift_meta is not a table"));
         }
-        // 한 줄이어야 한다. `CHECK` 가 막지만, 손본 파일은 그 `CHECK` 가 없는
-        // 표로 바꿔치울 수 있다.
+        // 단일 행이어야 한다. `CHECK` 가 차단하지만, 변조된 파일은 그 `CHECK` 가
+        // 부재하는 표로 교체할 수 있다.
         let rows: u32 = conn
             .query_row("SELECT count(*) FROM sift_meta", [], |r| r.get(0))
             .map_err(|e| Error::new(ErrorCode::SiftSchemaUnexpected).detail(e))?;
@@ -192,10 +196,10 @@ fn put_meta(conn: &Connection, meta: &Meta) -> Result<()> {
     Ok(())
 }
 
-/// 담긴 지문과 열 정보를 읽는다.
+/// 수용된 지문과 열 정보를 판독한다.
 ///
-/// **모르는 판이면 선다.** 새 판의 파일을 옛 앱이 읽으면, 빠진 칸이 기본값으로
-/// 채워져 그럴듯한 거짓이 나온다.
+/// **미지의 판이면 중단한다.** 신판의 파일을 구 앱이 판독하면, 누락된 항목이
+/// 기본값으로 충전되어 그럴듯한 허위가 산출된다.
 pub fn read_meta(conn: &Connection) -> Result<Meta> {
     let json: String = conn
         .query_row("SELECT json FROM sift_meta WHERE id = 1", [], |r| r.get(0))
@@ -210,10 +214,10 @@ pub fn read_meta(conn: &Connection) -> Result<Meta> {
     Ok(meta)
 }
 
-/// **비밀번호로 봉한 `.sift` 바이트를 만든다.** 기본 길이다.
+/// **비밀번호로 봉인한 `.sift` 바이트를 생성한다.** 기본 경로다.
 ///
-/// `built` 는 [`sheet::build`](crate::sheet::build) 가 표를 만들어 둔 연결이다.
-/// 그 알맹이를 봉투 안으로 옮기고 지문을 함께 담는다.
+/// `built` 는 [`sheet::build`](crate::sheet::build) 가 표를 생성해 둔 연결이다.
+/// 그 알맹이를 봉투 내부로 이전하고 지문을 함께 수용한다.
 pub fn seal(built: &Connection, meta: &Meta, password: &str) -> Result<Vec<u8>> {
     let vault = Vault::<Sift>::create(password)?;
     copy_into(built, &vault.conn)?;
@@ -221,10 +225,10 @@ pub fn seal(built: &Connection, meta: &Meta, password: &str) -> Result<Vec<u8>> 
     vault.seal()
 }
 
-/// 비밀번호 없이 담는다. **쓰는 쪽이 일부러 불러야 한다.**
+/// 비밀번호 없이 수용한다. **쓰는 곳이 의도적으로 호출해야 한다.**
 ///
-/// 나가는 것이 맨 SQLite 라, 받아 든 누구나 열어 본다. 그것이 맞는 자리가
-/// 있으므로 길은 두지만, 기본으로 두지 않는다.
+/// 반출되는 것이 순수 SQLite 라, 수령한 누구나 개방한다. 그것이 적합한 위치가
+/// 존재하므로 경로는 배치하되, 기본으로 설정하지 않는다.
 pub fn seal_plain(built: &Connection, meta: &Meta) -> Result<Vec<u8>> {
     let conn = Connection::open_in_memory()
         .map_err(|e| Error::new(ErrorCode::SiftSchemaUnexpected).detail(e))?;
@@ -234,12 +238,12 @@ pub fn seal_plain(built: &Connection, meta: &Meta) -> Result<Vec<u8>> {
     crate::sheet::serialize(&conn)
 }
 
-/// 봉한 `.sift` 를 열어 메모리에 둔다.
+/// 봉인한 `.sift` 를 개방해 메모리에 배치한다.
 pub fn open(bytes: &[u8], password: &str) -> Result<Vault<Sift>> {
     Vault::<Sift>::open(bytes, password)
 }
 
-/// 맨 `.sift` 를 열어 메모리에 둔다. [`seal_plain`] 으로 담은 것이다.
+/// 순수 `.sift` 를 개방해 메모리에 배치한다. [`seal_plain`] 으로 수용한 것이다.
 pub fn open_plain(bytes: &[u8]) -> Result<Connection> {
     let mut conn = Connection::open_in_memory()
         .map_err(|e| Error::new(ErrorCode::SiftSchemaUnexpected).detail(e))?;
@@ -249,14 +253,14 @@ pub fn open_plain(bytes: &[u8]) -> Result<Connection> {
     Ok(conn)
 }
 
-/// 만들어 둔 표들을 그릇 안의 연결로 옮긴다.
+/// 생성해 둔 표들을 그릇 내부의 연결로 이전한다.
 ///
-/// SQL 로 베낀다. 바이트를 그대로 옮기면 그릇의 표(`sift_meta`)가 덮이고,
-/// 그릇의 `PRAGMA` 가 알맹이의 것으로 바뀐다.
+/// SQL 로 복제한다. 바이트를 그대로 이전하면 그릇의 표(`sift_meta`)가 피복되고,
+/// 그릇의 `PRAGMA` 가 알맹이의 것으로 변경된다.
 fn copy_into(from: &Connection, to: &Connection) -> Result<()> {
     let bad = |e: rusqlite::Error| Error::new(ErrorCode::SiftSchemaUnexpected).detail(e);
-    // 임시 파일 없이 옮기려면 붙여서 베낀다. `serialize` 한 바이트를 메모리
-    // DB 로 붙이는 길이 rusqlite 에 없으므로, 보낼 쪽을 받는 쪽에 붙인다.
+    // 임시 파일 없이 이전하려면 연결해 복제한다. `serialize` 한 바이트를 메모리
+    // DB 로 연결하는 경로가 rusqlite 에 부재하므로, 송신 측을 수신 측에 연결한다.
     let image = crate::sheet::serialize(from)?;
     let mut src = Connection::open_in_memory().map_err(bad)?;
     src.deserialize_read_exact("main", std::io::Cursor::new(&image), image.len(), true)
@@ -297,8 +301,8 @@ fn copy_into(from: &Connection, to: &Connection) -> Result<()> {
             write.execute(rusqlite::params_from_iter(vals)).map_err(bad)?;
         }
     }
-    // 색인은 알맹이를 다 넣은 뒤에 만든다. 넣으면서 만들면 줄마다 색인을
-    // 고치느라 몇 배가 든다.
+    // 색인은 알맹이를 전부 삽입한 뒤에 생성한다. 삽입과 동시에 생성하면 행마다
+    // 색인을 갱신하느라 수 배의 비용이 발생한다.
     for (_, _, ddl) in sql.iter().filter(|(k, _, _)| k == "index") {
         to.execute_batch(ddl).map_err(bad)?;
     }
@@ -310,7 +314,7 @@ mod tests {
     use super::*;
     use crate::sheet;
 
-    /// 누구나 아는 값이다. 시험에만 쓴다.
+    /// 누구나 인지하는 값이다. 시험에만 사용한다.
     const PASSWORD: &str = "열려라참깨1234";
 
     fn built() -> Connection {
@@ -368,55 +372,55 @@ mod tests {
         }
     }
 
-    /* ── 이미 나간 형식은 고정값이 못 박는다 ──────────────────────────
-       아래 값이 달라지면 **이미 나간 파일이 안 열린다는 뜻**이다. 값을 고치지
-       말고 판을 올린다. 올리는 길은 매직·스키마 판·Meta 판 셋이고, 어느 것을
-       올려야 하는지는 무엇이 바뀌었는지가 정한다. */
+    /* ── 이미 배포된 형식은 고정값이 고정한다 ─────────────────────────
+       하기 값이 상이해지면 **이미 배포된 파일이 개방되지 않는다는 의미**다. 값을
+       변경하지 말고 판을 상승시킨다. 상승 경로는 매직·스키마 판·Meta 판 셋이고,
+       어느 것을 상승시킬지는 무엇이 변경되었는지가 결정한다. */
 
     #[test]
     fn the_name_tag_is_pinned() {
-        assert_eq!(&MAGIC, b"SIFT\0v1", "매직이 달라졌습니다 — 나간 파일이 안 열립니다");
+        assert_eq!(&MAGIC, b"SIFT\0v1", "매직이 변경되었습니다 — 배포된 파일이 개방되지 않습니다");
         assert_eq!(MAGIC.len(), vault::MAGIC_LEN);
     }
 
     #[test]
     fn the_versions_are_pinned() {
-        assert_eq!(SCHEMA_VERSION, 1, "알맹이 스키마 판이 달라졌습니다");
-        assert_eq!(FORMAT_VERSION, 1, "Meta 판이 달라졌습니다");
+        assert_eq!(SCHEMA_VERSION, 1, "알맹이 스키마 판이 변경되었습니다");
+        assert_eq!(FORMAT_VERSION, 1, "Meta 판이 변경되었습니다");
     }
 
-    /// 지문 표의 생김새도 형식이다. 열 이름이 바뀌면 옛 파일에서 지문을 읽지
+    /// 지문 표의 구조도 형식이다. 열 명칭이 변경되면 구 파일에서 지문을 판독하지
     /// 못한다.
     #[test]
     fn the_meta_table_is_pinned() {
         assert_eq!(
             META_DDL,
             "CREATE TABLE sift_meta(id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL)",
-            "지문 표의 생김새가 달라졌습니다"
+            "지문 표의 구조가 변경되었습니다"
         );
     }
 
-    /// **Meta 의 글자 모양도 형식이다.** 칸 이름이 바뀌면 옛 파일의 지문을
-    /// 읽지 못하고, 그러면 사본이 낡았는지 알 수 없다.
+    /// **Meta 의 문자 형태도 형식이다.** 항목 명칭이 변경되면 구 파일의 지문을
+    /// 판독하지 못하고, 그러면 사본의 노후 여부를 판별할 수 없다.
     #[test]
     fn the_meta_json_is_pinned() {
         let json = serde_json::to_string(&meta()).unwrap();
         assert_eq!(
             json,
             r#"{"format":1,"source":{"name":"people.xlsx","bytes":3,"sha256":"039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81"},"tables":[{"table":"people","sheet":"사람","rows":2,"columns":[{"column":"name","label":"이름","number":false,"dict":true},{"column":"region","label":"지역","number":false,"dict":true}]}]}"#,
-            "Meta 의 글자 모양이 달라졌습니다 — 나간 파일의 지문을 읽지 못합니다"
+            "Meta 의 문자 형태가 변경되었습니다 — 배포된 파일의 지문을 판독하지 못합니다"
         );
     }
 
-    /// 머리 일곱 바이트가 그 자리에 있어야 한다. 받아 든 쪽이 그것으로
-    /// `.sift` 인지 가린다.
+    /// 머리 7바이트가 해당 위치에 존재해야 한다. 수령한 곳이 그것으로 `.sift`
+    /// 인지 식별한다.
     #[test]
     fn a_sealed_file_starts_with_the_name_tag() {
         let bytes = seal(&built(), &meta(), PASSWORD).unwrap();
         assert_eq!(&bytes[..vault::MAGIC_LEN], &MAGIC);
     }
 
-    /* ── 도는가 ──────────────────────────────────────────────────── */
+    /* ── 동작하는가 ──────────────────────────────────────────────── */
 
     #[test]
     fn a_sealed_file_comes_back_with_its_rows_and_fingerprint() {
@@ -424,7 +428,7 @@ mod tests {
         let opened = open(&bytes, PASSWORD).unwrap();
         assert_eq!(read_meta(&opened.conn).unwrap(), meta());
 
-        // 알맹이가 따라왔다. 사전 조인까지 그대로다.
+        // 알맹이가 수반되었다. 사전 조인까지 그대로다.
         let name: String = opened
             .conn
             .query_row(
@@ -436,7 +440,7 @@ mod tests {
             .unwrap();
         assert_eq!(name, "가람");
 
-        // 색인도 따라왔다. 없으면 큰 표에서 조회가 기어간다.
+        // 색인도 수반되었다. 부재하면 대형 표에서 조회가 지연된다.
         let indexes: u32 = opened
             .conn
             .query_row(
@@ -461,33 +465,33 @@ mod tests {
         assert_eq!(open(&bytes, PASSWORD).unwrap_err().code, ErrorCode::VaultFormatInvalid);
     }
 
-    /// 평문으로 담는 길은 **일부러 불러야** 있다. 그래도 같은 것이 담긴다.
+    /// 평문으로 수용하는 경로는 **의도적으로 호출해야** 존재한다. 그래도 동일한 것이 수용된다.
     #[test]
     fn the_plain_path_holds_the_same_thing() {
         let bytes = seal_plain(&built(), &meta()).unwrap();
-        assert!(bytes.starts_with(b"SQLite format 3\0"), "맨 SQLite 가 아니다");
+        assert!(bytes.starts_with(b"SQLite format 3\0"), "순수 SQLite 가 아니다");
         let conn = open_plain(&bytes).unwrap();
         assert_eq!(read_meta(&conn).unwrap(), meta());
         let rows: u32 = conn.query_row("SELECT count(*) FROM people", [], |r| r.get(0)).unwrap();
         assert_eq!(rows, 2);
     }
 
-    /* ── 사본이 낡았는지 안다 ─────────────────────────────────────── */
+    /* ── 사본의 노후 여부를 판별한다 ──────────────────────────────── */
 
     #[test]
     fn the_fingerprint_knows_the_original_it_came_from() {
         let source = Source::of("people.xlsx", b"\x01\x02\x03");
         assert!(source.matches(b"\x01\x02\x03"));
-        // 한 바이트만 달라도 아니다.
+        // 1바이트만 상이해도 아니다.
         assert!(!source.matches(b"\x01\x02\x04"));
-        // 길이만 달라도 아니다 — 해시를 뜨기 전에 걸러진다.
+        // 길이만 상이해도 아니다 — 해시 산출 이전에 여과된다.
         assert!(!source.matches(b"\x01\x02"));
     }
 
-    /* ── 조용히 틀리느니 선다 ─────────────────────────────────────── */
+    /* ── 묵시적으로 오류를 범하느니 중단한다 ──────────────────────── */
 
-    /// **모르는 판이면 읽지 않는다.** 빠진 칸이 기본값으로 채워지면 그럴듯한
-    /// 거짓이 나오고, 낡은 사본을 최신으로 보여 주게 된다.
+    /// **미지의 판이면 판독하지 않는다.** 누락된 항목이 기본값으로 충전되면
+    /// 그럴듯한 허위가 산출되고, 노후한 사본을 최신으로 표시하게 된다.
     #[test]
     fn a_newer_format_version_stops() {
         let conn = Connection::open_in_memory().unwrap();
@@ -500,7 +504,7 @@ mod tests {
         assert_eq!(err.params["fileVersion"], (FORMAT_VERSION + 1).to_string());
     }
 
-    /// 지문 표는 **한 줄만** 담는다. 두 줄이면 어느 쪽이 참인지 알 수 없다.
+    /// 지문 표는 **단일 행만** 수용한다. 2행이면 어느 쪽이 참인지 판별할 수 없다.
     #[test]
     fn a_second_fingerprint_row_cannot_be_added() {
         let conn = Connection::open_in_memory().unwrap();
@@ -508,12 +512,12 @@ mod tests {
         put_meta(&conn, &meta()).unwrap();
         assert!(
             conn.execute("INSERT INTO sift_meta(id, json) VALUES (2, '{}')", []).is_err(),
-            "두 번째 줄이 들어갔다"
+            "2번째 행이 삽입되었다"
         );
     }
 
-    /// 지문 표를 뷰로 바꿔치운 파일은 `integrity_check` 가 못 잡는다. 여는
-    /// 쪽이 본다.
+    /// 지문 표를 뷰로 교체한 파일은 `integrity_check` 가 포착하지 못한다.
+    /// 개방하는 곳이 판정한다.
     #[test]
     fn a_doctored_meta_table_is_caught() {
         let conn = Connection::open_in_memory().unwrap();
@@ -523,7 +527,7 @@ mod tests {
         assert_eq!(err.params["found"], "view");
     }
 
-    /// 지문이 아예 없는 파일도 `.sift` 가 아니다.
+    /// 지문이 전무한 파일도 `.sift` 가 아니다.
     #[test]
     fn a_file_without_a_fingerprint_is_not_a_sift() {
         let conn = Connection::open_in_memory().unwrap();

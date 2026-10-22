@@ -1,22 +1,22 @@
-//! **표를 받아 SQLite 로 바꾼다.**
+//! **표를 수용해 SQLite 로 변환한다.**
 //!
-//! xlsx 는 zip 안의 XML 이라 그대로는 빠르게 조회할 수 없다. 한 번 SQLite 로
-//! 바꿔 두면 정렬·필터가 색인을 타고, 반복되는 글자를 사전으로 눌러 담으면
-//! 비교가 정수 비교가 된다.
+//! xlsx 는 zip 내부의 XML 이라 그대로는 고속 조회가 불가하다. 1회 SQLite 로
+//! 변환해 두면 정렬·필터가 색인을 경유하고, 반복되는 문자를 사전으로 압축하면
+//! 비교가 정수 비교로 전환된다.
 //!
-//! **바이트를 받고 바이트를 돌려준다.** 파일을 여닫는 일은 부르는 쪽이 한다 —
-//! 데스크톱과 웹이 같은 코드를 쓰려면 그래야 한다.
+//! **바이트를 수용하고 바이트를 반환한다.** 파일을 개폐하는 작업은 부르는 곳이
+//! 수행한다 — 데스크톱과 웹이 동일한 코드를 사용하려면 그래야 한다.
 //!
-//! ## 무엇을 만들지는 데이터가 정한다
+//! ## 무엇을 생성할지는 자료가 결정한다
 //!
-//! 이 모듈은 시트 이름도 표 이름도 열 이름도 모른다. [`TablePlan`] 으로 받는다.
-//! 부르는 쪽의 정의 파일이 그것을 짓는다.
+//! 이 모듈은 시트 명칭도 표 명칭도 열 명칭도 인지하지 않는다. [`TablePlan`] 으로
+//! 수용한다. 부르는 곳의 정의 파일이 그것을 구성한다.
 //!
-//! ## 조용히 틀리느니 선다
+//! ## 묵시적으로 오류를 범하느니 중단한다
 //!
-//! 읽지 못한 시트를 건너뛰지 않는다. 건너뛰면 표 하나가 없는 DB 가 조용히
-//! 만들어지고, 그것은 화면에서야 드러난다. 글자 표기를 알아내지 못한 csv 도
-//! 깨진 글자로 읽지 않는다 — 그러면 사전이 갈린다.
+//! 판독하지 못한 시트를 생략하지 않는다. 생략하면 표 하나가 부재하는 DB 가
+//! 묵시적으로 생성되고, 그것은 화면에서야 발현된다. 문자 표기를 판별하지 못한
+//! csv 도 훼손된 문자로 판독하지 않는다 — 그러면 사전이 분기한다.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -30,44 +30,44 @@ fn failed(code: ErrorCode, e: impl ToString) -> Error {
 
 /* ── 시트 ───────────────────────────────────────────────────────── */
 
-/// 시트 하나. 칸은 **전부 글자로 고른 뒤**다.
+/// 시트 하나. 셀은 **전부 문자로 통일한 상태**다.
 ///
-/// 숫자로 담지 않는 까닭이 있다. 원자료는 "없음" 을 `-` 로 적어서 숫자 열에도
-/// 글자가 섞여 들어오고, 엑셀은 셀 속성이 글자인데 내용은 숫자인 열도 만든다.
-/// 값의 생김새로 짐작하면 그 자리에서 조용히 갈린다. 어느 열이 숫자인지는
-/// [`TablePlan`] 이 적어서 알려 준다.
+/// 숫자로 수용하지 않는 사유가 존재한다. 원자료는 "없음" 을 `-` 로 기재해 숫자
+/// 열에도 문자가 혼입되고, 엑셀은 셀 속성이 문자인데 내용은 숫자인 열도 생성한다.
+/// 값의 구조로 추정하면 그 위치에서 묵시적으로 분기한다. 어느 열이 숫자인지는
+/// [`TablePlan`] 이 기재해 전달한다.
 #[derive(Debug, Clone, Default)]
 pub struct Sheet {
-    /// 첫 줄이 머리글이고 나머지가 알맹이다.
+    /// 첫 행이 머리글이고 나머지가 알맹이다.
     pub rows: Vec<Vec<String>>,
 }
 
 impl Sheet {
-    /// 머리글 줄. 비어 있으면 빈 조각이다.
+    /// 머리글 행. 공백이면 공백 조각이다.
     pub fn header(&self) -> &[String] {
         self.rows.first().map(Vec::as_slice).unwrap_or_default()
     }
 
-    /// 머리글을 뺀 알맹이 줄들.
+    /// 머리글을 제외한 알맹이 행들.
     pub fn body(&self) -> &[Vec<String>] {
         self.rows.get(1..).unwrap_or_default()
     }
 
-    /// 줄의 `col` 번째 칸. **없는 칸은 빈 글자다** — 엑셀은 오른쪽 끝이
-    /// 들쭉날쭉한 시트를 만든다.
+    /// 행의 `col` 번째 셀. **부재하는 셀은 공백 문자다** — 엑셀은 우측 종단이
+    /// 불균일한 시트를 생성한다.
     pub fn at(row: &[String], col: usize) -> &str {
         row.get(col).map(String::as_str).unwrap_or_default()
     }
 }
 
-/// 엑셀 칸 하나를 글자로. **엑셀 화면에 보이는 모양을 따른다.**
+/// 엑셀 셀 하나를 문자로. **엑셀 화면에 노출되는 형태를 준수한다.**
 fn cell(v: &calamine::Data) -> String {
     use calamine::Data;
     match v {
         Data::Empty => String::new(),
         Data::String(s) => s.trim().to_string(),
         Data::Float(f) => {
-            // 12.0 을 "12" 로 — 엑셀 화면과 같게 보이도록.
+            // 12.0 을 "12" 로 — 엑셀 화면과 동일하게 노출되도록.
             if f.fract() == 0.0 && f.abs() < 1e15 {
                 format!("{}", *f as i64)
             } else {
@@ -81,12 +81,12 @@ fn cell(v: &calamine::Data) -> String {
     }
 }
 
-/// 양식 바이트에서 시트를 **탭 차례대로** 꺼낸다.
+/// 양식 바이트에서 시트를 **탭 순서대로** 추출한다.
 ///
-/// 차례를 지키는 까닭은 부르는 쪽이 그것을 본다는 것이다 — 양식을 보는 사람의
-/// 읽는 차례가 정의와 맞는지 검사하는 자리가 있다.
+/// 순서를 준수하는 사유는 부르는 곳이 그것을 참조한다는 점이다 — 양식을 열람하는
+/// 사람의 판독 순서가 정의와 일치하는지 검사하는 위치가 존재한다.
 ///
-/// **읽지 못한 시트에서 선다.** 건너뛰면 표 하나가 없는 DB 가 만들어진다.
+/// **판독하지 못한 시트에서 중단한다.** 생략하면 표 하나가 부재하는 DB 가 생성된다.
 pub fn from_xlsx(bytes: &[u8]) -> Result<Vec<(String, Sheet)>> {
     use calamine::Reader;
     let mut wb = calamine::open_workbook_auto_from_rs(std::io::Cursor::new(bytes))
@@ -103,12 +103,13 @@ pub fn from_xlsx(bytes: &[u8]) -> Result<Vec<(String, Sheet)>> {
     Ok(out)
 }
 
-/// csv 바이트에서 시트 하나를 꺼낸다.
+/// csv 바이트에서 시트 하나를 추출한다.
 ///
-/// **글자 표기를 짐작하지 않는다.** UTF-8 로 읽어 보고, 아니면 CP949 로 읽어
-/// 본다. 둘 다 아니면 **선다** — 이 땅의 csv 는 둘 중 하나이고, 셋째를 깨진
-/// 글자로 읽으면 사전이 조용히 갈린다. 같은 낱말이 두 개로 세어지고, 정렬이
-/// 뒤섞이고, 값 선택 목록에 깨진 글자가 뜬다. 어느 쪽도 화면에서야 드러난다.
+/// **문자 표기를 추정하지 않는다.** UTF-8 로 판독을 시도하고, 아니면 CP949 로
+/// 시도한다. 양자 모두 아니면 **중단한다** — 국내의 csv 는 둘 중 하나이고,
+/// 제3의 것을 훼손된 문자로 판독하면 사전이 묵시적으로 분기한다. 동일한 어휘가
+/// 둘로 산정되고, 정렬이 교란되고, 값 선택 목록에 훼손된 문자가 표시된다. 어느
+/// 쪽도 화면에서야 발현된다.
 pub fn from_csv(bytes: &[u8]) -> Result<Sheet> {
     let text = decode(bytes)?;
     let mut reader = csv::ReaderBuilder::new()
@@ -123,10 +124,10 @@ pub fn from_csv(bytes: &[u8]) -> Result<Sheet> {
     Ok(Sheet { rows })
 }
 
-/// UTF-8 이면 그대로, 아니면 CP949. 둘 다 아니면 선다.
+/// UTF-8 이면 그대로, 아니면 CP949. 양자 모두 아니면 중단한다.
 ///
-/// BOM 은 떼어 낸다. 엑셀이 저장한 csv 는 BOM 을 붙이는데, 그것을 남기면 첫
-/// 열의 머리글 이름 앞에 보이지 않는 글자가 붙어 **그 열만 찾지 못한다.**
+/// BOM 은 제거한다. 엑셀이 저장한 csv 는 BOM 을 부착하는데, 그것을 존치하면 첫
+/// 열의 머리글 명칭 앞에 비가시 문자가 부착되어 **그 열만 탐색하지 못한다.**
 fn decode(bytes: &[u8]) -> Result<String> {
     let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
     if let Ok(text) = std::str::from_utf8(bytes) {
@@ -141,10 +142,10 @@ fn decode(bytes: &[u8]) -> Result<String> {
 
 /* ── 무엇을 만들지 ──────────────────────────────────────────────── */
 
-/// 열 하나가 DB 에 담기는 모양.
+/// 열 하나가 DB 에 수용되는 형태.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValueType {
-    /// 글자를 사전에 모으고 본문에는 정수 id 만 둔다.
+    /// 문자를 사전에 집약하고 본문에는 정수 id 만 배치한다.
     Dict,
     Int,
     Real,
@@ -162,21 +163,21 @@ impl ValueType {
 /// 시트의 열 하나를 DB 의 열 하나로.
 #[derive(Debug, Clone)]
 pub struct ColumnMap {
-    /// 시트 머리글에 적힌 이름. 이것으로 열을 찾는다.
+    /// 시트 머리글에 기재된 명칭. 이것으로 열을 탐색한다.
     pub sheet: String,
-    /// DB 열 이름.
+    /// DB 열 명칭.
     pub column: String,
     pub ty: ValueType,
 }
 
-/// 시트 하나를 표 하나로 바꾸는 법.
+/// 시트 하나를 표 하나로 변환하는 방법.
 #[derive(Debug, Clone)]
 pub struct TablePlan {
     pub table: String,
-    /// 사전으로 눌러 담을 열들. 비어 있으면 머리글을 그대로 열 이름으로 쓰고
-    /// 값은 전부 글자로 담는다.
+    /// 사전으로 압축할 열들. 공백이면 머리글을 그대로 열 명칭으로 사용하고
+    /// 값은 전부 문자로 수용한다.
     pub map: Vec<ColumnMap>,
-    /// 만들 색인. 한 줄이 한 색인이고, 안의 글자가 DB 열 이름이다.
+    /// 생성할 색인. 한 행이 한 색인이고, 내부의 문자가 DB 열 명칭이다.
     pub indexes: Vec<Vec<String>>,
 }
 
@@ -188,14 +189,14 @@ impl TablePlan {
 
 /* ── 바꾸기 ─────────────────────────────────────────────────────── */
 
-/// 값이 없는 칸인가. `blank` 는 양식이 "없음" 을 적는 글자다.
+/// 값이 부재하는 셀인가. `blank` 는 양식이 "없음" 을 기재하는 문자다.
 pub fn is_blank(s: &str, blank: &str) -> bool {
     let t = s.trim();
     t.is_empty() || t == blank
 }
 
-/// 머리글을 SQLite 열 이름으로. 글자·숫자·밑줄만 남기고, 숫자로 시작하면 앞에
-/// 밑줄을 붙인다. 같은 이름이 또 나오면 `_2`, `_3` 을 단다.
+/// 머리글을 SQLite 열 명칭으로. 문자·숫자·밑줄만 존치하고, 숫자로 개시되면 앞에
+/// 밑줄을 부착한다. 동일한 명칭이 재차 출현하면 `_2`, `_3` 을 부착한다.
 pub fn sanitize(header: &str, seen: &mut HashMap<String, usize>) -> String {
     let mut out = String::with_capacity(header.len());
     for ch in header.trim().chars() {
@@ -219,7 +220,7 @@ pub fn sanitize(header: &str, seen: &mut HashMap<String, usize>) -> String {
     out
 }
 
-/// 머리글 줄을 (원래 글자, DB 열 이름) 짝으로.
+/// 머리글 행을 (원본 문자, DB 열 명칭) 쌍으로.
 pub fn column_names(sheet: &Sheet) -> Vec<(String, String)> {
     let mut seen = HashMap::new();
     sheet
@@ -232,7 +233,7 @@ pub fn column_names(sheet: &Sheet) -> Vec<(String, String)> {
         .collect()
 }
 
-/// 머리글에서 열의 자리를 찾는다. **하나라도 없으면 선다.**
+/// 머리글에서 열의 위치를 탐색한다. **하나라도 부재하면 중단한다.**
 pub fn locate(sheet: &Sheet, wanted: &[&str]) -> Result<Vec<usize>> {
     let header = sheet.header();
     if header.is_empty() {
@@ -259,14 +260,15 @@ fn make_indexes(conn: &Connection, table: &str, indexes: &[Vec<String>]) -> Resu
     Ok(())
 }
 
-/// 사전에 들어갈 글자를 모두 모아 **가나다순으로** 번호를 매긴다.
+/// 사전에 수록할 문자를 전부 집약해 **가나다순으로** 번호를 부여한다.
 ///
-/// 이 차례가 곧 정렬 차례다. 정수 비교 하나가 가나다 비교가 되는 까닭이 그것
-/// 이고, 그래서 번호를 나온 차례가 아니라 **글자 차례로** 매긴다. 나온 차례로
-/// 매기면 정렬이 양식에 적힌 차례를 따라가고, 아무도 그것을 눈치채지 못한다.
+/// 이 순서가 곧 정렬 순서다. 정수 비교 하나가 가나다 비교로 전환되는 사유가
+/// 그것이고, 그래서 번호를 출현 순서가 아니라 **문자 순서로** 부여한다. 출현
+/// 순서로 부여하면 정렬이 양식에 기재된 순서를 추종하고, 누구도 그것을 인지하지
+/// 못한다.
 ///
-/// 사전을 쓰는 표가 여럿이라 **먼저 한 번에** 만든다. 표마다 따로 만들면 같은
-/// 낱말이 표마다 다른 번호를 받아 조인이 어긋난다.
+/// 사전을 사용하는 표가 복수라 **선행해 일괄** 생성한다. 표마다 개별 생성하면
+/// 동일한 어휘가 표마다 상이한 번호를 수령해 조인이 불일치한다.
 pub fn build_dict(
     conn: &Connection,
     plans: &[(&TablePlan, &Sheet)],
@@ -308,7 +310,7 @@ pub fn build_dict(
     Ok(ids)
 }
 
-/// 머리글을 그대로 열 이름으로 쓰는 표. 값은 전부 글자로 담는다.
+/// 머리글을 그대로 열 명칭으로 사용하는 표. 값은 전부 문자로 수용한다.
 pub fn build_plain(
     conn: &Connection,
     sheet: &Sheet,
@@ -336,9 +338,9 @@ pub fn build_plain(
     Ok((n, header))
 }
 
-/// 사전으로 눌러 담는 표. 글자는 `dict` 에 모으고 본문에는 정수 id 만 둔다.
+/// 사전으로 압축하는 표. 문자는 `dict` 에 집약하고 본문에는 정수 id 만 배치한다.
 ///
-/// `ids` 는 [`build_dict`] 가 돌려준 것이다.
+/// `ids` 는 [`build_dict`] 가 반환한 것이다.
 pub fn build_dict_table(
     conn: &Connection,
     sheet: &Sheet,
@@ -392,22 +394,22 @@ pub fn build_dict_table(
     drop(stmt);
     make_indexes(conn, table, &plan.indexes)?;
 
-    // 사전 표는 DB 열 이름이 머리글과 다르다. 화면이 쓰는 것은 DB 열 이름이다.
+    // 사전 표는 DB 열 명칭이 머리글과 상이하다. 화면이 사용하는 것은 DB 열 명칭이다.
     let header = plan.map.iter().map(|m| (m.sheet.clone(), m.column.clone())).collect();
     Ok((n, header))
 }
 
-/// 표 하나를 만들고 나서 알게 되는 것.
+/// 표 하나를 생성한 뒤 판명되는 것.
 #[derive(Debug, Clone)]
 pub struct Made {
     pub rows: usize,
-    /// (시트 머리글, DB 열 이름) 짝. 부르는 쪽이 화면 정의를 쓸 때 쓴다.
+    /// (시트 머리글, DB 열 명칭) 쌍. 부르는 곳이 화면 정의를 작성할 때 사용한다.
     pub columns: Vec<(String, String)>,
 }
 
-/// 시트 여럿을 표 여럿으로. 사전을 먼저 만들고 표를 차례대로 만든다.
+/// 복수의 시트를 복수의 표로. 사전을 선행 생성하고 표를 순차 생성한다.
 ///
-/// 돌려주는 것은 표마다의 [`Made`] 다.
+/// 반환하는 것은 표별 [`Made`] 다.
 pub fn build(
     conn: &Connection,
     plans: &[(TablePlan, Sheet)],
@@ -429,10 +431,11 @@ pub fn build(
     Ok(out)
 }
 
-/// 만든 DB 를 **바이트로 꺼낸다.** 파일에 쓰는 일은 부르는 쪽이 한다.
+/// 생성한 DB 를 **바이트로 추출한다.** 파일에 기록하는 작업은 부르는 곳이
+/// 수행한다.
 ///
-/// 이 함수가 자료를 밖으로 내보내는 문이다. 그런 기능을 두지 않는 앱이
-/// 이것을 부르지 않는지는 그 앱의 검사가 본다 — 여기서는 막을 수 없다.
+/// 이 함수가 자료를 외부로 반출하는 문이다. 그러한 기능을 배치하지 않는 앱이
+/// 이것을 호출하지 않는지는 그 앱의 검사가 판정한다 — 여기서는 차단할 수 없다.
 pub fn serialize(conn: &Connection) -> Result<Vec<u8>> {
     conn.serialize("main")
         .map(|data| data.to_vec())
@@ -455,12 +458,12 @@ mod tests {
     fn headers_become_usable_column_names() {
         let s = sheet(&[&["전형개요·지역", "1순위", "", "1순위"]]);
         let names: Vec<String> = column_names(&s).into_iter().map(|(_, n)| n).collect();
-        // 글자가 아닌 것은 밑줄로, 숫자로 시작하면 앞에 밑줄, 겹치면 번호.
+        // 문자가 아닌 것은 밑줄로, 숫자로 개시되면 앞에 밑줄, 중복되면 번호.
         assert_eq!(names, ["전형개요_지역", "_1순위", "_", "_1순위_2"]);
     }
 
-    /// **사전 번호는 글자 차례다.** 나온 차례로 매기면 정수 정렬이 양식에 적힌
-    /// 차례를 따라가고, 아무도 그것을 눈치채지 못한다.
+    /// **사전 번호는 문자 순서다.** 출현 순서로 부여하면 정수 정렬이 양식에
+    /// 기재된 순서를 추종하고, 누구도 그것을 인지하지 못한다.
     #[test]
     fn dict_ids_follow_the_alphabet_not_the_sheet() {
         let plan = TablePlan {
@@ -497,7 +500,7 @@ mod tests {
             .query_row("SELECT d.s FROM t JOIN dict d ON d.id = t.name WHERE t.score = 90", [], |r| r.get(0))
             .unwrap();
         assert_eq!(joined, "가");
-        // `-` 는 값이 없다는 표시다. 0 으로 담으면 조용히 틀린 값이 된다.
+        // `-` 는 값이 부재한다는 표시다. 0 으로 수용하면 묵시적으로 상이한 값이 된다.
         let null: Option<i64> =
             conn.query_row("SELECT score FROM t WHERE name = 2", [], |r| r.get(0)).unwrap();
         assert_eq!(null, None);
@@ -509,7 +512,7 @@ mod tests {
         let conn = mem();
         let (n, _) = build_plain(&conn, &s, "t", &[]).unwrap();
         assert_eq!(n, 2);
-        // 짧은 줄의 없는 칸은 빈 글자다. 줄을 버리지 않는다.
+        // 단축된 행의 부재하는 셀은 공백 문자다. 행을 폐기하지 않는다.
         let got: Vec<(String, String)> = conn
             .prepare("SELECT \"가\", \"나\" FROM t ORDER BY \"가\"")
             .unwrap()
@@ -532,7 +535,7 @@ mod tests {
         assert_eq!(locate(&Sheet::default(), &["이름"]).unwrap_err().code, ErrorCode::SheetEmpty);
     }
 
-    /// 이 땅의 csv 는 UTF-8 이 아니면 대개 CP949 다. 둘 다 받는다.
+    /// 국내의 csv 는 UTF-8 이 아니면 대개 CP949 다. 양자 모두 수용한다.
     #[test]
     fn csv_is_read_as_utf8_or_cp949() {
         let utf8 = from_csv("이름,점수\n가,90\n".as_bytes()).unwrap();
@@ -540,13 +543,13 @@ mod tests {
         assert_eq!(utf8.body().len(), 1);
 
         let (cp949, _, broken) = encoding_rs::EUC_KR.encode("이름,점수\n가,90\n");
-        assert!(!broken, "시험 자료가 CP949 로 적히지 않았다");
+        assert!(!broken, "시험 자료가 CP949 로 기재되지 않았다");
         let read = from_csv(&cp949).unwrap();
         assert_eq!(read.header(), ["이름", "점수"]);
         assert_eq!(Sheet::at(&read.body()[0], 0), "가");
     }
 
-    /// 엑셀이 저장한 csv 는 BOM 을 붙인다. 남기면 첫 열만 찾지 못한다.
+    /// 엑셀이 저장한 csv 는 BOM 을 부착한다. 존치하면 첫 열만 탐색하지 못한다.
     #[test]
     fn a_bom_does_not_stick_to_the_first_header() {
         let mut bytes = vec![0xEF, 0xBB, 0xBF];
@@ -554,16 +557,16 @@ mod tests {
         assert_eq!(from_csv(&bytes).unwrap().header(), ["이름", "점수"]);
     }
 
-    /// **깨진 글자를 보이지 않는다.** 그러면 사전이 조용히 갈린다.
+    /// **훼손된 문자를 표시하지 않는다.** 그러면 사전이 묵시적으로 분기한다.
     #[test]
     fn an_unknown_encoding_stops() {
-        // UTF-8 도 CP949 도 아닌 바이트. 둘 다에서 뜻이 없다.
+        // UTF-8 도 CP949 도 아닌 바이트. 양자 모두에서 의미가 부재한다.
         let err = from_csv(&[0x81, 0xFF, 0xFE, 0x80]).unwrap_err();
         assert_eq!(err.code, ErrorCode::SheetEncodingUnknown);
     }
 
-    /// 만든 것을 바이트로 꺼내 **다시 열 수 있어야** 한다. 꺼내기만 되고
-    /// 열리지 않으면 내보낸 파일이 쓸모가 없다.
+    /// 생성한 것을 바이트로 추출해 **재개방할 수 있어야** 한다. 추출만 가능하고
+    /// 개방되지 않으면 반출한 파일이 무용하다.
     #[test]
     fn a_built_db_comes_back_out_as_bytes() {
         let s = sheet(&[&["이름"], &["가"]]);
@@ -598,11 +601,11 @@ mod tests {
         let made = build(&conn, &plans, "-").unwrap();
         assert_eq!(made["a"].rows, 1);
         assert_eq!(made["b"].rows, 1);
-        // 두 표가 같은 사전을 쓴다. 따로 만들면 같은 낱말이 다른 번호를 받는다.
+        // 두 표가 동일한 사전을 사용한다. 개별 생성하면 동일한 어휘가 상이한 번호를 수령한다.
         let words: u32 = conn.query_row("SELECT count(*) FROM dict", [], |r| r.get(0)).unwrap();
         assert_eq!(words, 2);
         let a: i64 = conn.query_row("SELECT name FROM a", [], |r| r.get(0)).unwrap();
         let b: i64 = conn.query_row("SELECT name FROM b", [], |r| r.get(0)).unwrap();
-        assert!(b < a, "가나다순이면 '가' 가 '나' 보다 작아야 한다");
+        assert!(b < a, "가나다순이면 '가' 가 '나' 보다 소수여야 한다");
     }
 }
