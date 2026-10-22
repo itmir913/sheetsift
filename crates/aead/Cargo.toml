@@ -1,12 +1,12 @@
 [package]
 name = "sheetsift-aead"
-# 여기는 판을 적는 곳이 아니다. 앱 판은 tauri.conf.json 한 곳에 있다.
+# 여기는 판을 기재하는 곳이 아니다. 앱 판은 tauri.conf.json 단일 위치에 소재한다.
 version = "0.0.0"
 edition = "2021"
 rust-version = "1.82"
 publish = false
 
 [dependencies]
-# zeroize 를 켜지 않으면 크레이트 안의 **지우는 코드가 통째로 빠진다.**
-# AES 라운드 키에서 원래 열쇠는 되돌릴 수 있다.
+# zeroize 를 활성화하지 않으면 상자 내부의 **소거하는 코드가 전부 누락된다.**
+# AES 라운드 열쇠에서 원래 열쇠는 역산할 수 있다.
 aes-gcm = { version = "0.11", features = ["zeroize"] }
