@@ -20,7 +20,7 @@ declare module "sheetsift-wasm" {
 
   export class Book {
     constructor(bytes: Uint8Array, name: string);
-    listScreens(): string;
+    listScreens(request: string): string;
     queryRows(request: string): string;
     columnValues(request: string): string;
   }

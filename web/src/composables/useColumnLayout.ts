@@ -58,7 +58,14 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
   const widths = ref<Record<string, number>>({});
   const pinned = ref(DEFAULT_PIN);
 
-  const key = computed(() => storageKey(`cols.${screen.value.id}`));
+  /* 머리글 지정이 열쇠에 포함된다. 지정이 변경되면 열의 개수도 명칭도 달라져
+     **다른 표**가 되는데, 같은 열쇠로 보관하면 앞 지정에서 끌어 둔 너비와
+     순서가 엉뚱한 열에 적용된다. */
+  const key = computed(() => {
+    const h = screen.value.header;
+    const span = h ? `${h.at}.${h.rows}` : "none";
+    return storageKey(`cols.${screen.value.id}.${span}`);
+  });
 
   function defaultOrder(): string[] {
     return screen.value.columns.map((c) => c.key);
@@ -227,7 +234,7 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
     );
   });
 
-  watch(() => screen.value.id, load, { immediate: true });
+  watch(key, load, { immediate: true });
 
   return {
     columns,

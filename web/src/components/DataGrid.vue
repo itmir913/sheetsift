@@ -15,6 +15,7 @@ import {
   pageSize,
   PRINT_LIMIT,
   type Filter,
+  type HeaderSpec,
   type Row,
   type ScreenDef,
   type Sort,
@@ -23,6 +24,8 @@ import { useColumnLayout } from "@/composables/useColumnLayout";
 import { AppError } from "@/lib/book";
 
 const props = defineProps<{ screen: ScreenDef }>();
+
+const emit = defineEmits<{ setHeader: [spec: HeaderSpec] }>();
 
 
 /* ── 상태 ──────────────────────────────────────────────────── */
@@ -61,7 +64,13 @@ async function load() {
   busy.value = true;
   errorMessage.value = null;
   try {
-    const res = await fetchPage(props.screen.id, sorts.value, activeFilters.value, page.value);
+    const res = await fetchPage(
+      props.screen.id,
+      props.screen.header,
+      sorts.value,
+      activeFilters.value,
+      page.value,
+    );
     if (mine !== token) return;
     rows.value = res.rows;
     total.value = res.total;
@@ -91,7 +100,13 @@ function reload() {
  * 좁히는 글자까지 바탕에 넘긴다 — 잘린 목록을 화면에서 거르면 안 된다.
  */
 function loadValues(columnKey: string, needle: string) {
-  return columnValues(props.screen.id, columnKey, activeFilters.value, needle);
+  return columnValues(
+    props.screen.id,
+    props.screen.header,
+    columnKey,
+    activeFilters.value,
+    needle,
+  );
 }
 
 /* ── 페이지 이동 ───────────────────────────────────────────── */
@@ -155,7 +170,13 @@ async function print() {
   printing.value = true;
   errorMessage.value = null;
   try {
-    const res = await fetchRows(props.screen.id, sorts.value, activeFilters.value, PRINT_LIMIT);
+    const res = await fetchRows(
+      props.screen.id,
+      props.screen.header,
+      sorts.value,
+      activeFilters.value,
+      PRINT_LIMIT,
+    );
     printRows.value = res.rows;
     printTruncated.value = res.truncated;
     await new Promise((r) => requestAnimationFrame(() => r(null)));
@@ -193,6 +214,9 @@ watch(sorts, reload, { deep: true });
   <div ref="gridRoot" class="app-lane flex flex-col gap-3">
     <GridToolbar
       :sorts="sorts"
+      :header="screen.header"
+      :header-guessed="screen.headerGuessed"
+      :sheet-rows="screen.sheetRows"
       :columns="columns"
       :pinned="layout.pinned.value"
       :pin-limit="layout.pinLimit.value"
@@ -210,6 +234,7 @@ watch(sorts, reload, { deep: true });
       @set-pinned="layout.setPinned"
       @print="print"
       @goto="goto"
+      @set-header="(s: HeaderSpec) => emit('setHeader', s)"
     >
       <template #status>
         <span class="shrink-0 whitespace-nowrap text-right tabular-nums text-fg-muted">

@@ -11,7 +11,7 @@ import AppTooltip from "@/components/AppTooltip.vue";
 import ThemeToggle from "@/components/ThemeToggle.vue";
 import FilePick from "@/components/FilePick.vue";
 import DataGrid from "@/components/DataGrid.vue";
-import { openBook, type ScreenDef } from "@/lib/grid";
+import { listScreens, openBook, type HeaderSpec, type ScreenDef } from "@/lib/grid";
 import { AppError, start } from "@/lib/book";
 import { APP_NAME, APP_TAGLINE } from "@/lib/app";
 import { ui } from "@/i18n";
@@ -21,6 +21,12 @@ const KIND_VIEW = { grid: DataGrid } as const;
 const groupNames = ref<string[]>([]);
 const screens = ref<ScreenDef[]>([]);
 const current = ref<ScreenDef | null>(null);
+
+/**
+ * 사용자가 지정한 시트별 머리글. **기재된 것만 보관한다** — 기재하지 않은
+ * 시트는 바탕이 추정한 것을 사용하고, 그 추정은 바탕이 책임진다.
+ */
+const headers = ref<Record<string, HeaderSpec>>({});
 
 const fileName = ref("");
 const errorMessage = ref<string | null>(null);
@@ -88,6 +94,9 @@ async function pick(file: File) {
   screens.value = [];
   groupNames.value = [];
   current.value = null;
+  // 양식이 교체되면 앞 양식의 지정은 의미가 없다. 시트 명칭이 우연히 일치하면
+  // 전혀 다른 표에 그 지정이 적용된다.
+  headers.value = {};
   fileName.value = file.name;
   try {
     const catalog = await openBook(new Uint8Array(await file.arrayBuffer()), file.name);
@@ -103,8 +112,38 @@ async function pick(file: File) {
   }
 }
 
-/** 머리글을 못 찾은 시트는 표가 없다. **빈 표로 그리지 않는다.** */
+/** 머리글을 판별하지 못한 시트는 표가 없다. **빈 표로 그리지 않는다.** */
 const headless = computed(() => current.value !== null && !current.value.headerFound);
+
+/**
+ * 머리글 지정을 변경한다. 목록 전체를 재요청해 **열 정의를 교체한다.**
+ *
+ * 열의 개수도 명칭도 종류도 함께 변경되므로, 지금 화면이 보유한 열 정의를
+ * 부분적으로 고칠 수 없다. 바탕이 다시 산출한 것으로 통째로 교체한다.
+ */
+async function setHeader(id: string, spec: HeaderSpec) {
+  headers.value = { ...headers.value, [id]: spec };
+  busy.value = true;
+  errorMessage.value = null;
+  try {
+    const catalog = await listScreens(headers.value);
+    groupNames.value = catalog.groups;
+    screens.value = catalog.screens;
+    current.value = catalog.screens.find((s) => s.id === id) ?? current.value;
+  } catch (e) {
+    errorMessage.value = e instanceof AppError ? e.message : String(e);
+  } finally {
+    busy.value = false;
+  }
+}
+
+/**
+ * 머리글을 판별하지 못한 시트에 제시할 최초 지정.
+ *
+ * **자동으로 적용하지 않는다.** 사람이 누른 뒤에 적용된다 — 추정에 실패한
+ * 시트에 임의의 값을 적용해 표를 그리면, 그 표가 맞는지 아무도 확인하지 않는다.
+ */
+const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
 </script>
 
 <template>
@@ -200,15 +239,26 @@ const headless = computed(() => current.value !== null && !current.value.headerF
               <p v-if="current.description" class="text-fg-muted">{{ current.description }}</p>
             </div>
 
-            <p v-if="headless" class="app-fixed text-fg-muted">
-              이 시트에서 머리글 줄을 찾지 못했습니다. 열 이름이 적힌 줄이 있는지 확인해 주세요.
-            </p>
+            <div v-if="headless" class="app-fixed flex flex-col items-start gap-3">
+              <p class="text-fg-muted">
+                이 시트의 머리글을 판별하지 못했습니다. 열 이름이 몇 번째 줄에 몇 줄로
+                적혀 있는지 지정해 주세요 — 원본에서 열 이름이 보이는 줄입니다.
+              </p>
+              <button
+                type="button"
+                class="rounded-md bg-accent px-4 py-2 font-medium text-accent-fg hover:bg-accent-hover"
+                @click="setHeader(current.id, FIRST_GUESS)"
+              >
+                1행부터 1줄로 보기
+              </button>
+            </div>
             <!-- 무엇으로 그릴지는 화면 정의의 kind 가 정한다. -->
             <component
               :is="KIND_VIEW[current.kind]"
               v-else
-              :key="current.id"
+              :key="`${current.id}:${current.header?.at}:${current.header?.rows}`"
               :screen="current"
+              @set-header="(s: HeaderSpec) => setHeader(current!.id, s)"
             />
           </template>
         </template>

@@ -8,7 +8,7 @@
  * 위아래로 움직이지 않는다.
  */
 import { ref, watch } from "vue";
-import type { Sort } from "@/lib/grid";
+import type { HeaderSpec, Sort } from "@/lib/grid";
 import type { LaidOutColumn } from "@/composables/useColumnLayout";
 
 const props = withDefaults(
@@ -31,6 +31,17 @@ const props = withDefaults(
     canPrint?: boolean;
     printing?: boolean;
     printDisabled?: boolean;
+    /**
+     * 머리글 지정. 없으면 조작부에 그 칸을 그리지 않는다.
+     *
+     * 양식마다 머리글이 1줄이기도 2줄이기도 하고, 상단에 제목 줄이 붙기도
+     * 한다. **추정으로 전부 적중시킬 수 없으므로** 사람이 지정한다.
+     */
+    header?: HeaderSpec | null;
+    /** 그 지정이 추정인가. 참이면 확인을 요청하는 표시를 한다. */
+    headerGuessed?: boolean;
+    /** 시트의 총 줄 수. 지정 가능한 범위의 상한이다. */
+    sheetRows?: number;
     /** 지금 쪽(0부터). 쪽 넘김이 없는 화면은 넘기지 않는다. */
     page?: number;
     /** 전체 쪽 수. 넘기지 않으면 쪽 넘김을 그리지 않는다. */
@@ -43,6 +54,9 @@ const props = withDefaults(
     columns: () => [],
     pinned: 0,
     pinLimit: 0,
+    header: null,
+    headerGuessed: false,
+    sheetRows: 0,
     columnsCustomized: false,
     hasFilters: false,
     canPrint: true,
@@ -60,7 +74,27 @@ const emit = defineEmits<{
   setPinned: [n: number];
   print: [];
   goto: [page: number];
+  /** 머리글 범위를 변경했다. */
+  setHeader: [spec: HeaderSpec];
 }>();
+
+/* ── 머리글 범위 ───────────────────────────────────────────────
+   사람이 보는 숫자는 **1부터**다. 엑셀의 행 번호와 일치해야 원본을 보며
+   지정할 수 있다. 바탕은 0부터 세므로 오갈 때 환산한다. */
+
+function moveStart(by: number) {
+  const h = props.header;
+  if (!h) return;
+  const at = Math.max(0, Math.min(h.at + by, Math.max(0, props.sheetRows - h.rows)));
+  if (at !== h.at) emit("setHeader", { at, rows: h.rows });
+}
+
+function moveRows(by: number) {
+  const h = props.header;
+  if (!h) return;
+  const rows = Math.max(1, Math.min(h.rows + by, Math.max(1, props.sheetRows - h.at)));
+  if (rows !== h.rows) emit("setHeader", { at: h.at, rows });
+}
 
 /* ── 쪽 넘김 ───────────────────────────────────────────────────
    **여기 있어야 한다.** 화면마다 따로 그리면 조회 화면에는 있고 성적
@@ -170,6 +204,59 @@ function labelOf(key: string): string {
           >
             ＋
           </button>
+        </span>
+
+        <span v-if="header" class="gx-pin">
+          <span class="whitespace-nowrap text-fg-muted">머리글</span>
+          <button
+            type="button"
+            class="gx-pin-btn"
+            :disabled="header.at <= 0"
+            aria-label="머리글 시작 줄 위로"
+            data-tip="머리글이 시작하는 줄을 위로"
+            @click="moveStart(-1)"
+          >
+            ↑
+          </button>
+          <span class="whitespace-nowrap tabular-nums text-fg">
+            {{ header.at + 1 }}–{{ header.at + header.rows }}행
+          </span>
+          <button
+            type="button"
+            class="gx-pin-btn"
+            :disabled="header.at + header.rows >= sheetRows"
+            aria-label="머리글 시작 줄 아래로"
+            data-tip="머리글이 시작하는 줄을 아래로"
+            @click="moveStart(1)"
+          >
+            ↓
+          </button>
+          <button
+            type="button"
+            class="gx-pin-btn"
+            :disabled="header.rows <= 1"
+            aria-label="머리글 줄 수 줄이기"
+            data-tip="머리글 줄 수를 줄인다"
+            @click="moveRows(-1)"
+          >
+            −
+          </button>
+          <span class="w-4 text-center tabular-nums text-fg">{{ header.rows }}</span>
+          <button
+            type="button"
+            class="gx-pin-btn"
+            :disabled="header.at + header.rows >= sheetRows"
+            aria-label="머리글 줄 수 늘리기"
+            data-tip="머리글 줄 수를 늘린다"
+            @click="moveRows(1)"
+          >
+            ＋
+          </button>
+          <!-- 추정이라는 사실을 **표시한다.** 확정처럼 두면 열이 밀린 표가
+               정상으로 보인다. -->
+          <span v-if="headerGuessed" class="whitespace-nowrap text-warn" data-tip="바탕이 추정한 값입니다. 원본과 대조해 주세요.">
+            추정
+          </span>
         </span>
 
         <button

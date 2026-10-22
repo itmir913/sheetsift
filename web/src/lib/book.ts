@@ -114,8 +114,8 @@ export class Book {
     }
   }
 
-  listScreens<T>(): Promise<T> {
-    return this.#call<T>(() => this.#inner.listScreens());
+  listScreens<T>(request: unknown): Promise<T> {
+    return this.#call<T>(() => this.#inner.listScreens(JSON.stringify(request)));
   }
 
   queryRows<T>(request: unknown): Promise<T> {

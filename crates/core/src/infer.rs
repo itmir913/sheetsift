@@ -41,12 +41,24 @@ pub enum Kind {
 /// 머리글이 어디인가.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Header {
-    /// 이 줄 하나가 머리글이다.
-    One(usize),
-    /// 두 줄이다. 위 줄은 묶음 이름이고 오른쪽으로 흘려 채워져 있다.
-    Two { top: usize, sub: usize },
-    /// 못 찾았다. **첫 줄로 짐작하지 않는다.**
+    /// `at` 줄부터 `rows` 줄이 머리글이다.
+    ///
+    /// 두 줄 이상이면 위쪽 줄은 묶음 명칭이고, 병합된 칸이라 우측으로 흘려
+    /// 기재되어 있다. **줄 수를 둘로 한정하지 않는다** — 이 그릇은 임의의
+    /// 양식을 수용해야 하고, 몇 줄인지는 최종적으로 사용자가 지정한다.
+    Found { at: usize, rows: usize },
+    /// 판별 불가. **첫 줄로 추정하지 않는다.**
     Unknown,
+}
+
+impl Header {
+    /// 자료가 개시되는 줄. 판별 불가이면 없다.
+    pub fn body_at(self) -> Option<usize> {
+        match self {
+            Header::Found { at, rows } => Some(at + rows),
+            Header::Unknown => None,
+        }
+    }
 }
 
 /// 열 하나에 대해 알아본 것.
@@ -165,7 +177,7 @@ fn find_header(sheet: &Sheet, blank: &str) -> Header {
             continue;
         }
         if is_two_row(rows, r, blank) {
-            return Header::Two { top: r, sub: r + 1 };
+            return Header::Found { at: r, rows: 2 };
         }
         // 두 줄이 아니라면 이 줄 하나가 모든 열의 이름이어야 한다.
         if !wide_enough(&rows[r], body_width(below, blank), blank) {
@@ -174,7 +186,7 @@ fn find_header(sheet: &Sheet, blank: &str) -> Header {
         if has_a_nameless_column(&rows[r]) {
             return Header::Unknown;
         }
-        return Header::One(r);
+        return Header::Found { at: r, rows: 1 };
     }
     Header::Unknown
 }
@@ -210,30 +222,54 @@ fn is_two_row(rows: &[Vec<String>], top: usize, blank: &str) -> bool {
     wide_enough(sub, body_width(&rows[top + 2..], blank), blank)
 }
 
-/// 두 줄 머리글을 `(묶음, 이름)` 짝으로 편다. 위 줄은 오른쪽으로 흘려 채운다.
+/// 머리글 `rows` 줄을 `(묶음, 명칭)` 짝으로 전개한다.
 ///
-/// **머리글 두 줄이 실제로 닿는 데까지만** 센다. 시트 폭은 본문의 엉뚱한 칸
-/// 하나 때문에 늘어나기도 하는데, 그 칸까지 열로 치면 흘려 채운 묶음이 붙어
-/// 뜻 없는 열이 하나 생긴다.
-fn spread(rows: &[Vec<String>], top: usize, sub: usize) -> Vec<(Option<String>, String)> {
-    let upper = &rows[top];
-    let lower = &rows[sub];
-    let width = upper.len().max(lower.len());
-    let raw: Vec<(&str, &str)> =
-        (0..width).map(|c| (Sheet::at(upper, c), Sheet::at(lower, c))).collect();
-    let last = raw
-        .iter()
-        .rposition(|(t, s)| !t.trim().is_empty() || !s.trim().is_empty())
+/// 상단 줄들은 병합된 묶음 명칭이라 우측으로 흘려 채운다. 최하단 줄은 각 열의
+/// 고유 명칭이므로 흘리지 않는다 — 흘리면 비어 있는 칸에 좌측 명칭이 복제되어
+/// 동일 명칭의 열이 두 개 발생한다.
+///
+/// **깊이가 열마다 상이한 양식을 수용한다.** 실제 양식은 좌측 다수가 1단이고
+/// 우측 일부만 2단인 경우가 흔하다(`학년`·`반` 은 상단에만, `국어 선택과목` 은
+/// 2단). 그래서 각 열의 명칭 조각을 상단부터 모아 **공백을 제거한 뒤** 최후
+/// 조각을 명칭으로, 나머지를 묶음으로 채택한다. 1단 열은 묶음이 없는 열이 된다.
+///
+/// **머리글이 실제로 미치는 범위까지만** 산정한다. 시트 폭은 본문의 이탈한 칸
+/// 하나로 확장되는데, 그 칸까지 열로 산입하면 흘려 채운 묶음이 부착되어 무의미한
+/// 열이 발생한다.
+fn spread(rows: &[Vec<String>], at: usize, count: usize) -> Vec<(Option<String>, String)> {
+    let head: Vec<&Vec<String>> = (at..at + count).filter_map(|r| rows.get(r)).collect();
+    if head.is_empty() {
+        return Vec::new();
+    }
+    let width = head.iter().map(|r| r.len()).max().unwrap_or(0);
+    let last = (0..width)
+        .rposition(|c| head.iter().any(|r| !Sheet::at(r, c).trim().is_empty()))
         .map(|i| i + 1)
         .unwrap_or(0);
 
+    // 상단 줄마다 직전 비어 있지 않은 값을 보유한다. 최하단 줄은 흘리지 않는다.
+    let mut carried: Vec<Option<String>> = vec![None; head.len().saturating_sub(1)];
     let mut out = Vec::with_capacity(last);
-    let mut carried: Option<String> = None;
-    for (t, s) in raw.into_iter().take(last) {
-        if !t.trim().is_empty() {
-            carried = Some(t.trim().to_string());
+    for c in 0..last {
+        let mut parts: Vec<String> = Vec::with_capacity(head.len());
+        for (i, carry) in carried.iter_mut().enumerate() {
+            let cell = Sheet::at(head[i], c).trim();
+            if !cell.is_empty() {
+                *carry = Some(cell.to_string());
+            }
+            if let Some(v) = carry {
+                parts.push(v.clone());
+            }
         }
-        out.push((carried.clone(), s.trim().to_string()));
+        let own = Sheet::at(head[head.len() - 1], c).trim();
+        if !own.is_empty() {
+            parts.push(own.to_string());
+        }
+        // 상하 줄에 동일 문구가 반복되는 양식이 있다. 중복은 한 번만 취한다.
+        parts.dedup();
+        let label = parts.pop().unwrap_or_default();
+        let group = (!parts.is_empty()).then(|| parts.join(" "));
+        out.push((group, label));
     }
     out
 }
@@ -273,35 +309,40 @@ fn kind_of(rows: &[Vec<String>], col: usize, blank: &str) -> Kind {
 /// 넘긴다 — 그때는 비어 있는 칸만 빈 것으로 센다.
 pub fn layout(sheet: &Sheet, blank: &str) -> Layout {
     let header = find_header(sheet, blank);
-    let rows = &sheet.rows;
     let columns = match header {
         Header::Unknown => Vec::new(),
-        Header::One(at) => {
-            let names = &rows[at];
-            let last = names
-                .iter()
-                .rposition(|c| !c.trim().is_empty())
-                .map(|i| i + 1)
-                .unwrap_or(0);
-            let body = &rows[(at + 1).min(rows.len())..];
-            (0..last)
-                .map(|c| Column {
-                    label: names[c].trim().to_string(),
-                    group: None,
-                    kind: kind_of(body, c, blank),
-                })
-                .collect()
-        }
-        Header::Two { top, sub } => {
-            let body = &rows[(sub + 1).min(rows.len())..];
-            spread(rows, top, sub)
-                .into_iter()
-                .enumerate()
-                .map(|(c, (group, label))| Column { label, group, kind: kind_of(body, c, blank) })
-                .collect()
-        }
+        Header::Found { at, rows } => columns_of(sheet, blank, at, rows),
     };
     Layout { header, columns }
+}
+
+/// 머리글의 위치와 줄 수를 **지정받아** 생김새를 산출한다.
+///
+/// 추정하지 않는다. 사용자가 조작부에서 지정한 값이 여기로 전달되고, 그대로
+/// 수용한다 — 이 그릇은 임의의 양식을 담당하므로 열마다 깊이가 상이하거나
+/// 상단에 안내 줄이 존재하는 양식을 추정만으로 전부 적중시킬 수 없다. 적중시킬
+/// 수 없는 것을 적중한 것처럼 반환하는 편이 더 해롭다.
+///
+/// 범위가 시트를 벗어나면 **열이 없는 생김새**를 반환한다. 적당히 보정하면
+/// 사용자가 지정한 것과 상이한 표가 조용히 표시된다.
+pub fn layout_at(sheet: &Sheet, blank: &str, at: usize, rows: usize) -> Layout {
+    if rows == 0 || at + rows > sheet.rows.len() {
+        return Layout { header: Header::Unknown, columns: Vec::new() };
+    }
+    Layout {
+        header: Header::Found { at, rows },
+        columns: columns_of(sheet, blank, at, rows),
+    }
+}
+
+fn columns_of(sheet: &Sheet, blank: &str, at: usize, count: usize) -> Vec<Column> {
+    let rows = &sheet.rows;
+    let body = &rows[(at + count).min(rows.len())..];
+    spread(rows, at, count)
+        .into_iter()
+        .enumerate()
+        .map(|(c, (group, label))| Column { label, group, kind: kind_of(body, c, blank) })
+        .collect()
 }
 
 #[cfg(test)]
@@ -324,7 +365,7 @@ mod tests {
     fn a_plain_sheet_has_its_first_row_as_the_header() {
         let s = sheet(&[&["이름", "점수"], &["가", "90"], &["나", "75"]]);
         let l = layout(&s, "-");
-        assert_eq!(l.header, Header::One(0));
+        assert_eq!(l.header, Header::Found { at: 0, rows: 1 });
         assert_eq!(labels(&l), ["이름", "점수"]);
         assert_eq!(kinds(&l), [Kind::Text, Kind::Number]);
     }
@@ -340,7 +381,7 @@ mod tests {
             &["가", "90"],
         ]);
         let l = layout(&s, "-");
-        assert_eq!(l.header, Header::One(2));
+        assert_eq!(l.header, Header::Found { at: 2, rows: 1 });
         assert_eq!(labels(&l), ["이름", "점수"]);
     }
 
@@ -354,7 +395,7 @@ mod tests {
             &["부산", "나대", "일반", "20"],
         ]);
         let l = layout(&s, "-");
-        assert_eq!(l.header, Header::Two { top: 0, sub: 1 });
+        assert_eq!(l.header, Header::Found { at: 0, rows: 2 });
         assert_eq!(labels(&l), ["지역", "대학", "전형명", "인원"]);
         let groups: Vec<Option<&str>> =
             l.columns.iter().map(|c| c.group.as_deref()).collect();
@@ -370,7 +411,7 @@ mod tests {
     #[test]
     fn a_dense_second_row_is_data_not_a_header() {
         let s = sheet(&[&["이름", "지역"], &["가람", "서울"], &["나리", "부산"]]);
-        assert_eq!(layout(&s, "-").header, Header::One(0));
+        assert_eq!(layout(&s, "-").header, Header::Found { at: 0, rows: 1 });
     }
 
     /// 머리글 아래로 자료가 없으면 머리글이 아니다.
@@ -453,6 +494,113 @@ mod tests {
         let l = layout(&Sheet::default(), "-");
         assert_eq!(l.header, Header::Unknown);
         assert!(l.columns.is_empty());
+    }
+
+    /* ── 사용자가 지정하는 머리글 ──────────────────────────────── */
+
+    /// **깊이가 열마다 상이한 양식.** 좌측은 1단, 우측만 2단이다. 실재하는
+    /// 진학결과 양식의 형태이고, 추정은 여기서 실패한다 — 상단 줄이 하단 줄보다
+    /// 조밀해서 "묶음 줄" 로 보이지 않기 때문이다.
+    #[test]
+    fn a_header_whose_depth_differs_per_column_is_refused_by_the_guess() {
+        let s = sheet(&[
+            &["학년", "반", "국어", "", "", "영어"],
+            &["", "", "선택과목", "표준점수", "등급", "등급"],
+            &["3", "1", "언어와매체", "104", "3", "2"],
+            &["3", "2", "화법과작문", "99", "4", "1"],
+        ]);
+        // 추정은 거부한다. 상단 줄에 이름 없는 열이 중간에 존재한다.
+        assert_eq!(layout(&s, "-").header, Header::Unknown);
+    }
+
+    /// 그 양식도 **사용자가 2줄이라고 지정하면** 제대로 전개된다.
+    #[test]
+    fn the_same_sheet_opens_once_the_user_says_it_is_two_rows() {
+        let s = sheet(&[
+            &["학년", "반", "국어", "", "", "영어"],
+            &["", "", "선택과목", "표준점수", "등급", "등급"],
+            &["3", "1", "언어와매체", "104", "3", "2"],
+            &["3", "2", "화법과작문", "99", "4", "1"],
+        ]);
+        let l = layout_at(&s, "-", 0, 2);
+        assert_eq!(l.header, Header::Found { at: 0, rows: 2 });
+        // 1단 열은 묶음이 없고, 2단 열만 묶음을 보유한다.
+        assert_eq!(labels(&l), ["학년", "반", "선택과목", "표준점수", "등급", "등급"]);
+        let groups: Vec<Option<&str>> =
+            l.columns.iter().map(|c| c.group.as_deref()).collect();
+        assert_eq!(
+            groups,
+            [None, None, Some("국어"), Some("국어"), Some("국어"), Some("영어")]
+        );
+        // 자료는 머리글 두 줄 아래부터다. 그래야 종류가 올바르게 나온다.
+        assert_eq!(kinds(&l), [Kind::Number, Kind::Number, Kind::Text, Kind::Number, Kind::Number, Kind::Number]);
+    }
+
+    /// 1줄이라고 지정하면 둘째 줄은 **자료가 된다.** 지정을 그대로 수용한다는
+    /// 뜻이고, 그래서 사람이 틀리게 지정하면 틀린 표가 나온다 — 다만 그것은
+    /// 화면에 보이고 되돌릴 수 있다.
+    #[test]
+    fn saying_one_row_makes_the_second_row_data() {
+        let s = sheet(&[
+            &["학년", "반", "국어", "", "", "영어"],
+            &["", "", "선택과목", "표준점수", "등급", "등급"],
+            &["3", "1", "언어와매체", "104", "3", "2"],
+        ]);
+        let l = layout_at(&s, "-", 0, 1);
+        assert_eq!(l.header, Header::Found { at: 0, rows: 1 });
+        // 병합 때문에 비어 있던 칸은 **이름 없는 열**이 된다. 여기서 임의로
+        // 메우지 않는다 — 이름이 없다는 사실을 그대로 전달하고, 표시용 명칭은
+        // 받는 쪽이 부여한다.
+        assert_eq!(labels(&l), ["학년", "반", "국어", "", "", "영어"]);
+    }
+
+    /// 상단에 제목 줄이 부착된 양식. 시작 줄을 지정할 수 있어야 한다.
+    #[test]
+    fn the_user_can_say_where_the_header_starts() {
+        let s = sheet(&[
+            &["2026학년도 내부 자료"],
+            &["대학", "전형"],
+            &["", "세부"],
+            &["마루대", "교과"],
+        ]);
+        let l = layout_at(&s, "-", 1, 2);
+        assert_eq!(labels(&l), ["대학", "세부"]);
+        assert_eq!(l.columns[1].group.as_deref(), Some("전형"));
+    }
+
+    /// **범위를 벗어난 지정은 열을 내지 않는다.** 보정해서 다른 표를 조용히
+    /// 표시하지 않는다.
+    #[test]
+    fn a_span_past_the_end_of_the_sheet_gives_nothing() {
+        let s = sheet(&[&["대학", "전형"], &["마루대", "교과"]]);
+        assert_eq!(layout_at(&s, "-", 1, 5).header, Header::Unknown);
+        assert!(layout_at(&s, "-", 1, 5).columns.is_empty());
+        assert_eq!(layout_at(&s, "-", 0, 0).header, Header::Unknown);
+    }
+
+    /// 상하 줄에 동일 문구가 반복되는 양식. 명칭을 중복해서 붙이지 않는다.
+    #[test]
+    fn a_label_repeated_on_both_rows_is_taken_once() {
+        let s = sheet(&[&["대학", "점수"], &["대학", "총점"], &["마루대", "91"]]);
+        let l = layout_at(&s, "-", 0, 2);
+        assert_eq!(labels(&l), ["대학", "총점"]);
+        assert_eq!(l.columns[0].group, None);
+        assert_eq!(l.columns[1].group.as_deref(), Some("점수"));
+    }
+
+    /// 3줄 머리글. **둘로 한정하지 않는다.**
+    #[test]
+    fn three_header_rows_work_too() {
+        let s = sheet(&[
+            &["성적", "", ""],
+            &["국어", "", "영어"],
+            &["표준점수", "등급", "등급"],
+            &["104", "3", "2"],
+        ]);
+        let l = layout_at(&s, "-", 0, 3);
+        assert_eq!(labels(&l), ["표준점수", "등급", "등급"]);
+        let groups: Vec<Option<&str>> = l.columns.iter().map(|c| c.group.as_deref()).collect();
+        assert_eq!(groups, [Some("성적 국어"), Some("성적 국어"), Some("성적 영어")]);
     }
 
     /// 본문의 엉뚱한 칸 하나 때문에 열이 하나 더 생기지 않는다.

@@ -19,6 +19,8 @@ use sheetsift_core::grid::{self, Column, ColumnKind, Table};
 use sheetsift_core::sheet::{self, Sheet, TablePlan};
 use sheetsift_core::{infer, Connection, Error, ErrorCode, Result};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
+use std::collections::BTreeMap;
 
 pub mod bindings;
 
@@ -30,6 +32,23 @@ pub mod bindings;
 pub const BLANK: &str = "-";
 
 /* ── 화면에 넘기는 모양 ─────────────────────────────────────────── */
+
+/// 머리글이 어디서 몇 줄인가. **사용자가 조작부에서 지정한다.**
+///
+/// 추정으로 전부 적중시킬 수 없다 — 열마다 단수가 상이하거나(`학년` 은 1단,
+/// `국어 등급` 은 2단) 상단에 제목 줄이 부착된 양식이 실재한다. 적중시킬 수
+/// 없는 것을 적중한 것처럼 반환하지 않고, 최종 결정을 사용자에게 위임한다.
+///
+/// 이 지정은 **요청마다 지참한다.** 겹이 기억하면, 지정을 변경한 직후 도착한
+/// 지연 응답이 신규 열 구성으로 오인되어 표시된다. 오류는 발생하지 않는다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeaderSpec {
+    /// 머리글이 개시되는 줄. 0부터 센다.
+    pub at: usize,
+    /// 머리글 줄 수. 1 이상이어야 한다.
+    pub rows: usize,
+}
 
 /// 열 하나를 화면이 아는 모양으로.
 ///
@@ -96,6 +115,15 @@ pub struct ScreenView {
     /// 머리글을 찾지 못했으면 열이 없다. **열이 없는 것과 아직 안 본 것은
     /// 다르다** — 화면이 그 까닭을 말할 수 있어야 한다.
     pub header_found: bool,
+    /// 적용된 머리글 지정. 조작부가 이 값을 표시하고 변경한다.
+    pub header: Option<HeaderSpec>,
+    /// 그 지정이 **추정**인가. 참이면 사용자가 확인하지 않은 값이다.
+    ///
+    /// 화면은 이것을 근거로 "추정했습니다" 를 표시한다. 추정을 확정처럼 두면
+    /// 열이 하나 밀린 표가 정상으로 보인다 — 조용히 틀리는 쪽이다.
+    pub header_guessed: bool,
+    /// 시트의 총 줄 수. 조작부가 지정 가능한 범위의 상한이다.
+    pub sheet_rows: usize,
 }
 
 /// 양식을 연 직후 화면이 알아야 하는 것 전부.
@@ -130,6 +158,9 @@ pub struct ScreenCatalog {
 pub struct Ask {
     /// 볼 표. 여기서는 시트 이름이다.
     pub screen_id: String,
+    /// 적용할 머리글 지정. 없으면 추정한 것을 사용한다.
+    #[serde(default)]
+    pub header: Option<HeaderSpec>,
     #[serde(default)]
     pub sorts: Vec<grid::Sort>,
     #[serde(default)]
@@ -149,6 +180,9 @@ pub struct Ask {
 pub struct ValuesAsk {
     /// 볼 표. 여기서는 시트 이름이다.
     pub screen_id: String,
+    /// 적용할 머리글 지정. 조회와 동일한 값이어야 한다.
+    #[serde(default)]
+    pub header: Option<HeaderSpec>,
     pub column_key: String,
     /// 지금 걸린 필터들. 이 열 자신의 것은 바탕이 빼고 센다.
     #[serde(default)]
@@ -158,12 +192,25 @@ pub struct ValuesAsk {
     pub needle: String,
 }
 
+/// 화면 목록 요청.
+///
+/// 시트별 머리글 지정을 지참한다. 기재하지 않은 시트는 추정한 것을 사용한다.
+/// 사용자가 한 시트의 지정을 변경하면 그 시트만 기재해 재요청한다.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogAsk {
+    #[serde(default)]
+    pub headers: BTreeMap<String, HeaderSpec>,
+}
+
 /* ── 들고 있는 것 ───────────────────────────────────────────────── */
 
 /// 열어 둔 표 하나. 바꿔 놓은 연결과 그 열 정의를 함께 든다.
 struct Open {
     conn: Connection,
     name: String,
+    /// 이 표를 구축할 때 적용한 머리글 지정. 요청의 것과 대조한다.
+    header: HeaderSpec,
     columns: Vec<Column>,
     rows: u32,
 }
@@ -180,64 +227,72 @@ impl Table for Open {
     }
 }
 
-/// 시트 하나를 **읽어 두기만 한** 것.
+#[derive(Clone)]
+/// 시트 하나와, 지정된 머리글로 산출한 생김새.
 ///
-/// 열 정의는 양식을 열 때 한 번 알아보고 여기 둔다. SQLite 표로 바꾸는 일은
-/// 그 표를 처음 물을 때 한다 — 미리 다 바꿔 두면 큰 양식에서 **보지도 않을
-/// 시트 때문에 첫 화면이 늦어진다.**
-///
-/// 열을 알아보는 일은 연 자리에서 전부 한다. 양식의 줄은 그때 이미 메모리에
-/// 있고, 화면 목록이 **한 번에** 오려면 모든 시트의 열을 알아야 한다.
-struct Tab {
-    name: String,
-    data: Sheet,
-    /// 머리글 줄의 자리. 없으면 머리글을 찾지 못한 시트다.
-    from: Option<usize>,
-    /// 머리글에서 센 열 수. 본문에 삐져 나온 칸은 세지 않는다.
-    width: usize,
-    /// 조회 엔진이 쓰는 열 정의.
+/// 생김새는 **머리글 지정마다 달라진다.** 사용자가 조작부에서 줄 수를 변경하면
+/// 열의 명칭도 개수도 종류도 전부 변경된다. 그래서 하나로 고정하지 않고,
+/// 요청이 지참한 지정으로 그때 산출한다.
+struct Shape {
+    /// 적용된 머리글 지정. 없으면 판별에 실패한 것이다.
+    spec: Option<HeaderSpec>,
+    /// 추정으로 결정한 것인가. 사용자가 지정한 것이면 거짓이다.
+    guessed: bool,
+    /// 각 열의 표시 명칭. SQL 열쇠도 이것에서 파생한다.
+    labels: Vec<String>,
+    /// 조회 엔진이 사용하는 열 정의.
     columns: Vec<Column>,
-    /// 화면이 보는 열 정의. 같은 열을 같은 차례로 담는다.
+    /// 화면이 참조하는 열 정의. 동일한 열을 동일한 순서로 보유한다.
     view: Vec<ColumnView>,
 }
 
-impl Tab {
-    /// 시트를 읽고 그 열을 알아본다.
-    ///
-    /// 열의 종류는 [`infer`] 가 알아본다. **알아보지 못한 열은 글자로 담되,
-    /// 그렇다고 화면에 알린다**([`ColumnView::guessed`]) — 짐작한 것을 아는
-    /// 것처럼 두면 틀린 차례가 참으로 보인다.
-    fn read(name: String, data: Sheet) -> Self {
-        let layout = infer::layout(&data, BLANK);
-        // 머리글 아래만 자료다. 머리글 위의 안내 줄은 자료가 아니다.
-        let from = match layout.header {
-            infer::Header::One(at) => Some(at),
-            infer::Header::Two { sub, .. } => Some(sub),
-            infer::Header::Unknown => None,
-        };
-        let width = layout.columns.len();
-        let Some(from) = from.filter(|at| data.rows.get(*at).is_some()) else {
-            return Self { name, data, from: None, width: 0, columns: Vec::new(), view: Vec::new() };
-        };
+impl Shape {
+    fn empty() -> Self {
+        Self { spec: None, guessed: true, labels: Vec::new(), columns: Vec::new(), view: Vec::new() }
+    }
 
-        // 열쇠는 **바탕이 짓는다.** 여기서 같은 규칙을 한 벌 더 적으면,
-        // 바탕이 이름 짓는 법을 고치는 날 둘이 조용히 갈린다.
-        let head = Sheet { rows: vec![trimmed_row(&data, from, width)] };
+    /// 지정된 머리글로 생김새를 산출한다.
+    ///
+    /// **SQL 열쇠를 머리글 원문이 아니라 표시 명칭에서 파생한다.** 2단 머리글은
+    /// 하단 줄이 일부 열에서 공백이라(`학년` 은 상단에만 존재), 원문으로 열쇠를
+    /// 지으면 다수의 열이 `_`·`_2`·`_3` 이 된다. 유일하기는 하나 조회 오류가
+    /// 발생했을 때 어느 열인지 판독할 수 없다. 표시 명칭은 이미 합성되어 유일하다.
+    fn derive(layout: infer::Layout, guessed: bool) -> Self {
+        let infer::Header::Found { at, rows } = layout.header else {
+            return Self::empty();
+        };
+        if layout.columns.is_empty() {
+            return Self::empty();
+        }
+
+        let labels: Vec<String> = layout
+            .columns
+            .iter()
+            .enumerate()
+            .map(|(i, c)| match &c.group {
+                // 2단 이상은 `묶음 · 명칭` 으로 한 줄에 수용한다. 표의 머리글이
+                // 한 줄이라 그렇다. 합성하지 않으면 `등급` 이 여섯 열에 중복된다.
+                Some(g) if !g.is_empty() && g != &c.label => format!("{g} · {}", c.label),
+                // 명칭이 없는 열. 사용자가 지정한 범위에 병합으로 비어 있던 칸이
+                // 포함되면 발생한다. **엑셀의 열 기호를 부여한다** — 공백으로
+                // 두면 머리글이 비어 열을 지시할 수 없고, 열쇠도 `_`·`_2` 가
+                // 되어 조회 오류에서 어느 열인지 판독할 수 없다.
+                _ if c.label.is_empty() => format!("{}열", column_ref(i)),
+                _ => c.label.clone(),
+            })
+            .collect();
+
+        // 열쇠는 **바탕이 짓는다.** 여기서 동일한 규칙을 한 벌 더 기재하면,
+        // 바탕이 명명 규칙을 변경하는 시점에 양자가 조용히 상이해진다.
+        let head = Sheet { rows: vec![labels.clone()] };
         let keys = sheet::column_names(&head);
 
-        let mut columns = Vec::with_capacity(width);
-        let mut view = Vec::with_capacity(width);
+        let mut columns = Vec::with_capacity(keys.len());
+        let mut view = Vec::with_capacity(keys.len());
         for (i, (_, db)) in keys.iter().enumerate() {
             let guess = &layout.columns[i];
             let number = guess.kind == infer::Kind::Number;
-            let label = match &guess.group {
-                // 두 줄 머리글은 `묶음 · 이름` 으로 한 줄에 담는다. 화면이
-                // 한 줄이라 그렇다.
-                Some(group) if !group.is_empty() && group != &guess.label => {
-                    format!("{group} · {}", guess.label)
-                }
-                _ => guess.label.clone(),
-            };
+            let label = labels[i].clone();
             columns.push(Column {
                 key: db.clone(),
                 label: label.clone(),
@@ -259,7 +314,43 @@ impl Tab {
             });
         }
         grid::assign_aliases(columns.iter_mut());
-        Self { name, data, from: Some(from), width, columns, view }
+        Self { spec: Some(HeaderSpec { at, rows }), guessed, labels, columns, view }
+    }
+}
+
+/// 시트 하나를 **판독만 해 둔** 것.
+///
+/// SQLite 표로 변환하는 작업은 그 표를 최초로 조회할 때 수행한다 — 사전에 전부
+/// 변환하면 대형 양식에서 **참조하지도 않을 시트 때문에 최초 화면이 지연된다.**
+///
+/// 추정으로 산출한 생김새는 개방 시점에 확보한다. 양식의 줄이 그때 이미
+/// 메모리에 존재하고, 화면 목록이 **한 번에** 도달하려면 전 시트의 열을 알아야
+/// 한다. 사용자가 지정을 변경하면 그 시트만 그 시점에 재산출한다.
+struct Tab {
+    name: String,
+    data: Sheet,
+    /// 추정으로 산출한 기본 생김새.
+    guess: Shape,
+}
+
+impl Tab {
+    fn read(name: String, data: Sheet) -> Self {
+        let guess = Shape::derive(infer::layout(&data, BLANK), true);
+        Self { name, data, guess }
+    }
+
+    /// 지정된 머리글의 생김새. 지정이 없거나 추정과 동일하면 산출을 생략한다.
+    fn shape(&self, spec: Option<HeaderSpec>) -> Cow<'_, Shape> {
+        match spec {
+            None => Cow::Borrowed(&self.guess),
+            Some(s) if self.guess.spec == Some(s) && self.guess.guessed => Cow::Borrowed(&self.guess),
+            Some(s) => Cow::Owned(Shape::derive(infer::layout_at(&self.data, BLANK, s.at, s.rows), false)),
+        }
+    }
+
+    /// 시트의 총 줄 수. 조작부가 지정할 수 있는 범위의 상한이다.
+    fn height(&self) -> usize {
+        self.data.rows.len()
     }
 }
 
@@ -287,11 +378,14 @@ impl Viewer {
         Ok(Self { group: sheet_name_of(name), tabs, open: None })
     }
 
-    /// 볼 수 있는 표 전부와, 화면이 손으로 적으면 안 되는 값들.
+    /// 열람 가능한 표 전부와, 화면이 임의로 기재하면 안 되는 값들.
     ///
-    /// **탭 차례대로** 온다. 열 정의가 여기 함께 오므로 화면은 표를 하나씩
-    /// 열어 보며 열을 모으지 않는다.
-    pub fn list_screens(&self) -> ScreenCatalog {
+    /// **탭 순서대로** 반환한다. 열 정의가 함께 도달하므로 화면은 표를 하나씩
+    /// 개방하며 열을 수집하지 않는다.
+    ///
+    /// 요청이 시트별 머리글 지정을 지참한다. 기재하지 않은 시트는 추정값을
+    /// 적용한다.
+    pub fn list_screens(&self, ask: &CatalogAsk) -> ScreenCatalog {
         ScreenCatalog {
             groups: vec![self.group.clone()],
             foot_groups: Vec::new(),
@@ -300,30 +394,47 @@ impl Viewer {
             screens: self
                 .tabs
                 .iter()
-                .map(|t| ScreenView {
-                    id: t.name.clone(),
-                    kind: "grid".to_string(),
-                    title: t.name.clone(),
-                    description: String::new(),
-                    group: self.group.clone(),
-                    columns: t.view.clone(),
-                    header_found: t.from.is_some(),
+                .map(|t| {
+                    let shape = t.shape(ask.headers.get(&t.name).copied());
+                    ScreenView {
+                        id: t.name.clone(),
+                        kind: "grid".to_string(),
+                        title: t.name.clone(),
+                        description: String::new(),
+                        group: self.group.clone(),
+                        columns: shape.view.clone(),
+                        header_found: shape.spec.is_some(),
+                        header: shape.spec,
+                        header_guessed: shape.guessed,
+                        sheet_rows: t.height(),
+                    }
                 })
                 .collect(),
         }
     }
 
-    /// 시트 하나를 SQLite 표로 바꾸고 열어 둔다.
-    fn open_sheet(&mut self, at: usize) -> Result<()> {
+    /// 시트 하나를 SQLite 표로 변환해 보유한다.
+    ///
+    /// 머리글 줄을 **합성해서** 본문 앞에 부착한다. 양식의 머리글 원문을 그대로
+    /// 사용하지 않는 이유는 2단 머리글이다 — 하단 줄이 일부 열에서 공백이라
+    /// 원문으로는 열쇠가 `_`·`_2` 가 된다. 표시 명칭은 이미 합성되어 유일하고,
+    /// 목록이 내준 열쇠도 그것에서 파생했으므로 양자가 일치한다.
+    fn open_sheet(&mut self, at: usize, spec: Option<HeaderSpec>) -> Result<()> {
         let tab = self
             .tabs
             .get(at)
             .ok_or_else(|| Error::new(ErrorCode::SheetUnreadable).with("sheet", at))?;
-        let Some(from) = tab.from else {
+        let shape = tab.shape(spec);
+        let Some(applied) = shape.spec else {
             self.open = None;
             return Ok(());
         };
-        let body = Sheet { rows: trimmed(&tab.data, from, tab.width) };
+
+        let width = shape.labels.len();
+        let mut rows = Vec::with_capacity(1 + tab.data.rows.len());
+        rows.push(shape.labels.clone());
+        rows.extend(trimmed(&tab.data, applied.at + applied.rows, width));
+        let body = Sheet { rows };
 
         let conn = Connection::open_in_memory()
             .map_err(|e| Error::new(ErrorCode::SheetTableFailed).detail(e))?;
@@ -331,11 +442,11 @@ impl Viewer {
         let made = sheet::build(&conn, &[(plan, body)], BLANK)?;
         let built = &made["t"];
 
-        // **목록에 내준 열쇠와 표에 생긴 열쇠가 같아야 한다.** 갈리면 화면이
-        // 든 열쇠로 정렬·필터가 모두 "그런 열 없다" 가 되거나, 더 나쁘게는
-        // 다른 열에 걸린다.
+        // **목록이 내준 열쇠와 표에 생성된 열쇠가 일치해야 한다.** 상이하면
+        // 화면이 보유한 열쇠로 정렬·필터가 전부 "그런 열 없음" 이 되거나, 더
+        // 불리하게는 **다른 열에 적용된다.**
         let built_keys: Vec<&String> = built.columns.iter().map(|(_, db)| db).collect();
-        let listed_keys: Vec<&String> = tab.columns.iter().map(|c| &c.key).collect();
+        let listed_keys: Vec<&String> = shape.columns.iter().map(|c| &c.key).collect();
         if built_keys != listed_keys {
             return Err(Error::new(ErrorCode::SheetColumnMissing)
                 .with("sheet", &tab.name)
@@ -345,30 +456,37 @@ impl Viewer {
         self.open = Some(Open {
             conn,
             name: tab.name.clone(),
-            columns: tab.columns.clone(),
+            header: applied,
+            columns: shape.columns.clone(),
             rows: built.rows as u32,
         });
         Ok(())
     }
 
-    /// 요청이 가리키는 표를 열어 둔 상태로 만든다.
+    /// 요청이 지시하는 표를 개방된 상태로 만든다.
     ///
-    /// 이미 그 시트가 열려 있으면 그대로 쓰고, 아니면 바꾼다. **없는 이름은
-    /// 선다** — 열려 있던 표로 답하면 화면은 바꾼 표를 보고 있다고 믿는다.
-    fn ready(&mut self, screen_id: &str) -> Result<&Open> {
-        let mine = self.open.as_ref().map(|o| o.name.as_str()) == Some(screen_id);
-        if !mine {
-            let at = self
-                .tabs
-                .iter()
-                .position(|t| t.name == screen_id)
-                .ok_or_else(|| {
-                    Error::new(ErrorCode::SheetUnreadable).with("sheet", screen_id)
-                })?;
-            self.open_sheet(at)?;
+    /// 동일한 시트가 **동일한 머리글 지정으로** 개방되어 있으면 재사용하고,
+    /// 아니면 재구축한다. 시트만 대조하면 지정을 변경해도 구 표로 응답하여,
+    /// 화면은 신규 열 구성을 보고 있다고 오인한다 — 오류는 발생하지 않는다.
+    ///
+    /// **미존재 명칭은 중단한다** — 개방되어 있던 표로 응답하면 화면은 변경된
+    /// 표를 열람 중이라고 신뢰한다.
+    fn ready(&mut self, screen_id: &str, spec: Option<HeaderSpec>) -> Result<&Open> {
+        let at = self
+            .tabs
+            .iter()
+            .position(|t| t.name == screen_id)
+            .ok_or_else(|| Error::new(ErrorCode::SheetUnreadable).with("sheet", screen_id))?;
+        let wanted = self.tabs[at].shape(spec).spec;
+        let same = self
+            .open
+            .as_ref()
+            .is_some_and(|o| o.name == screen_id && Some(o.header) == wanted);
+        if !same {
+            self.open_sheet(at, spec)?;
         }
-        // 머리글을 못 찾은 시트는 표가 없다. 빈 쪽을 돌려주면 화면이
-        // "자료가 없다" 로 읽는다.
+        // 머리글을 판별하지 못한 시트는 표가 없다. 빈 쪽을 반환하면 화면이
+        // "자료 없음" 으로 판독한다.
         self.open
             .as_ref()
             .ok_or_else(|| Error::new(ErrorCode::SheetEmpty).with("sheet", screen_id))
@@ -376,7 +494,7 @@ impl Viewer {
 
     /// 한 쪽을 읽는다.
     pub fn query_rows(&mut self, ask: &Ask) -> Result<grid::Page> {
-        let open = self.ready(&ask.screen_id)?;
+        let open = self.ready(&ask.screen_id, ask.header)?;
         let q = grid::Query {
             sorts: ask.sorts.clone(),
             filters: ask.filters.clone(),
@@ -392,7 +510,7 @@ impl Viewer {
     /// 것으로는 안 된다** — 값이 많으면 바탕이 앞에서 잘라 보내므로, 찾는 값이
     /// 그 뒤에 있으면 "없습니다" 가 뜬다.
     pub fn column_values(&mut self, ask: &ValuesAsk) -> Result<grid::ColumnValues> {
-        let open = self.ready(&ask.screen_id)?;
+        let open = self.ready(&ask.screen_id, ask.header)?;
         grid::column_values(
             &open.conn,
             open,
@@ -410,6 +528,23 @@ impl Viewer {
 }
 
 /* ── 자잘한 것 ──────────────────────────────────────────────────── */
+
+/// 열 번호를 엑셀의 열 기호로. 0 → `A`, 25 → `Z`, 26 → `AA`.
+///
+/// 명칭이 없는 열을 지시할 때 사용한다. 사람이 원본 엑셀에서 **그 열을 찾아갈
+/// 수 있는** 유일한 표현이다.
+fn column_ref(mut at: usize) -> String {
+    let mut out = Vec::new();
+    loop {
+        out.push(b'A' + (at % 26) as u8);
+        if at < 26 {
+            break;
+        }
+        at = at / 26 - 1;
+    }
+    out.reverse();
+    String::from_utf8(out).expect("ASCII")
+}
 
 /// xlsx 는 zip 이다. **이름이 아니라 속으로 가린다.**
 fn is_zip(bytes: &[u8]) -> bool {
@@ -438,12 +573,6 @@ fn trimmed(sheet: &Sheet, from: usize, width: usize) -> Vec<Vec<String>> {
         .collect()
 }
 
-/// 그 줄 하나만, 열 수만큼. 머리글만 보면 될 때 쓴다 — 열쇠를 알아내려고
-/// 양식을 한 벌 더 베끼지 않는다.
-fn trimmed_row(sheet: &Sheet, at: usize, width: usize) -> Vec<String> {
-    let row = &sheet.rows[at];
-    (0..width).map(|i| Sheet::at(row, i).to_string()).collect()
-}
 
 #[cfg(test)]
 mod tests {
@@ -452,10 +581,26 @@ mod tests {
     /// 바탕의 시험이 쓰는 그 작은 양식이다. 여기서도 같은 것을 쓴다.
     const TINY_XLSX: &[u8] = include_bytes!("../../core/tests/fixtures/tiny.xlsx");
 
+    /// 깊이가 열마다 상이한 머리글. 좌측 둘은 1단, 우측 넷은 2단이다.
+    /// **실재하는 진학결과 양식의 형태**이고, 추정은 여기서 실패한다.
+    const MIXED_CSV: &[u8] = "학년,반,국어,,,영어
+        ,,선택과목,표준점수,등급,등급
+        3,1,언어와매체,104,3,2
+        3,2,화법과작문,99,4,1
+"
+        .as_bytes();
+
+    fn spec(at: usize, rows: usize) -> CatalogAsk {
+        let mut headers = BTreeMap::new();
+        headers.insert("진학결과".to_string(), HeaderSpec { at, rows });
+        CatalogAsk { headers }
+    }
+
+
     /// 목록에서 표 하나를 집어 온다. **열 정의는 목록에 함께 온다** — 시험도
     /// 화면과 같은 길로 본다.
     fn screen(v: &Viewer, at: usize) -> ScreenView {
-        v.list_screens().screens[at].clone()
+        v.list_screens(&CatalogAsk::default()).screens[at].clone()
     }
 
     /// 그 표의 줄 수. **목록은 줄 수를 말하지 않는다** — 조회가 말하는 수와
@@ -466,7 +611,7 @@ mod tests {
 
     /// 표 이름을 탭 차례대로.
     fn names(v: &Viewer) -> Vec<String> {
-        v.list_screens().screens.iter().map(|s| s.id.clone()).collect()
+        v.list_screens(&CatalogAsk::default()).screens.iter().map(|s| s.id.clone()).collect()
     }
 
     /// 조회 요청 하나. **무슨 표를 보는지는 요청이 들고 온다.**
@@ -494,7 +639,7 @@ mod tests {
     #[test]
     fn the_catalog_carries_every_table_s_columns_at_once() {
         let v = Viewer::open(TINY_XLSX, "tiny.xlsx").unwrap();
-        let cat = v.list_screens();
+        let cat = v.list_screens(&CatalogAsk::default());
         let people = &cat.screens[0];
         assert!(people.header_found);
         assert!(!people.columns.is_empty(), "열을 열어 봐야 알려 준다");
@@ -512,7 +657,7 @@ mod tests {
     #[test]
     fn the_catalog_puts_one_workbook_in_one_group() {
         let v = Viewer::open(TINY_XLSX, "/어딘가/tiny.xlsx").unwrap();
-        let cat = v.list_screens();
+        let cat = v.list_screens(&CatalogAsk::default());
         assert_eq!(cat.groups, ["tiny"]);
         assert!(cat.screens.iter().all(|s| s.group == "tiny"));
         assert!(cat.foot_groups.is_empty(), "보는 겹에는 프로그램 메뉴가 없다");
@@ -523,7 +668,7 @@ mod tests {
     #[test]
     fn the_catalog_says_what_a_blank_looks_like() {
         let v = Viewer::open(TINY_XLSX, "tiny.xlsx").unwrap();
-        assert_eq!(v.list_screens().blank, BLANK);
+        assert_eq!(v.list_screens(&CatalogAsk::default()).blank, BLANK);
     }
 
     /// **소수 자릿수는 모른다고 말한다.** 0 을 보내면 양식의 소수가 조용히
@@ -531,7 +676,7 @@ mod tests {
     #[test]
     fn the_catalog_does_not_guess_how_many_decimals() {
         let v = Viewer::open(TINY_XLSX, "tiny.xlsx").unwrap();
-        assert_eq!(v.list_screens().decimals, None);
+        assert_eq!(v.list_screens(&CatalogAsk::default()).decimals, None);
     }
 
     /// **목록의 열쇠로 바로 조회된다.** 열쇠는 표를 만들 때 바탕이 짓는데
@@ -682,7 +827,7 @@ mod tests {
     #[test]
     fn asking_for_a_sheet_that_is_not_there_stops() {
         let mut v = Viewer::open(TINY_XLSX, "tiny.xlsx").unwrap();
-        v.open_sheet(0).unwrap();
+        v.open_sheet(0, None).unwrap();
         let e = v.query_rows(&ask("없는시트", 10)).unwrap_err();
         assert_eq!(e.code, ErrorCode::SheetUnreadable);
         assert_eq!(e.params.get("sheet").map(String::as_str), Some("없는시트"));
@@ -887,4 +1032,108 @@ mod tests {
         assert_eq!(view.columns.len(), 2);
         assert!(view.columns.iter().all(|c| !c.label.is_empty()));
     }
+    /* ── 사용자가 지정하는 머리글 ──────────────────────────────── */
+
+    /// 추정은 **거부한다.** 상단 줄 중간에 이름 없는 열이 존재해서다.
+    /// 화면은 그 사실을 전달받아야 조작부로 물을 수 있다.
+    #[test]
+    fn a_header_of_differing_depth_is_not_guessed() {
+        let v = Viewer::open(MIXED_CSV, "진학결과.csv").expect("양식을 열지 못했습니다");
+        let s = &v.list_screens(&CatalogAsk::default()).screens[0];
+        assert!(!s.header_found, "추정이 성공해 버렸습니다");
+        assert!(s.header_guessed, "추정이라고 표시되지 않았습니다");
+        assert_eq!(s.header, None);
+        assert_eq!(s.sheet_rows, 4, "조작부가 지정할 범위를 알 수 없습니다");
+    }
+
+    /// **2줄이라고 지정하면 열린다.** 명칭은 묶음과 합성해 유일해진다 —
+    /// `등급` 이 두 열에 존재하므로 합성하지 않으면 한쪽을 지시할 수 없다.
+    #[test]
+    fn the_user_can_say_the_header_is_two_rows() {
+        let v = Viewer::open(MIXED_CSV, "진학결과.csv").expect("양식을 열지 못했습니다");
+        let s = &v.list_screens(&spec(0, 2)).screens[0];
+        assert!(s.header_found);
+        assert!(!s.header_guessed, "사용자 지정인데 추정으로 표시됩니다");
+        assert_eq!(s.header, Some(HeaderSpec { at: 0, rows: 2 }));
+        let labels: Vec<&str> = s.columns.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            ["학년", "반", "국어 · 선택과목", "국어 · 표준점수", "국어 · 등급", "영어 · 등급"]
+        );
+        let keys: Vec<&str> = s.columns.iter().map(|c| c.key.as_str()).collect();
+        assert_eq!(keys.len(), 6);
+        assert!(keys.iter().all(|k| !k.is_empty() && *k != "_"), "열쇠가 비었습니다: {keys:?}");
+    }
+
+    /// 지정한 머리글로 **조회까지 도달한다.** 열 정의만 바뀌고 자료가 따라오지
+    /// 않으면 표는 비어 보인다.
+    #[test]
+    fn rows_come_back_under_the_header_the_user_chose() {
+        let mut v = Viewer::open(MIXED_CSV, "진학결과.csv").expect("양식을 열지 못했습니다");
+        let header = Some(HeaderSpec { at: 0, rows: 2 });
+        let ask = Ask {
+            screen_id: "진학결과".to_string(),
+            header,
+            limit: 10,
+            ..Default::default()
+        };
+        let page = v.query_rows(&ask).expect("조회하지 못했습니다");
+        assert_eq!(page.total, 2, "머리글 두 줄이 자료로 섞였습니다");
+        assert_eq!(page.rows.len(), 2);
+    }
+
+    /// **지정을 변경하면 표가 재구축된다.** 시트 명칭만 대조하면 구 표로
+    /// 응답하고, 화면은 신규 열 구성을 열람 중이라고 오인한다.
+    #[test]
+    fn changing_the_header_rebuilds_the_table() {
+        let mut v = Viewer::open(MIXED_CSV, "진학결과.csv").expect("양식을 열지 못했습니다");
+        let two = Ask {
+            screen_id: "진학결과".to_string(),
+            header: Some(HeaderSpec { at: 0, rows: 2 }),
+            limit: 10,
+            ..Default::default()
+        };
+        assert_eq!(v.query_rows(&two).expect("조회 실패").total, 2);
+
+        let one = Ask { header: Some(HeaderSpec { at: 0, rows: 1 }), ..two.clone() };
+        // 1줄이면 둘째 줄이 자료가 되므로 한 줄이 늘어난다.
+        assert_eq!(v.query_rows(&one).expect("조회 실패").total, 3);
+
+        // 되돌리면 다시 둘이다. 한 번 구축한 표가 눌러앉지 않는다.
+        assert_eq!(v.query_rows(&two).expect("조회 실패").total, 2);
+    }
+
+    /// 범위를 벗어난 지정은 **중단한다.** 보정해서 다른 표를 표시하지 않는다.
+    #[test]
+    fn a_header_past_the_end_of_the_sheet_stops() {
+        let mut v = Viewer::open(MIXED_CSV, "진학결과.csv").expect("양식을 열지 못했습니다");
+        let ask = Ask {
+            screen_id: "진학결과".to_string(),
+            header: Some(HeaderSpec { at: 0, rows: 99 }),
+            limit: 10,
+            ..Default::default()
+        };
+        assert!(v.query_rows(&ask).is_err(), "범위를 벗어난 지정이 통과했습니다");
+    }
+
+    /// 명칭이 없는 열에는 **엑셀의 열 기호**를 부여한다. 공백으로 두면 머리글이
+    /// 비어 사람이 그 열을 지시할 수 없다.
+    #[test]
+    fn a_nameless_column_gets_its_spreadsheet_letter() {
+        let v = Viewer::open(MIXED_CSV, "진학결과.csv").expect("양식을 열지 못했습니다");
+        let s = &v.list_screens(&spec(0, 1)).screens[0];
+        let labels: Vec<&str> = s.columns.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels, ["학년", "반", "국어", "D열", "E열", "영어"]);
+    }
+
+    #[test]
+    fn column_refs_follow_the_spreadsheet() {
+        assert_eq!(column_ref(0), "A");
+        assert_eq!(column_ref(25), "Z");
+        assert_eq!(column_ref(26), "AA");
+        assert_eq!(column_ref(27), "AB");
+        assert_eq!(column_ref(51), "AZ");
+        assert_eq!(column_ref(52), "BA");
+    }
+
 }

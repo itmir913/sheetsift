@@ -35,6 +35,20 @@ export interface ColumnDef {
  */
 export type ScreenKind = "grid";
 
+/**
+ * 머리글이 어디서 몇 줄인가. **사용자가 조작부에서 지정한다.**
+ *
+ * 추정으로 전부 적중시킬 수 없다 — 열마다 단수가 상이하거나(`학년` 은 1단,
+ * `국어 등급` 은 2단) 상단에 제목 줄이 부착된 양식이 실재한다. 바탕은 추정에
+ * 실패하면 실패했다고 반환하고, 결정은 사람이 한다.
+ */
+export interface HeaderSpec {
+  /** 머리글이 개시되는 줄. 0부터 센다. */
+  at: number;
+  /** 머리글 줄 수. 1 이상. */
+  rows: number;
+}
+
 export interface ScreenDef {
   id: string;
   kind: ScreenKind;
@@ -48,6 +62,12 @@ export interface ScreenDef {
    * 까닭을 말할 수 있어야 한다.
    */
   headerFound: boolean;
+  /** 적용된 머리글 지정. 판별에 실패하면 null 이다. */
+  header: HeaderSpec | null;
+  /** 그 지정이 **추정**인가. 참이면 사용자가 확인하지 않은 값이다. */
+  headerGuessed: boolean;
+  /** 시트의 총 줄 수. 조작부가 지정 가능한 범위의 상한이다. */
+  sheetRows: number;
 }
 
 export interface Sort {
@@ -121,18 +141,26 @@ function book(): Book {
   return b;
 }
 
-/** 양식 바이트를 받아 연다. 앞서 열어 둔 것은 버린다. */
+/** 양식 바이트를 수용해 개방한다. 기존에 개방한 것은 폐기한다. */
 export async function openBook(bytes: Uint8Array, name: string): Promise<ScreenCatalog> {
   const b = await Book.open(bytes, name);
   open.value = b;
-  const catalog = await b.listScreens<ScreenCatalog>();
+  const catalog = await b.listScreens<ScreenCatalog>({});
   setBlankMark(catalog.blank);
   setCellDecimals(catalog.decimals);
   return catalog;
 }
 
-export function listScreens(): Promise<ScreenCatalog> {
-  return book().listScreens<ScreenCatalog>();
+/**
+ * 화면 목록. 시트별 머리글 지정을 지참한다.
+ *
+ * 기재하지 않은 시트는 바탕이 추정한 것을 사용한다. 사용자가 한 시트의 지정을
+ * 변경하면 그 시트를 기재해 재요청하고, 열 정의 전체를 교체한다.
+ */
+export function listScreens(
+  headers: Record<string, HeaderSpec> = {},
+): Promise<ScreenCatalog> {
+  return book().listScreens<ScreenCatalog>({ headers });
 }
 
 /* ── 빈칸과 자릿수 ─────────────────────────────────────────────── */
@@ -224,6 +252,7 @@ export interface PageResult {
  */
 export async function fetchPage(
   screenId: string,
+  header: HeaderSpec | null,
   sorts: Sort[],
   filters: Filter[],
   page: number,
@@ -232,6 +261,7 @@ export async function fetchPage(
   const limit = Math.min(size, pageSize());
   const res = await book().queryRows<QueryResponse>({
     screenId,
+    header,
     sorts,
     filters,
     offset: page * limit,
@@ -254,6 +284,7 @@ export interface FetchAllResult {
  */
 export async function fetchRows(
   screenId: string,
+  header: HeaderSpec | null,
   sorts: Sort[],
   filters: Filter[],
   max: number,
@@ -264,6 +295,7 @@ export async function fetchRows(
   for (let offset = 0; offset < max; offset += page) {
     const res = await book().queryRows<QueryResponse>({
       screenId,
+      header,
       sorts,
       filters,
       offset,
@@ -286,11 +318,18 @@ export async function fetchRows(
  */
 export function columnValues(
   screenId: string,
+  header: HeaderSpec | null,
   columnKey: string,
   filters: Filter[],
   needle: string,
 ): Promise<ColumnValuesResult> {
-  return book().columnValues<ColumnValuesResult>({ screenId, columnKey, filters, needle });
+  return book().columnValues<ColumnValuesResult>({
+    screenId,
+    header,
+    columnKey,
+    filters,
+    needle,
+  });
 }
 
 /**

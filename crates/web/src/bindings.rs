@@ -21,7 +21,7 @@
 
 use wasm_bindgen::prelude::*;
 
-use crate::{Ask, Limits, ValuesAsk, Viewer};
+use crate::{Ask, CatalogAsk, Limits, ValuesAsk, Viewer};
 
 /// 화면이 손으로 적으면 안 되는 값들 (JSON). 띄울 때 한 번 받는다.
 #[wasm_bindgen]
@@ -61,10 +61,13 @@ impl Book {
         Viewer::open(bytes, name).map(|inner| Book { inner }).map_err(thrown)
     }
 
-    /// 볼 수 있는 표 전부와 그 열 정의 (JSON).
+    /// 열람 가능한 표 전부와 그 열 정의 (JSON).
+    ///
+    /// 요청이 시트별 머리글 지정을 지참한다. 빈 요청(`{}`)이면 전부 추정값이다.
     #[wasm_bindgen(js_name = listScreens)]
-    pub fn list_screens(&self) -> std::result::Result<String, JsValue> {
-        json(&self.inner.list_screens())
+    pub fn list_screens(&self, request: &str) -> std::result::Result<String, JsValue> {
+        let ask: CatalogAsk = parsed(request)?;
+        json(&self.inner.list_screens(&ask))
     }
 
     /// 한 쪽을 읽는다. 받는 것도 돌려주는 것도 JSON 글자다.

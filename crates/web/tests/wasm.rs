@@ -39,7 +39,7 @@ fn key_at(catalog: &str, nth: usize) -> String {
 #[wasm_bindgen_test]
 fn a_workbook_opens_and_lists_its_tables() {
     let book = Book::new(TINY_XLSX, "tiny.xlsx").expect("양식을 열지 못했습니다");
-    let catalog = book.list_screens().expect("목록을 받지 못했습니다");
+    let catalog = book.list_screens("{}").expect("목록을 받지 못했습니다");
     assert!(catalog.contains("사람"), "{catalog}");
     assert!(catalog.contains("안내"), "{catalog}");
     // 열 정의가 목록에 함께 온다.
@@ -60,7 +60,7 @@ fn a_page_comes_back() {
 #[wasm_bindgen_test]
 fn a_value_list_comes_back() {
     let mut book = Book::new(TINY_XLSX, "tiny.xlsx").expect("양식을 열지 못했습니다");
-    let catalog = book.list_screens().expect("목록을 받지 못했습니다");
+    let catalog = book.list_screens("{}").expect("목록을 받지 못했습니다");
     // 둘째 열이 지역이다. 열쇠는 목록이 말해 준다.
     let key = key_at(&catalog, 1);
     let values = book
