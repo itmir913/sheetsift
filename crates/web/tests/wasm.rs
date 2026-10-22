@@ -22,23 +22,36 @@ fn text(v: &JsValue) -> String {
     v.as_string().expect("오류가 글자로 오지 않았습니다")
 }
 
-#[wasm_bindgen_test]
-fn a_workbook_opens_and_lists_its_sheets() {
-    let book = Book::new(TINY_XLSX, "tiny.xlsx").expect("양식을 열지 못했습니다");
-    let sheets = book.sheets().expect("시트 목록을 받지 못했습니다");
-    assert!(sheets.contains("사람"), "{sheets}");
-    assert!(sheets.contains("안내"), "{sheets}");
+/// 목록 글자에서 열쇠를 차례대로 집는다. 화면이 하는 일(JSON 을 풀어 열쇠를
+/// 쓰는 것)을 여기서는 글자로 한다 — 이 시험이 보는 것은 모양이 아니라
+/// **껍질이 도는가** 다.
+fn key_at(catalog: &str, nth: usize) -> String {
+    catalog
+        .split("\"key\":\"")
+        .nth(nth + 1)
+        .expect("열쇠가 그만큼 없습니다")
+        .split('"')
+        .next()
+        .unwrap()
+        .to_string()
 }
 
 #[wasm_bindgen_test]
-fn a_sheet_opens_and_a_page_comes_back() {
-    let mut book = Book::new(TINY_XLSX, "tiny.xlsx").expect("양식을 열지 못했습니다");
-    let view = book.open_sheet(0).expect("시트를 열지 못했습니다");
-    assert!(view.contains("\"headerFound\":true"), "{view}");
-    assert!(view.contains("\"rows\":3"), "{view}");
+fn a_workbook_opens_and_lists_its_tables() {
+    let book = Book::new(TINY_XLSX, "tiny.xlsx").expect("양식을 열지 못했습니다");
+    let catalog = book.list_screens().expect("목록을 받지 못했습니다");
+    assert!(catalog.contains("사람"), "{catalog}");
+    assert!(catalog.contains("안내"), "{catalog}");
+    // 열 정의가 목록에 함께 온다.
+    assert!(catalog.contains("\"headerFound\":true"), "{catalog}");
+    assert!(catalog.contains("\"columns\""), "{catalog}");
+}
 
+#[wasm_bindgen_test]
+fn a_page_comes_back() {
+    let mut book = Book::new(TINY_XLSX, "tiny.xlsx").expect("양식을 열지 못했습니다");
     let page = book
-        .page(r#"{"screenId":"사람","limit":10}"#)
+        .query_rows(r#"{"screenId":"사람","limit":10}"#)
         .expect("조회가 돌지 않았습니다");
     assert!(page.contains("\"total\":3"), "{page}");
     assert!(page.contains("가람"), "{page}");
@@ -47,11 +60,11 @@ fn a_sheet_opens_and_a_page_comes_back() {
 #[wasm_bindgen_test]
 fn a_value_list_comes_back() {
     let mut book = Book::new(TINY_XLSX, "tiny.xlsx").expect("양식을 열지 못했습니다");
-    let view = book.open_sheet(0).expect("시트를 열지 못했습니다");
-    // 둘째 열이 지역이다. key 는 머리글에서 고른 DB 열 이름이다.
-    let key = view.split("\"key\":\"").nth(2).unwrap().split('"').next().unwrap().to_string();
+    let catalog = book.list_screens().expect("목록을 받지 못했습니다");
+    // 둘째 열이 지역이다. 열쇠는 목록이 말해 준다.
+    let key = key_at(&catalog, 1);
     let values = book
-        .values(&format!(r#"{{"screenId":"사람","columnKey":"{key}"}}"#))
+        .column_values(&format!(r#"{{"screenId":"사람","columnKey":"{key}"}}"#))
         .expect("값 목록이 오지 않았습니다");
     assert!(values.contains("서울") && values.contains("부산"), "{values}");
 }
@@ -61,25 +74,34 @@ fn a_value_list_comes_back() {
 #[wasm_bindgen_test]
 fn an_error_is_thrown_as_a_code() {
     let mut book = Book::new(TINY_XLSX, "tiny.xlsx").expect("양식을 열지 못했습니다");
-    let err = book.open_sheet(9).expect_err("없는 시트가 열렸습니다");
+    let err = book
+        .query_rows(r#"{"screenId":"없는시트","limit":10}"#)
+        .expect_err("없는 표가 열렸습니다");
     let json = text(&err);
     assert!(json.contains("SHEET_UNREADABLE"), "{json}");
 }
 
-/// 없는 표를 물으면 던진다. 열려 있던 표로 답하면 화면은 바꾼 표를 보고
-/// 있다고 믿는다.
+/// 표가 아닌 시트를 물으면 **빈 쪽이 아니라 던진다.** 빈 쪽은 화면이
+/// "자료가 없다" 로 읽는다.
 #[wasm_bindgen_test]
-fn asking_for_a_sheet_that_is_not_there_is_thrown() {
+fn asking_for_a_sheet_without_a_header_is_thrown() {
     let mut book = Book::new(TINY_XLSX, "tiny.xlsx").expect("양식을 열지 못했습니다");
-    book.open_sheet(0).expect("시트를 열지 못했습니다");
-    let err = book.page(r#"{"screenId":"없는시트","limit":10}"#).expect_err("없는 표가 열렸습니다");
-    assert!(text(&err).contains("SHEET_UNREADABLE"), "{}", text(&err));
+    let err = book
+        .query_rows(r#"{"screenId":"안내","limit":10}"#)
+        .expect_err("표가 아닌 시트가 열렸습니다");
+    assert!(text(&err).contains("SHEET_EMPTY"), "{}", text(&err));
 }
 
 /// 깨진 요청도 조용히 기본값으로 떨어지지 않는다.
 #[wasm_bindgen_test]
 fn a_broken_request_is_thrown() {
     let mut book = Book::new(TINY_XLSX, "tiny.xlsx").expect("양식을 열지 못했습니다");
-    book.open_sheet(0).expect("시트를 열지 못했습니다");
-    assert!(book.page("이건 JSON 이 아니다").is_err());
+    assert!(book.query_rows("이건 JSON 이 아니다").is_err());
+}
+
+/// 화면이 손으로 적으면 안 되는 값들이 글자로 온다.
+#[wasm_bindgen_test]
+fn the_limits_come_across() {
+    let l = sheetsift_web::bindings::limits().expect("상한을 받지 못했습니다");
+    assert!(l.contains("blankToken") && l.contains("maxPage"), "{l}");
 }

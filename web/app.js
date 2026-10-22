@@ -66,6 +66,8 @@ const el = { file: $("file"), drop: $("drop"), status: $("status"), sheets: $("s
 // 기억하게 두면, 시트를 바꾼 뒤 늦게 온 앞 요청의 답이 새 표의 것처럼 그려진다.
 const state = {
   book: null,
+  /** 목록 한 번에 받아 둔 표들. 표를 바꿀 때 다시 묻지 않는다. */
+  screens: [],
   screenId: "",
   columns: [],
   sorts: [],
@@ -92,9 +94,11 @@ async function take(file) {
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
     state.book = new Book(bytes, file.name);
-    const { sheets } = JSON.parse(state.book.sheets());
-    drawSheets(sheets);
-    if (sheets.length > 0) await openSheet(0);
+    // **한 번에 다 받는다.** 열 정의가 여기 함께 오므로 표를 바꿀 때 묻지 않는다.
+    const catalog = JSON.parse(state.book.listScreens());
+    state.screens = catalog.screens;
+    drawSheets(state.screens);
+    if (state.screens.length > 0) await showScreen(0);
   } catch (thrown) {
     state.book = null;
     tell(speak(thrown), "bad");
@@ -118,34 +122,39 @@ el.drop.addEventListener("drop", (e) => {
 
 /* ── 시트 ───────────────────────────────────────────────────── */
 
-function drawSheets(names) {
+function drawSheets(screens) {
   el.sheets.replaceChildren();
-  names.forEach((name, at) => {
+  screens.forEach((screen, at) => {
     const b = document.createElement("button");
     b.type = "button";
-    b.textContent = name;
+    b.textContent = screen.title;
     b.dataset.at = String(at);
-    b.addEventListener("click", () => openSheet(at));
+    b.addEventListener("click", () => showScreen(at));
     el.sheets.append(b);
   });
-  el.sheets.hidden = names.length === 0;
+  el.sheets.hidden = screens.length === 0;
 }
 
-async function openSheet(at) {
+async function showScreen(at) {
   closePicker();
   for (const b of el.sheets.children) {
     b.setAttribute("aria-current", String(Number(b.dataset.at) === at));
   }
   try {
-    const view = JSON.parse(state.book.openSheet(at));
+    const view = state.screens[at];
+    // 목록에 없는 자리를 누를 길은 없지만, 없으면 그렇다고 말한다.
+    if (!view) {
+      tell("그 표를 찾지 못했습니다.", "bad");
+      return;
+    }
     // 머리글을 못 찾아 표가 없는 시트여도 보고 있는 것은 이 시트다. 앞 시트
     // 이름이 남아 있으면 그 표가 조회된다.
-    state.screenId = view.sheet;
+    state.screenId = view.id;
     if (!view.headerFound) {
       show(false);
       el.sheets.hidden = false;
       tell(
-        `'${view.sheet}' 에서 머리글 줄을 확인하지 못했습니다. 표가 아닌 시트일 수 있습니다.`,
+        `'${view.title}' 에서 머리글 줄을 확인하지 못했습니다. 표가 아닌 시트일 수 있습니다.`,
         "warn",
       );
       return;
@@ -326,7 +335,7 @@ async function refill(column, needle) {
     // **그 열 자신의 선택은 빼고** 묻는다. 그래야 체크를 풀었다 걸었다 해도
     // 후보가 사라지지 않는다 — 바탕이 그렇게 해 준다.
     got = JSON.parse(
-      state.book.values(
+      state.book.columnValues(
         JSON.stringify({
           screenId: state.screenId,
           columnKey: column.key,
@@ -514,7 +523,7 @@ async function draw() {
       offset: state.offset,
       limit: PAGE,
     };
-    const page = JSON.parse(state.book.page(JSON.stringify(ask)));
+    const page = JSON.parse(state.book.queryRows(JSON.stringify(ask)));
     state.total = page.total;
 
     const body = document.createDocumentFragment();

@@ -10,6 +10,12 @@
 //!
 //! JSON 글자로 주고받는 까닭은, 그 경계를 **한 가지 방법으로만** 넘기 위해서다.
 //! 타입마다 다른 길을 내면 어느 쪽이 어떻게 넘어가는지가 자리마다 달라진다.
+//!
+//! ## 이름과 요청은 부르는 쪽의 것과 같다
+//!
+//! 문 이름(`listScreens`·`queryRows`·`columnValues`)과 요청의 칸 이름은 이
+//! 바탕을 쓰는 앱의 명령 이름과 같은 벌로 둔다. 화면을 웹으로 옮겨 올 때
+//! 부르는 자리가 두 벌이 되지 않게 하는 것이다 — 두 벌이 되면 한쪽만 고쳐진다.
 
 #![cfg(target_arch = "wasm32")]
 
@@ -49,35 +55,31 @@ pub struct Book {
 
 #[wasm_bindgen]
 impl Book {
-    /// 양식 바이트를 받는다. 돌려주는 것은 시트 이름 목록(JSON)이다.
+    /// 양식 바이트를 받는다. 무엇이 들었는지는 [`Book::list_screens`] 가 말한다.
     #[wasm_bindgen(constructor)]
     pub fn new(bytes: &[u8], name: &str) -> std::result::Result<Book, JsValue> {
         Viewer::open(bytes, name).map(|inner| Book { inner }).map_err(thrown)
     }
 
-    /// 시트 이름을 탭 차례대로 (JSON).
-    pub fn sheets(&self) -> std::result::Result<String, JsValue> {
-        json(&self.inner.opened())
-    }
-
-    /// 시트 하나를 열고 그 열 정의를 돌려준다 (JSON).
-    #[wasm_bindgen(js_name = openSheet)]
-    pub fn open_sheet(&mut self, at: usize) -> std::result::Result<String, JsValue> {
-        let view = self.inner.open_sheet(at).map_err(thrown)?;
-        json(&view)
+    /// 볼 수 있는 표 전부와 그 열 정의 (JSON).
+    #[wasm_bindgen(js_name = listScreens)]
+    pub fn list_screens(&self) -> std::result::Result<String, JsValue> {
+        json(&self.inner.list_screens())
     }
 
     /// 한 쪽을 읽는다. 받는 것도 돌려주는 것도 JSON 글자다.
-    pub fn page(&mut self, request: &str) -> std::result::Result<String, JsValue> {
+    #[wasm_bindgen(js_name = queryRows)]
+    pub fn query_rows(&mut self, request: &str) -> std::result::Result<String, JsValue> {
         let ask: Ask = parsed(request)?;
-        let page = self.inner.page(&ask).map_err(thrown)?;
+        let page = self.inner.query_rows(&ask).map_err(thrown)?;
         json(&page)
     }
 
     /// 값 선택 목록 (JSON 요청 하나).
-    pub fn values(&mut self, request: &str) -> std::result::Result<String, JsValue> {
+    #[wasm_bindgen(js_name = columnValues)]
+    pub fn column_values(&mut self, request: &str) -> std::result::Result<String, JsValue> {
         let ask: ValuesAsk = parsed(request)?;
-        let values = self.inner.values(&ask).map_err(thrown)?;
+        let values = self.inner.column_values(&ask).map_err(thrown)?;
         json(&values)
     }
 }
