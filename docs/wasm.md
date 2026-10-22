@@ -1,35 +1,35 @@
-# 웹에서 무엇이 되고 무엇이 안 되는가
+# 웹에서 무엇이 가능하고 무엇이 불가능한가
 
 이 바탕은 웹(GitHub Pages)을 1차 목표로 한다. 그래서 `core` 가 tauri 도 파일
-시스템도 모르고 바이트만 주고받는다. 그 설계가 실제로 통하는지를 한 번 돌려
-보고 적어 둔 글이다.
+시스템도 인지하지 않고 바이트만 수수한다. 그 설계가 실제로 작동하는지를 1회
+실행하고 기록한 글이다.
 
-**이 글은 규칙이 아니라 기록이다.** 크레이트 판이 오르면 달라질 수 있다.
-무엇이 되는지는 글이 아니라 시험이 말한다 — `crates/core/tests/wasm.rs` 다.
+**이 글은 규칙이 아니라 기록이다.** 크레이트 판이 상승하면 상이해질 수 있다.
+무엇이 가능한지는 글이 아니라 시험이 진술한다 — `crates/core/tests/wasm.rs` 다.
 
 ```bash
 cargo test -p sheetsift-core --target wasm32-unknown-unknown
 ```
 
-## 돌려 보는 것이 따로 필요하다
+## 실행 도구가 별도로 필요하다
 
-wasm 은 그냥 실행할 수 없다. 구운 것을 노드나 브라우저가 불러 주어야 한다.
-`.cargo/config.toml` 이 그 도구를 적어 두었고, 없으면 받는다.
+wasm 은 단독 실행할 수 없다. 컴파일한 것을 노드나 브라우저가 적재해야 한다.
+`.cargo/config.toml` 이 그 도구를 기재해 두었고, 부재하면 수령한다.
 
 ```bash
 rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --locked
 ```
 
-판은 `wasm-bindgen` 크레이트와 **같아야** 한다. 어긋나면 도구가 그렇다고 말하고
-선다 — 조용히 틀리지 않는다.
+판은 `wasm-bindgen` 크레이트와 **동일해야** 한다. 불일치하면 도구가 그렇다고
+진술하고 정지한다 — 묵시적으로 오류가 발생하지 않는다.
 
-### C 컴파일러가 하나 더 있어야 한다
+### C 컴파일러가 1개 더 필요하다
 
-위 둘로는 모자란다. `rusqlite` 를 `bundled` 로 받으므로 **SQLite 의 C 소스를
-함께 컴파일한다.** 데스크톱에서는 Visual Studio 의 `cl.exe` 가 그 일을 해서
-보이지 않지만, wasm 에서는 `cc-rs` 가 **`clang` 만** 찾는다. MSVC 가 그 타깃을
-내지 못하기 때문이다. 없으면 이렇게 선다:
+상기 둘로는 부족하다. `rusqlite` 를 `bundled` 로 수령하므로 **SQLite 의 C 소스를
+함께 컴파일한다.** 데스크톱에서는 Visual Studio 의 `cl.exe` 가 그 작업을 수행해
+노출되지 않지만, wasm 에서는 `cc-rs` 가 **`clang` 만** 탐색한다. MSVC 가 그
+타깃을 산출하지 못하기 때문이다. 부재하면 이렇게 정지한다:
 
 ```
 Compiling sqlite-wasm-rs
@@ -37,104 +37,112 @@ warning: Compiler family detection failed due to error:
   ToolNotFound: failed to find tool "clang": program not found
 ```
 
-**MinGW gcc 로는 안 된다.** 플래그 문제가 아니다 — 하나의 gcc 는 하나의 타깃을
-내고(`gcc -dumpmachine` 이 말해 준다), GCC 본가에는 WebAssembly 백엔드가 없어
-`--target=` 이라는 플래그조차 모른다. **wasm 을 내는 C 백엔드는 실질적으로
-LLVM 하나**라, wasm 을 굽는 도구는 이름이 뭐든 속이 clang 이다(LLVM 배포본,
-emscripten, wasi-sdk, `zig cc`, Visual Studio 의 clang 구성요소). CLion 이 담아
-둔 것은 `clangd` 와 `clang-tidy` 뿐이고 **둘 다 `.o` 를 못 낸다.**
+**MinGW gcc 로는 불가하다.** 플래그 사안이 아니다 — 하나의 gcc 는 하나의 타깃을
+산출하고(`gcc -dumpmachine` 이 진술한다), GCC 본가에는 WebAssembly 백엔드가
+부재해 `--target=` 이라는 플래그조차 인지하지 못한다. **wasm 을 산출하는 C
+백엔드는 실질적으로 LLVM 하나**라, wasm 을 컴파일하는 도구는 명칭이 무엇이든
+내부가 clang 이다(LLVM 배포본, emscripten, wasi-sdk, `zig cc`, Visual Studio 의
+clang 구성요소). CLion 이 포함한 것은 `clangd` 와 `clang-tidy` 뿐이고 **양자
+모두 `.o` 를 산출하지 못한다.**
 
-깔지 않고 가는 길이 있다. 아래 "관문은 한 명령" 을 본다.
+설치하지 않고 진행하는 경로가 존재한다. 하기 "관문은 한 명령" 을 참조한다.
 
 ## 관문은 한 명령
 
-사람이 치는 것은 `npm run ci` 하나다. 그 안의 조각 하나(`ci:wasm`)가 위 두 줄과
-껍질 clippy 를 돌린다 — 데스크톱 clippy 는 `bindings.rs` 를 볼 수 없다. 조각은
-`package.json` 에 있고, 액션은 잡마다 그 조각을 부를 뿐 검사를 따로 적지 않는다.
+사람이 입력하는 것은 `npm run ci` 하나다. 그 내부의 조각 하나(`ci:wasm`)가 상기
+2행과 껍질 clippy 를 실행한다 — 데스크톱 clippy 는 `bindings.rs` 를 참조할 수
+없다. 조각은 `package.json` 에 존재하고, 액션은 잡마다 그 조각을 호출할 뿐 검사를
+별도 기재하지 않는다.
 
-러너 이미지에는 clang 이 있고 이 컴퓨터에는 없다. **그 조각이 실제로 도는
-자리는 지금 거기뿐이고**, 여기서 `npm run ci` 를 치면 거기서 선다.
-**건너뛰게 만들지 않았다** — 건너뛰고도 초록불이면 안 돌린 것을 돌렸다고 읽는다.
+러너 이미지에는 clang 이 존재하고 이 컴퓨터에는 부재한다. **그 조각이 실제로
+작동하는 위치는 현재 거기뿐이고**, 여기서 `npm run ci` 를 입력하면 거기서
+정지한다. **생략되게 구성하지 않았다** — 생략하고도 녹색이면 실행하지 않은 것을
+실행했다고 판독한다.
 
-`wasm-bindgen-cli` 의 판은 거기서도 손으로 적지 않는다 — `Cargo.lock` 에서
-읽는다. 적어 두면 크레이트를 올리는 날 그 파일만 낡는다.
+`wasm-bindgen-cli` 의 판은 거기서도 수동 기재하지 않는다 — `Cargo.lock` 에서
+판독한다. 기재해 두면 크레이트를 상승시키는 날 그 파일만 노후화한다.
 
-**그 액션이 지워지거나 조각 하나가 빠지면 `ci:gate` 가 선다**
-(`crates/web/tests/boundary.rs`). 돌릴 자리가 하나뿐인 검사는 그 자리가
-없어지는 것으로 조용히 사라진다.
+**그 액션이 삭제되거나 조각 하나가 누락되면 `ci:gate` 가 정지한다**
+(`crates/web/tests/boundary.rs`). 실행 위치가 하나뿐인 검사는 그 위치가
+소멸하는 것으로 묵시적으로 소멸한다.
 
-### 아무 clang 이나 되는 것이 아니다
+### 임의의 clang 이 가능한 것이 아니다
 
-**Visual Studio 의 clang 으로는 안 된다.** Installer 의 "C++ Clang compiler for
-Windows" 를 깔면 `…\VC\Tools\Llvm\x64\bin\clang.exe` 가 생기는데, 그것은
-**WebAssembly 백엔드 없이 구워진 clang** 이다. 깔고 돌려 보면 이렇게 선다:
+**Visual Studio 의 clang 으로는 불가하다.** Installer 의 "C++ Clang compiler for
+Windows" 를 설치하면 `…\VC\Tools\Llvm\x64\bin\clang.exe` 가 생성되는데, 그것은
+**WebAssembly 백엔드 없이 컴파일된 clang** 이다. 설치하고 실행하면 이렇게
+정지한다:
 
 ```
 error: unable to create target:
   'No available targets are compatible with triple "wasm32-unknown-unknown"'
 ```
 
-`clang --print-targets` 가 미리 말해 준다 — 거기 `wasm32` 가 없으면 그 clang
-으로는 못 굽는다. VS 가 담은 것은 AArch64·ARM·X86 뿐이다.
+`clang --print-targets` 가 사전에 진술한다 — 거기 `wasm32` 가 부재하면 그 clang
+으로는 컴파일하지 못한다. VS 가 포함한 것은 AArch64·ARM·X86 뿐이다.
 
-**깔기 전에 그 줄로 먼저 본다.** 깔고 나서야 알면 기가 단위를 헛 받는다.
+**설치 이전에 그 행으로 먼저 확인한다.** 설치 이후에 인지하면 기가 단위를 무용하게
+수신한다.
 
-그러니 받을 것은 **모든 타깃이 들어 있는 clang** 이다. LLVM 공식 배포본
-(`winget install LLVM.LLVM`)이나, 설치 프로그램 없는 압축본 하나로 끝나는
-`zig`(속의 clang 을 `zig cc` 로 부른다)·`wasi-sdk` 가 그런 것이다. zig 쪽은
-`clang` 이라는 이름으로 그것을 부르는 배치 파일을 하나 두고
-`CC_wasm32_unknown_unknown` 에 그 파일의 전체 경로를 넣는다 — `cc-rs` 는
-`clang.exe` 를 찾으므로 PATH 에 배치 파일을 두는 것으로는 안 된다. 되는지는
-아직 확인하지 않았다.
+그러니 수령할 것은 **모든 타깃이 포함된 clang** 이다. LLVM 공식 배포본
+(`winget install LLVM.LLVM`)이나, 설치 프로그램 없는 압축본 하나로 종료되는
+`zig`(내부의 clang 을 `zig cc` 로 호출한다)·`wasi-sdk` 가 그런 것이다. zig 측은
+`clang` 이라는 명칭으로 그것을 호출하는 배치 파일을 하나 배치하고
+`CC_wasm32_unknown_unknown` 에 그 파일의 전체 경로를 기입한다 — `cc-rs` 는
+`clang.exe` 를 탐색하므로 PATH 에 배치 파일을 배치하는 것으로는 불가하다.
+작동 여부는 아직 확인하지 않았다.
 
-어느 쪽이든 깔았으면 그 타깃이 실제로 들어 있는지 `--print-targets` 로 본 다음
-시험을 돌린다.
+어느 쪽이든 설치했으면 그 타깃이 실제로 포함되었는지 `--print-targets` 로 확인한
+다음 시험을 실행한다.
 
-**브라우저 없이 된다.** 노드에서 돈다. 브라우저에서 돌리려면
-`wasm_bindgen_test_configure!(run_in_browser)` 와 드라이버가 더 필요한데, 지금
-보려는 것(SQLite 가 열리는가, 조회가 도는가, 봉투가 열리는가)은 브라우저와
-노드가 같은 wasm 을 쓰므로 노드로 갈음한다. **화면이 붙는 날 다시 볼 자리다** —
-파일을 고르고 받는 일은 브라우저에만 있다.
+**브라우저 없이 가능하다.** 노드에서 작동한다. 브라우저에서 실행하려면
+`wasm_bindgen_test_configure!(run_in_browser)` 와 드라이버가 추가로 필요한데,
+현재 확인하려는 것(SQLite 가 개방되는가, 조회가 작동하는가, 봉투가 개방되는가)은
+브라우저와 노드가 동일한 wasm 을 사용하므로 노드로 대체한다. **화면이 부착되는
+날 재확인할 위치다** — 파일을 선택하고 수령하는 작업은 브라우저에만 존재한다.
 
-## 되는 것
+## 가능한 것
 
-- **SQLite.** 손댄 것이 없다. `rusqlite 0.40` 은 `bundled` 로 두어도 wasm 에서는
-  `sqlite-wasm-rs` 를 저절로 거친다. 메모리 DB 가 열리고 표가 만들어진다.
-- **조회 엔진.** 정렬·필터·값 목록이 돈다. 시계만 갈았다(아래).
-- **비밀번호 봉투.** 봉하고, 열고, 틀린 비밀번호를 거절하는 것까지 돈다.
-  Argon2 의 작업 메모리도 잡힌다 — wasm 의 메모리는 자라야 하는 것이라
-  데스크톱에서 아무 일 없던 것이 여기서 막힐 수 있는데, 막히지 않았다.
-- **양식에서 DB 까지 한 바퀴.** xlsx 바이트를 받아 SQLite 로 바꾸고, 조회하고,
-  바이트로 꺼내는 데까지 돈다. 이 바탕이 웹에서 하려는 일 전부가 그 한 바퀴다.
-  `calamine`·`csv`·`encoding_rs` 가 거기 들어 있다.
+- **SQLite.** 조작한 것이 부재한다. `rusqlite 0.40` 은 `bundled` 로 설정해도
+  wasm 에서는 `sqlite-wasm-rs` 를 자동 경유한다. 메모리 DB 가 개방되고 표가
+  생성된다.
+- **조회 엔진.** 정렬·필터·값 목록이 작동한다. 시계만 교체했다(하기).
+- **비밀번호 봉투.** 봉인하고, 개방하고, 상이한 비밀번호를 거절하는 것까지
+  작동한다. Argon2 의 작업 메모리도 확보된다 — wasm 의 메모리는 증대해야 하는
+  것이라 데스크톱에서 무사했던 것이 여기서 차단될 수 있는데, 차단되지 않았다.
+- **양식에서 DB 까지 1회 순환.** xlsx 바이트를 수령해 SQLite 로 변환하고, 조회
+  하고, 바이트로 추출하는 데까지 작동한다. 이 바탕이 웹에서 수행하려는 작업
+  전부가 그 1회 순환이다. `calamine`·`csv`·`encoding_rs` 가 거기 포함된다.
 
-## 갈아야 했던 것
+## 교체해야 했던 것
 
 ### 시계
 
-`std::time::Instant::now()` 는 wasm 에 **없다.** 그런데 컴파일은 멀쩡히 되고
-부르는 순간 패닉한다 — `time not implemented on this platform`. 조회가 걸린
-시간을 재는 자리가 그것이었다.
+`std::time::Instant::now()` 는 wasm 에 **부재한다.** 그런데 컴파일은 정상적으로
+수행되고 호출하는 순간 패닉한다 — `time not implemented on this platform`.
+조회 소요 시간을 측정하는 위치가 그것이었다.
 
-이 부류가 가장 고약하다. **글자로 보는 검사도, 데스크톱 시험도 보지 못한다.**
-웹에서 한 번 돌려 보고서야 드러났다. 이 글이 있는 까닭이고, 그 시험을 남겨 둔
-까닭이다.
+이 부류가 가장 난해하다. **문자로 판독하는 검사도, 데스크톱 시험도 발견하지
+못한다.** 웹에서 1회 실행하고서야 노출되었다. 이 글이 존재하는 사유이고, 그
+시험을 존치한 사유다.
 
-`web-time` 으로 갈았다. 데스크톱에서는 그대로 `std` 고, wasm 에서는 브라우저의
-`performance.now()` 다.
+`web-time` 으로 교체했다. 데스크톱에서는 그대로 `std` 이고, wasm 에서는
+브라우저의 `performance.now()` 다.
 
 ### 난수
 
-`getrandom` 은 wasm 에서 **아무 자리도 고르지 않고 컴파일을 세운다.** 조용히
-0 을 내놓는 쪽보다 낫다 — 그랬다면 봉인 nonce 가 겹쳤을 것이다.
+`getrandom` 은 wasm 에서 **어떤 위치도 선택하지 않고 컴파일을 정지시킨다.**
+묵시적으로 0 을 산출하는 쪽보다 양호하다 — 그랬다면 봉인 nonce 가 중복되었을
+것이다.
 
-브라우저의 `crypto.getRandomValues` 를 쓰라고 적어 준다. 판이 둘 섞여 들어오고
-(`rand` 가 0.3, 다른 상자가 0.4), 0.3 은 기능만으로 모자라 `--cfg` 까지 받는다.
-자세한 것은 `crates/core/Cargo.toml` 과 `.cargo/config.toml` 의 주석에 있다.
+브라우저의 `crypto.getRandomValues` 를 사용하라고 기재한다. 판이 둘 혼입되고
+(`rand` 가 0.3, 다른 상자가 0.4), 0.3 은 기능만으로 부족해 `--cfg` 까지 수령
+한다. 상세는 `crates/core/Cargo.toml` 과 `.cargo/config.toml` 의 주석에 존재한다.
 
-## 아직 안 본 것
+## 아직 확인하지 않은 것
 
-- **브라우저에서의 실제 동작.** 위에 적은 까닭으로 노드로 갈음했다.
-- **큰 파일.** wasm 은 32비트라 주소 공간이 4GiB 로 묶인다. 데스크톱에서 열리던
-  크기가 여기서 안 열리는 날이 올 수 있다. 재어 보지 않았다.
-- **봉인 그릇(`seal`)의 서명 확인.** 조회와 봉투는 보았고 이쪽은 안 보았다.
+- **브라우저에서의 실제 동작.** 상기 사유로 노드로 대체했다.
+- **대용량 파일.** wasm 은 32비트라 주소 공간이 4GiB 로 제한된다. 데스크톱에서
+  개방되던 크기가 여기서 개방되지 않는 날이 도래할 수 있다. 측정하지 않았다.
+- **봉인 그릇(`seal`)의 서명 확인.** 조회와 봉투는 확인했고 이쪽은 확인하지
+  않았다.
