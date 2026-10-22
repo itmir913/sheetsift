@@ -1,0 +1,240 @@
+@import "tailwindcss";
+@import "./tokens.css";
+@import "./grid.css";
+@import "./tooltip.css";
+@import "./print.css";
+
+/* 다크 모드는 .dark 클래스 기반 (OS 설정과 수동 전환 모두 지원) */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ─────────────────────────────────────────────────────────────
+   Pretendard Variable — 오프라인 번들 (weight 45~920 단일 파일)
+   sans / mono / serif 를 모두 Pretendard로 통일한다.
+   ───────────────────────────────────────────────────────────── */
+@font-face {
+  font-family: "Pretendard Variable";
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: block;
+  src: url("pretendard/dist/web/variable/woff2/PretendardVariable.woff2")
+    format("woff2-variations");
+}
+
+@theme {
+  /* text-base(1rem) 미만 금지 — 아래 두 값을 제거해 유틸리티 자체를 없앤다.
+     text-sm / text-xs 를 쓰면 클래스가 생성되지 않아 즉시 눈에 띈다. */
+  --text-xs: initial;
+  --text-xs--line-height: initial;
+  --text-sm: initial;
+  --text-sm--line-height: initial;
+
+  /* 폰트 — mono 도 Pretendard. 숫자 정렬은 tabular-nums 유틸리티로 처리한다. */
+  --font-sans: "Pretendard Variable", "Pretendard", system-ui, sans-serif;
+  --font-mono: "Pretendard Variable", "Pretendard", system-ui, sans-serif;
+  --font-serif: "Pretendard Variable", "Pretendard", system-ui, serif;
+
+  /* 표 밀도용 간격 */
+  --spacing-row: 2.25rem;
+}
+
+/* tokens.css 의 CSS 변수를 Tailwind 색상 유틸리티로 노출한다.
+   inline 이므로 유틸리티가 var() 를 그대로 참조 → .dark 재정의가 즉시 반영된다. */
+@theme inline {
+  --color-canvas: var(--c-canvas);
+  --color-surface: var(--c-surface);
+  --color-surface-sunken: var(--c-surface-sunken);
+  --color-surface-hover: var(--c-surface-hover);
+  --color-surface-active: var(--c-surface-active);
+
+  --color-fg: var(--c-fg);
+  --color-fg-muted: var(--c-fg-muted);
+  --color-fg-subtle: var(--c-fg-subtle);
+  --color-fg-inverted: var(--c-fg-inverted);
+
+  --color-line: var(--c-border);
+  --color-line-strong: var(--c-border-strong);
+
+  --color-accent: var(--c-accent);
+  --color-accent-hover: var(--c-accent-hover);
+  --color-accent-fg: var(--c-accent-fg);
+  --color-accent-surface: var(--c-accent-surface);
+
+  --color-danger: var(--c-danger);
+  --color-danger-surface: var(--c-danger-surface);
+  --color-warn: var(--c-warn);
+  --color-warn-surface: var(--c-warn-surface);
+  --color-success: var(--c-success);
+  --color-success-surface: var(--c-success-surface);
+
+  --color-kind-1: var(--c-kind-1);
+  --color-kind-2: var(--c-kind-2);
+  --color-kind-3: var(--c-kind-3);
+  --color-kind-4: var(--c-kind-4);
+  --color-kind-5: var(--c-kind-5);
+  --color-kind-6: var(--c-kind-6);
+  --color-kind-7: var(--c-kind-7);
+
+  --color-band-1: var(--c-band-1);
+  --color-band-2: var(--c-band-2);
+  --color-band-3: var(--c-band-3);
+  --color-band-4: var(--c-band-4);
+
+  --color-focus: var(--c-focus);
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    /* 한국어 줄바꿈: 어절(띄어쓰기) 단위로 끊는다.
+       keep-all 만 쓰면 긴 URL·영문 토큰이 넘치므로 anywhere 로 보완한다. */
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "ss06"; /* Pretendard: 한글 조판 개선 */
+    @apply bg-canvas text-fg font-sans text-base leading-relaxed;
+  }
+
+  /* 끌어서 고르는 것을 막지 않는다. goe-navi 는 자료가 기관의 것이라 표를
+     훑어 담는 길을 막아 두었지만, 여기 열린 것은 **사람이 제 컴퓨터에서 제
+     파일을 연 것**이다. 제 자료를 복사하지 못하게 할 까닭이 없다. */
+
+  :focus-visible {
+    outline: 2px solid var(--c-focus);
+    outline-offset: 2px;
+  }
+
+  /* 숫자 열은 자릿수를 맞춘다. */
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   접히는 사이드바.
+   폭만 바뀌므로 내용은 그대로 두고 넘치는 부분만 감춘다.
+   ───────────────────────────────────────────────────────────── */
+@layer components {
+  .app-side {
+    flex: 0 0 auto;
+    width: 15rem;
+    overflow: hidden;
+    border-right: 1px solid var(--c-border);
+    background-color: var(--c-surface);
+    transition: width 160ms ease, border-right-width 160ms ease;
+  }
+
+  .app-side[data-collapsed="true"] {
+    width: 0;
+    border-right-width: 0;
+  }
+
+  /* 접히는 동안 내부가 찌그러지지 않도록 폭을 붙잡아 둔다.
+     위아래 두 칸으로 나눈다 — 조회 화면 목록은 길어지면 스크롤하고,
+     아래쪽(학생 데이터·업데이트·매뉴얼)은 늘 같은 자리에 붙어 있는다. */
+  .app-side-inner {
+    display: flex;
+    flex-direction: column;
+    width: 15rem;
+    height: 100%;
+  }
+
+  /* 위 칸 — 화면 목록. 여기만 스크롤한다. */
+  .app-side-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    /* 목록이 짧을 때도 스크롤바 자리를 비워 둔다.
+       항목이 늘고 줄 때 글자가 좌우로 흔들리지 않는다. */
+    scrollbar-gutter: stable;
+    padding: 0.75rem 0.25rem 0.75rem 0.75rem;
+  }
+
+  /* 묶음 제목.
+     아래 항목들과 **같은 크기**라(글자는 text-base 밑으로 못 내려간다) 색과
+     굵기, 그리고 구분선으로 가른다. 흐린 회색이면 '눌리지 않는 버튼'처럼
+     보여서, 오히려 본문보다 진하게 둔다. */
+  .app-side-group {
+    padding: 0 0.5rem 0.5rem;
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--c-border);
+    font-weight: 700;
+    color: var(--c-fg);
+    letter-spacing: 0.01em;
+  }
+
+  /* 첫 묶음 위에는 선도 여백도 두지 않는다(목록이 아래로 밀리지 않게). */
+  .app-side-scroll > .app-side-group:first-child,
+  .app-side-foot > .app-side-group:first-child {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  /* 아래 칸 — 늘 보이는 자리. */
+  .app-side-foot {
+    flex: 0 0 auto;
+    border-top: 1px solid var(--c-border);
+    padding: 0.75rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .app-side {
+      transition: none;
+    }
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   본문 영역. 앱에서 세로 스크롤이 일어나는 유일한 곳이다.
+
+   가로·세로 모두 여기서 스크롤한다. 표가 자체 스크롤러를 갖지 않으므로
+   표의 열 헤더는 `sticky top:0`, 열 고정 열은 `sticky left:*` 만으로
+   그냥 붙는다. 따로 위치를 맞춰 줄 필요가 없다.
+
+   표가 아닌 것(제목·도구 줄·조건 카드)은 `.app-fixed` 를 달아
+   가로 스크롤과 무관하게 제자리에 두고, 폭은 App.vue 가 재서 넘긴다.
+   ───────────────────────────────────────────────────────────── */
+@layer components {
+  .app-main {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-width: 0;
+    min-height: 0;
+    /* 패딩을 두지 않는다.
+       - 위쪽: sticky(top:0) 요소 위로 틈이 생겨 행이 비쳐 보인다.
+       - 좌우: sticky(left:*) 인 고정 열의 기준이 어긋난다.
+       여백은 .app-fixed 블록이 각자 갖고, 표는 화면 끝까지 쓴다. */
+    padding: 0 0 1.25rem;
+    overflow: auto;
+    scrollbar-gutter: stable;
+  }
+
+  /* `.app-fixed` 를 품는 상자. `.app-main` 의 직계 자식이 아닌 `.app-fixed`
+     는 반드시 이 안에 있어야 한다.
+     sticky 는 제 컨테이닝 블록 안에서만 움직인다. 이 상자가 보이는 폭만큼만
+     차지하면 그 안의 `.app-fixed` 는 움직일 자리가 없어, 가로로 스크롤할 때
+     표와 함께 왼쪽으로 쓸려 나간다. 스크롤되는 폭 전체를 차지하게 해 둔다. */
+  .app-lane {
+    width: max-content;
+    min-width: 100%;
+  }
+
+  /* 표가 아닌 블록. 가로로 스크롤해도 제자리에 남는다. */
+  .app-fixed {
+    position: sticky;
+    left: 0;
+    width: var(--app-vw, 100%);
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+  }
+}

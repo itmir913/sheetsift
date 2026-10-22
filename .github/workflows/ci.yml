@@ -111,9 +111,12 @@ jobs:
   # and stops the first gate if the line goes missing
   # (`crates/web/tests/boundary.rs`).
   #
-  # What ships is `web/`, which is a harness and not the product screen (see
-  # `docs/web.md`) -- it exists to see the boundary actually run in a browser.
-  # When the real screen arrives, only the folder this job points at changes.
+  # What ships is the screen in `web/`, a Vite + Vue app (see `docs/web.md`).
+  # Vite writes it to `web/dist`, and that folder is what goes up -- not `web/`
+  # itself, which holds the sources and `node_modules`.
+  #
+  # The wasm layer is built first, into `web/pkg`. Vite reaches it through the
+  # `sheetsift-wasm` alias in `web/vite.config.ts`.
   pages:
     needs: [gate, wasm]
     # A branch asking to be merged does not ship. Running it by hand means
@@ -171,29 +174,53 @@ jobs:
       # The two lines from `docs/wasm.md`. The built output (`web/pkg`) is not
       # kept in the repository, so it is made here -- keeping it would let the
       # source and the build drift apart.
-      - name: Build the web harness
+      - name: Build the wasm layer
         run: |
           cargo build -p sheetsift-web --target wasm32-unknown-unknown --release
           wasm-bindgen --target web --no-typescript --out-dir web/pkg \
             target/wasm32-unknown-unknown/release/sheetsift_web.wasm
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install the screen's dependencies
+        working-directory: web
+        run: npm ci
+
+      # `npm run build` type-checks (`vue-tsc`) and then bundles. That type
+      # check is the only thing that reads the screen against the shape written
+      # in `web/src/pkg.d.ts`, so a break there stops the deploy instead of
+      # shipping a page that fails in the browser.
+      - name: Build the screen
+        working-directory: web
+        run: npm run build
+
       # Check the build is actually there. If it is not, what ships is a blank
       # page -- and the deploy looks like a success.
       - name: Check what is about to ship
         run: |
-          for f in web/index.html web/app.js web/pkg/sheetsift_web.js web/pkg/sheetsift_web_bg.wasm; do
+          for f in web/dist/index.html web/pkg/sheetsift_web.js web/pkg/sheetsift_web_bg.wasm; do
             if [ ! -s "$f" ]; then
               echo "$f is missing or empty" >&2
               exit 1
             fi
           done
-          ls -l web/pkg
+          # The wasm has to have been carried into the bundle. Without it the
+          # page loads and then does nothing, and nothing here would say so.
+          if ! ls web/dist/assets/*.wasm >/dev/null 2>&1; then
+            echo "no wasm in web/dist/assets -- the page would load and do nothing" >&2
+            exit 1
+          fi
+          ls -lR web/dist
 
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: web
+          path: web/dist
 
       - id: deploy
         uses: actions/deploy-pages@v4

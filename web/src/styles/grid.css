@@ -1,0 +1,849 @@
+/* ─────────────────────────────────────────────────────────────
+   데이터 그리드 구조 스타일.
+
+   색상은 전부 tokens.css 의 CSS 변수를 쓴다.
+   화면마다 달라지는 값(열 너비·행 높이·스크롤 오프셋)만 컴포넌트가
+   커스텀 프로퍼티(--dg-*)로 넘긴다. 실제 속성 지정은 여기에만 있다.
+   ───────────────────────────────────────────────────────────── */
+
+.dg {
+  --dg-row-h: 2.25rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--c-border);
+  border-radius: 0.75rem;
+  background-color: var(--c-surface);
+}
+
+/* 헤더 · 필터 · 본문이 같은 열 격자를 공유한다.
+   폭은 열 너비의 합(--dg-total)을 그대로 준다. max-content 로 두면
+   브라우저가 행마다 안쪽 글자를 재서 폭을 추정하는데, 500행이면
+   그 계산만으로 레이아웃이 수백 ms 걸린다. 어차피 열 너비는 rem 으로
+   정해져 있으니 합을 직접 알려 주는 편이 정확하고 빠르다. */
+.dg-head,
+.dg-filters,
+.dg-row {
+  display: grid;
+  grid-template-columns: var(--dg-cols);
+  /* 열 너비의 합이 화면보다 좁을 때는 **화면 폭까지 늘인다.**
+     늘이지 않으면 행은 열 끝에서 멈추는데 머리글 띠(.gx-head)는 화면 끝까지
+     이어져, 오른쪽에서 표가 두 조각으로 갈라져 보인다. 남는 자리에는 칸이
+     생기지 않는다 — 격자 칸은 --dg-cols 가 정한 것뿐이라 행의 바탕만 이어진다. */
+  width: max(var(--dg-total), 100%);
+  min-width: var(--dg-total);
+}
+
+/* ── 열 헤더 ── */
+.dg-head {
+  border-bottom: 1px solid var(--c-border);
+}
+
+.dg-hcell {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.625rem;
+  font-weight: 600;
+  color: var(--c-fg);
+  text-align: left;
+  border-right: 1px solid var(--c-border);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+/* 마지막 세로선은 긋지 않는다. 행이 화면 폭까지 늘어났을 때 그 선이
+   표 한가운데에 덩그러니 남아 끝난 것처럼 보이지 않게 한다. */
+.dg-hcell:last-child,
+.dg-cell:last-child,
+.dg-fcell:last-child {
+  border-right: none;
+}
+
+.dg-hcell:hover {
+  background-color: var(--c-surface-hover);
+}
+
+.dg-hcell[data-sorted="true"] {
+  color: var(--c-accent);
+}
+
+.dg-hcell[data-sortable="false"] {
+  cursor: default;
+}
+
+.dg-hlabel {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dg-hcell[data-kind="number"] .dg-hlabel {
+  text-align: right;
+}
+
+/* 정렬 표식은 **항상 자리를 차지**한다.
+   정렬 여부에 따라 보이기만 바뀌므로 헤더를 눌러도 글자가 밀리지 않는다.
+
+   그래서 이 자리는 **화살표 한 글자로 끝낸다.** 여기 있던 우선순위 배지까지
+   비워 두면 그 폭이 머리글마다 늘 잠긴다 — 정렬하지도 않은 열의 이름이
+   빈자리를 옆에 두고 잘렸다. 몇 번째 정렬인지는 표 바로 위 정렬 칩이 번호로
+   말해 준다. */
+.dg-sortmark {
+  display: inline-block;
+  flex: 0 0 1rem;
+  text-align: center;
+  color: var(--c-accent);
+}
+
+.dg-sortmark[data-visible="false"] {
+  visibility: hidden;
+}
+
+/* 정렬 우선순위 배지 (표 위 정렬 칩) */
+.dg-rank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.375rem;
+  height: 1.375rem;
+  padding: 0 0.25rem;
+  border-radius: 0.375rem;
+  background-color: var(--c-accent);
+  color: var(--c-accent-fg);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+/* 너비를 재려고 화면 밖에 세워 두는 칸(`lib/colWidth.ts`).
+   진짜 머리글과 같은 클래스를 달아, 여백·가름선·정렬 표식 자리가 그대로
+   들어간 폭이 나오게 한다. 글자만큼만 넓어지도록 max-content 로 둔다. */
+.dg-probe {
+  position: absolute;
+  top: -9999px;
+  left: -9999px;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.dg-probe .dg-hcell,
+.dg-probe .dg-cell {
+  width: max-content;
+}
+
+/* ── 필터 행 ── */
+.dg-filters {
+  border-bottom: 1px solid var(--c-border);
+  background-color: var(--c-surface-sunken);
+}
+
+.dg-fcell {
+  padding: 0.25rem 0.375rem;
+  border-right: 1px solid var(--c-border);
+}
+
+.dg-fcell:last-child {
+  border-right: none;
+}
+
+.dg-finput {
+  width: 100%;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--c-border);
+  border-radius: 0.375rem;
+  background-color: var(--c-surface);
+  color: var(--c-fg);
+  font: inherit;
+}
+
+.dg-finput::placeholder {
+  color: var(--c-fg-subtle);
+}
+
+.dg-finput:disabled {
+  background-color: transparent;
+  border-color: transparent;
+}
+
+/* ── 본문 ── */
+.dg-row {
+  height: var(--dg-row-h);
+  border-bottom: 1px solid var(--c-border);
+  /* 화면 밖 행은 안쪽 칸의 배치·그리기를 건너뛴다.
+     폭도 높이도 위에서 확정해 두었으므로 건너뛴 행의 자리는 그대로
+     남는다 — 스크롤 막대 길이도, 열 위치도 흔들리지 않는다.
+     500행 한 쪽을 그릴 때 레이아웃이 250ms → 12ms 로 줄어든다. */
+  content-visibility: auto;
+  contain-intrinsic-size: var(--dg-total) var(--dg-row-h);
+}
+
+.dg-row:hover {
+  background-color: var(--c-surface-hover);
+}
+
+.dg-row[data-odd="true"] {
+  background-color: var(--c-canvas);
+}
+
+.dg-row[data-odd="true"]:hover {
+  background-color: var(--c-surface-hover);
+}
+
+.dg-cell {
+  display: flex;
+  align-items: center;
+  padding: 0 0.625rem;
+  border-right: 1px solid var(--c-border);
+  color: var(--c-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dg-cell:last-child {
+  border-right: none;
+}
+
+.dg-cell[data-kind="number"] {
+  justify-content: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+
+.dg-cell[data-blank="true"] {
+  color: var(--c-fg-subtle);
+}
+
+/* 아직 안 받아온 행 */
+.dg-skeleton {
+  width: 60%;
+  height: 0.875rem;
+  border-radius: 0.25rem;
+  background-color: var(--c-surface-active);
+  opacity: 0.6;
+}
+
+/* ── 열 필터 버튼 (필터 행 안) ───────────────────────────── */
+.dg-fwrap {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.dg-fwrap .dg-finput {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* 항상 자리를 차지한다. 필터가 걸리면 색만 바뀐다. */
+.dg-fbtn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid var(--c-border);
+  border-radius: 0.375rem;
+  background-color: var(--c-surface);
+  color: var(--c-fg-subtle);
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+}
+
+.dg-fbtn-icon {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.dg-fbtn:hover {
+  background-color: var(--c-surface-hover);
+  color: var(--c-fg);
+}
+
+.dg-fbtn[data-active="true"] {
+  border-color: var(--c-accent);
+  background-color: var(--c-accent);
+  color: var(--c-accent-fg);
+}
+
+.dg-fbtn:disabled {
+  visibility: hidden;
+}
+
+/* ── 값 선택 팝오버 ──────────────────────────────────────── */
+.dg-pop {
+  position: absolute;
+  left: var(--pop-x);
+  top: var(--pop-y);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 20rem;
+  max-height: var(--pop-maxh, 26rem);
+  padding: 0.75rem;
+  border: 1px solid var(--c-border-strong);
+  border-radius: 0.75rem;
+  background-color: var(--c-surface);
+  box-shadow: var(--c-shadow-pop);
+}
+
+.dg-pop-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: var(--c-fg);
+}
+
+.dg-pop-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  border: 1px solid var(--c-border);
+  border-radius: 0.5rem;
+}
+
+.dg-pop-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3125rem 0.5rem;
+  color: var(--c-fg);
+  cursor: pointer;
+}
+
+.dg-pop-row:hover {
+  background-color: var(--c-surface-hover);
+}
+
+.dg-pop-all {
+  border: 1px solid var(--c-border);
+  border-radius: 0.5rem;
+  background-color: var(--c-surface-sunken);
+}
+
+.dg-pop-row input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--c-accent);
+}
+
+.dg-pop-val {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dg-pop-val[data-blank="true"] {
+  color: var(--c-fg-subtle);
+  font-style: italic;
+}
+
+.dg-pop-count {
+  flex: 0 0 auto;
+  color: var(--c-fg-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.dg-pop-note {
+  color: var(--c-fg-subtle);
+  padding: 0.5rem;
+}
+
+.dg-pop-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+/* ── 열 고정 (왼쪽 열 붙잡기) ─────────────────────────────────
+   각 고정 열의 왼쪽 offset 은 컴포넌트가 --dg-pin-N 으로 넘긴다.
+   아래 [data-pin="N"] 규칙 수가 useColumnLayout.ts 의 MAX_PIN 과 같아야 한다.
+   규칙이 없는 번호는 붙잡히지 않고 그냥 흘러간다 — 세는 일은 crates/web/tests/screen.rs 가 한다. */
+.dg-hcell[data-pin],
+.dg-fcell[data-pin],
+.dg-cell[data-pin] {
+  position: sticky;
+}
+
+/* 헤더·필터 행은 본문 위에 떠야 하므로 더 높은 층에 둔다. */
+.dg-hcell[data-pin],
+.dg-fcell[data-pin] {
+  z-index: 3;
+  background-color: var(--c-surface-sunken);
+}
+
+.dg-cell[data-pin] {
+  z-index: 1;
+}
+
+.dg-hcell[data-pin="0"],
+.dg-fcell[data-pin="0"],
+.dg-cell[data-pin="0"] {
+  left: var(--dg-pin-0);
+}
+.dg-hcell[data-pin="1"],
+.dg-fcell[data-pin="1"],
+.dg-cell[data-pin="1"] {
+  left: var(--dg-pin-1);
+}
+.dg-hcell[data-pin="2"],
+.dg-fcell[data-pin="2"],
+.dg-cell[data-pin="2"] {
+  left: var(--dg-pin-2);
+}
+.dg-hcell[data-pin="3"],
+.dg-fcell[data-pin="3"],
+.dg-cell[data-pin="3"] {
+  left: var(--dg-pin-3);
+}
+
+/* 고정 셀은 불투명해야 아래 내용이 비쳐 보이지 않는다.
+   줄무늬·호버 배경을 그대로 따라간다. */
+.dg-row[data-odd="false"] .dg-cell[data-pin] {
+  background-color: var(--c-surface);
+}
+
+.dg-row[data-odd="true"] .dg-cell[data-pin] {
+  background-color: var(--c-canvas);
+}
+
+.dg-row:hover .dg-cell[data-pin] {
+  background-color: var(--c-surface-hover);
+}
+
+/* 고정 구간의 끝을 굵은 선으로 표시한다(엑셀의 열 고정 선). */
+.dg-hcell[data-pin-last="true"],
+.dg-fcell[data-pin-last="true"],
+.dg-cell[data-pin-last="true"] {
+  border-right: 2px solid var(--c-border-strong);
+}
+
+/* ── 열 너비 조절 손잡이 ─────────────────────────────────────
+   헤더 오른쪽 경계에 겹쳐 두고, 여기서 시작한 드래그는
+   순서 바꾸기가 아니라 너비 조절로 처리한다. */
+.dg-resize {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 1;
+}
+
+/* 마지막 열의 손잡이만 안쪽에 붙인다. 3px 이라도 표 밖으로 나가면 그만큼
+   가로로 스크롤할 폭이 늘어난다. 그 3px 은 .app-lane 바깥이라 sticky 인
+   제목·도구 줄이 따라갈 자리가 없고, 끝까지 밀었을 때 제자리에 있어야 할
+   것들이 그만큼 쓸려 나간다. */
+/* 채워야 하는데 비었거나 범위를 벗어난 성적 칸.
+   테두리 색만 바꾼다 — 굵기를 바꾸면 그 줄이 밀린다. */
+.ss-num[data-invalid="true"] {
+  border-color: var(--c-danger);
+}
+
+.dg-hcell:last-child .dg-resize {
+  right: 0;
+}
+
+.dg-resize:hover,
+.dg-resize[data-active="true"] {
+  background-color: var(--c-accent);
+}
+
+.dg-hcell {
+  position: relative;
+}
+
+/* ── 열 순서 드래그 ─────────────────────────────────────────── */
+.dg[data-dragging="true"] .dg-hcell {
+  cursor: grabbing;
+}
+
+/* 끌고 있는 열 */
+.dg-hcell[data-drag-src="true"] {
+  opacity: 0.45;
+}
+
+/* 놓일 자리 */
+.dg-hcell[data-drop="true"] {
+  box-shadow: inset 3px 0 0 0 var(--c-accent);
+}
+
+/* 드래그 중에는 텍스트가 잡히지 않게 한다. */
+.dg[data-dragging="true"] {
+  user-select: none;
+}
+
+/* ── 성적 검색 화면 ─────────────────────────────────────────── */
+.ss-num,
+.ss-text {
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--c-border);
+  border-radius: 0.5rem;
+  background-color: var(--c-surface);
+  color: var(--c-fg);
+  font: inherit;
+}
+
+.ss-num {
+  width: 5rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ss-text {
+  width: 9rem;
+  /* 값이 길면 잘리되, 잘렸다는 것이 보이게 한다. */
+  text-overflow: ellipsis;
+}
+
+/* 학생 고르는 세 칸은 폭을 따로 준다.
+   내용에 맞춰 늘어나게 두면 반을 바꿀 때마다 칸이 들썩이므로,
+   실제 데이터에서 가장 긴 값을 재서 고정 폭으로 못 박는다.
+   (학급 "3학년 10반 (34명)" 10.2rem · 모의고사 "— 선택 —" 6.8rem) */
+.ss-w-class {
+  width: 11rem;
+}
+
+/* 이름이 아주 긴 학생(로마자 표기 등)은 잘린다. 펼친 목록에는 전체가
+   보이고, 닫힌 칸에는 title 로 남는다. */
+.ss-w-student {
+  width: 14rem;
+}
+
+.ss-w-month {
+  width: 7rem;
+}
+
+/* 가로로만 움직이는 표 상자(학생 데이터 관리의 가져오기 목록·이력).
+   이 표들은 .app-fixed 안에 있어 바깥의 가로 스크롤을 쓸 수 없다. 파일
+   이름이 길어 열이 화면을 넘으므로 여기서만 가로로 움직인다.
+
+   줄이지 않고 넘긴다. 전역 overflow-wrap: anywhere 때문에 열을 좁히면
+   최소 폭이 **글자 한 개**가 되어, 파일 이름이 세로로 한 글자씩 늘어선다. */
+.ss-xscroll {
+  overflow-x: auto;
+  /* 스크롤바 자리를 미리 잡는다. 줄이 늘고 줄 때 표가 들썩이지 않는다. */
+  scrollbar-gutter: stable;
+}
+
+/* 비밀번호 칸. 학생 데이터 파일을 열고 만드는 자리에서 쓴다.
+   기본 .ss-text 는 성적 검색의 좁은 조건칸에 맞춰 9rem 인데, 비밀번호는
+   길게 쓰라고 권하는 칸이라 그 폭으로는 적는 동안 앞이 밀려 나간다.
+   토글·확인칸과 한 줄에 놓고도 두 칸이 들어가는 폭으로 잡는다. */
+.ss-w-pass {
+  width: 16rem;
+}
+
+.ss-check {
+  width: 1.125rem;
+  height: 1.125rem;
+  accent-color: var(--c-accent);
+}
+
+/* 권역·계열 선택 칩 */
+.ss-chip {
+  padding: 0.25rem 0.75rem;
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  background-color: var(--c-surface);
+  color: var(--c-fg-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ss-chip:hover {
+  background-color: var(--c-surface-hover);
+  color: var(--c-fg);
+}
+
+.ss-chip[data-on="true"] {
+  border-color: var(--c-accent);
+  background-color: var(--c-accent);
+  color: var(--c-accent-fg);
+  font-weight: 600;
+}
+
+/* 합격 가능성 밴드.
+   기본색을 깔아 두어, 차례가 색 규칙보다 많아져도 배지가 배경과 섞여
+   사라지지 않는다. */
+.ss-band {
+  background-color: var(--c-fg-subtle);
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.375rem;
+  color: var(--c-fg-inverted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* 색은 **밴드 이름이 아니라 나온 차례**로 매긴다. 이름을 적어 두면
+   screens.json 에서 밴드를 늘리거나 key 를 바꾸는 순간 규칙이 아무것도
+   맞추지 못하고 조용히 기본색이 된다(조견표 막대에서 한 번 겪었다).
+   차례는 `bands` 가 몇 개든, 이름이 무엇이든 갈린다. */
+.ss-band[data-band-i="0"] {
+  background-color: var(--c-band-1);
+}
+.ss-band[data-band-i="1"] {
+  background-color: var(--c-band-2);
+}
+.ss-band[data-band-i="2"] {
+  background-color: var(--c-band-3);
+}
+.ss-band[data-band-i="3"] {
+  background-color: var(--c-band-4);
+}
+
+
+/* ── 학생 선택 바 ───────────────────────────────────────────── */
+.sp-naesin {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.625rem;
+  border: 1px solid var(--c-border);
+  border-radius: 0.5rem;
+  background-color: var(--c-surface-sunken);
+  color: var(--c-fg-muted);
+  white-space: nowrap;
+}
+
+.sp-naesin strong {
+  color: var(--c-fg);
+}
+
+/* select 도 입력칸과 같은 모양으로 */
+select.ss-text {
+  /* 폭은 .ss-w-* 가 칸마다 정한다. 여기서 min-width 로 바닥을 깔면
+     그보다 좁게 잡은 칸(모의고사 7rem)이 먹히지 않는다. */
+  cursor: pointer;
+}
+
+select.ss-text:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+
+/* ─────────────────────────────────────────────────────────────
+   성적 검색 패널의 스크롤 구조.
+
+   오른쪽 패널 전체가 하나의 세로 스크롤이다.
+   아래로 내리면 조건 입력이 자연스럽게 위로 올라가 사라지고,
+   요약 줄(.ss-bar)이 화면 맨 위에 붙어 계속 보인다.
+   ───────────────────────────────────────────────────────────── */
+/* 검색 패널 자체는 스크롤하지 않는다. 바깥 .app-main 이 스크롤러다.
+   `flex: 0 0 auto` 로 두어 내용만큼 늘어나게 한다. 여기서 1 1 auto 를 쓰면
+   패널 높이가 한 화면으로 묶이고, 그 안의 sticky 요소(.ss-bar)가
+   첫 화면을 지나는 순간 같이 밀려 올라가 버린다. */
+.ss-panel {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.ss-conditions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* 검색 결과 표는 **높이 제한도, 자체 세로 스크롤도 두지 않는다.**
+   행 수만큼 자연스럽게 늘어나고, 세로 스크롤은 바깥 패널이 전부 담당한다.
+   그래야 스크롤이 한 겹으로 끝나 어디에 커서를 두든 같게 움직인다.
+   가로 스크롤만 표 안에서 처리한다(열이 14개라 화면을 넘는다). */
+.gx-table {
+  flex: 0 0 auto;
+  height: auto;
+  /* sticky 가 바깥 .app-main 기준으로 걸리려면 여기서 스크롤 컨테이너가
+     생기면 안 된다. .dg 의 overflow: hidden 을 덮어 쓴다. */
+  overflow: visible;
+  /* 모서리를 둥글게 두면, 가로로 움직이는 스티키 헤더가 그 곡선에 잘려
+     마지막 열이 삐져나온 것처럼 보인다. 여기서는 각지게 간다. */
+  border-radius: 0;
+  /* 좌우 테두리를 두면 열 고정 열이 가로 스크롤 시작 순간 1px 움직인다
+     (테두리 안쪽 → 스크롤 영역 왼쪽 끝). 표가 화면 폭을 꽉 채우므로
+     좌우 선은 어차피 창 가장자리에 묻힌다. 위아래만 남긴다. */
+  border-left: none;
+  border-right: none;
+}
+
+
+/* 결과 요약 줄. 스티키가 아니라 조건과 함께 스크롤되어 사라진다. */
+.ss-summary {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 2.25rem;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+
+/* ── 페이지네이션 ───────────────────────────────────────────── */
+.gx-pager {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  white-space: nowrap;
+}
+
+.gx-pager-btn {
+  min-width: 2.25rem;
+  padding: 0.375rem 0.625rem;
+  border: 1px solid var(--c-border);
+  border-radius: 0.5rem;
+  background-color: var(--c-surface);
+  color: var(--c-fg-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.gx-pager-btn:hover:not(:disabled) {
+  background-color: var(--c-surface-hover);
+  color: var(--c-fg);
+}
+
+.gx-pager-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.gx-pager-input {
+  width: 4.5rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--c-border);
+  border-radius: 0.5rem;
+  background-color: var(--c-surface);
+  color: var(--c-fg);
+  font: inherit;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+
+/* 열 헤더. 표가 자체 스크롤러를 갖지 않으므로 .app-main 기준으로 그냥 붙는다.
+   가로 위치를 맞춰 주는 코드가 필요 없고, 열 고정 열의 sticky left 도 그대로 통한다. */
+.gx-head {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background-color: var(--c-surface-sunken);
+  border-bottom: 1px solid var(--c-border);
+}
+
+
+/* ── 표 위 조작부 ──────────────────────────────────────────────
+   두 줄로 못 박아 둔다. 위는 설정·페이지, 아래는 정렬 칩.
+   한 줄에 몰면 정렬이 늘어날수록 오른쪽 설정 단추를 밀어내 잘렸다.
+   정렬이 없을 때도 아래 줄 높이를 남겨 두므로 표가 위아래로 안 움직인다. */
+.gx-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* 폭이 모자라면 다음 줄로 넘긴다. 넘치는 것을 잘라 내면 '필터 초기화'
+   같은 오른쪽 끝 단추가 아무 말 없이 사라진다 — 있는데 안 보이는 단추가
+   제일 나쁘다. 줄이 늘어나는 것은 창 폭이 바뀔 때뿐이라, 단추를 눌러
+   화면이 흔들리지는 않는다. */
+.gx-tools-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.25rem;
+}
+
+.gx-tools-set {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.gx-pin {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--c-border);
+  border-radius: 0.5rem;
+}
+
+.gx-pin-btn {
+  width: 1.5rem;
+  border-radius: 0.25rem;
+  color: var(--c-fg-muted);
+}
+
+.gx-pin-btn:hover:not(:disabled) {
+  background-color: var(--c-surface-hover);
+  color: var(--c-fg);
+}
+
+.gx-tool-btn {
+  padding: 0.25rem 0.625rem;
+  border: 1px solid var(--c-border);
+  border-radius: 0.5rem;
+  color: var(--c-fg-muted);
+  white-space: nowrap;
+}
+
+.gx-tool-btn:hover:not(:disabled) {
+  background-color: var(--c-surface-hover);
+  color: var(--c-fg);
+}
+
+.gx-pin-btn:disabled,
+.gx-tool-btn:disabled {
+  opacity: 0.4;
+}
+
+/* 정렬 칩 줄. 칩이 많아지면 이 줄만 가로로 민다.
+   스크롤바 자리를 늘 비워 두어 칩이 늘고 줄어도 높이가 안 바뀐다. */
+.gx-sort-list {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-gutter: stable;
+}
+
+.gx-sort-chip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.625rem;
+  border: 1px solid var(--c-accent);
+  border-radius: 0.5rem;
+  background-color: var(--c-accent-surface);
+  color: var(--c-accent);
+}
+
+.gx-sort-chip:hover {
+  background-color: var(--c-surface-hover);
+}

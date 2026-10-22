@@ -1,0 +1,37 @@
+/* ─────────────────────────────────────────────────────────────
+   마우스를 얹었을 때 뜨는 설명.
+
+   자리(--tip-x · --tip-y)만 컴포넌트가 넘기고 생김새는 전부 여기서 정한다.
+   브라우저가 그리는 `title` 을 쓰지 않는 이유가 이 파일에 있다 — 글꼴도
+   크기도 우리 것으로 맞춘다.
+   ───────────────────────────────────────────────────────────── */
+@layer components {
+  .tip {
+    position: fixed;
+    left: var(--tip-x);
+    top: var(--tip-y);
+    /* 값 선택 팝오버(20)보다 위 — 팝오버가 열린 채로도 설명이 가리지 않는다. */
+    z-index: 60;
+    max-width: 32rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--c-border-strong);
+    border-radius: 0.5rem;
+    background-color: var(--c-surface);
+    color: var(--c-fg);
+    box-shadow: var(--c-shadow-pop);
+    /* 본문(text-base)보다 한 단 크다. 잘린 칸을 확인하러 얹는 것이라
+       작으면 얹는 뜻이 없다. */
+    @apply text-lg;
+    /* 줄바꿈으로 나눠 적은 설명(머리글 안내 등)은 그대로 여러 줄로 보인다. */
+    white-space: pre-line;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+    /* 설명이 마우스를 가로채면 가리키던 것이 '떠난' 것이 되어 깜빡인다. */
+    pointer-events: none;
+  }
+
+  /* 재기 전. 자리를 잡고 나서 보인다. */
+  .tip[data-placed="false"] {
+    opacity: 0;
+  }
+}
