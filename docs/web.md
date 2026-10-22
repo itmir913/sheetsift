@@ -5,7 +5,7 @@
 
 한동안 `web/` 에는 경계가 작동하는지 확인하려고 배치한 1매짜리 하네스가
 존재했다. 화면이 도입되면서 소멸했다 — 그 하네스가 수호하던 것(어느 문을 어떤
-형태로 호출하는가)은 이제 `src/lib/book.ts` 하나가 담당한다.
+형태로 호출하는가)은 이제 `src/lib/book.wasm.ts` 하나가 담당한다.
 
 표를 묘사하는 작업은 `GridTable` 과 `GridToolbar` 둘만 수행한다. 화면마다 표를
 개별 생성하면 어느 쪽에는 열 검색이 존재하고 어느 쪽에는 부재하는 식으로
@@ -153,13 +153,15 @@ cargo test -p sheetsift-wasm --target wasm32-unknown-unknown
 **자료는 브라우저 외부로 이탈하지 않는다.** 전송하는 곳이 부재한다. 파일을
 판독하는 것도 변환하는 것도 조회하는 것도 전부 그 위치에서 발생한다.
 
-## 경계는 부르는 곳의 명령과 한 벌이다
+## 경계는 창의 명령과 한 벌이다
 
 화면은 goe-navi 의 구조를 이식했다. 그쪽은 Tauri 명령을 호출하고 이쪽은 wasm
 메서드를 호출하는데, 문 명칭과 요청의 항목 명칭을 동일한 벌로 배치했으므로
-**수정한 것은 호출 대상뿐**이었다. 그 위치가 `web/src/lib/book.ts` 하나다.
+**수정한 것은 호출 대상뿐**이었다. 그 위치가 `web/src/lib/book.*.ts` 다 —
+브라우저 벌과 창 벌 둘이고, 화면은 `sheetsift-book` 이라는 명칭으로 반입해 어느
+쪽인지 인지하지 않는다. 상세는 `docs/desktop.md` 에 존재한다.
 
-| goe-navi (Tauri) | `crates/wasm` (껍질) |
+| `crates/tauri` (창) | `crates/wasm` (브라우저) |
 |---|---|
 | `list_screens` | `listScreens()` |
 | `query_rows { request }` | `queryRows(request)` |
