@@ -5,6 +5,9 @@
  * **후보를 좁히는 일은 바탕이 한다.** goe-navi 에서는 받아 둔 목록을 화면에서
  * 걸렀는데, 그러면 값이 많아 목록이 앞에서 잘린 열에서 찾는 값이 그 뒤에
  * 있을 때 "없습니다" 가 뜬다. 자료는 멀쩡한데 화면만 그렇게 말한다.
+ *
+ * 그래서 목록을 **두 벌** 든다. 좁힌 글자로 받은 것(보여 줄 것)과, 좁히지 않고
+ * 받은 것(전부). 왜 둘이어야 하는지는 [`leaveAll`] 에 적었다.
  */
 import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { type ColumnDef, type ColumnValue, type ColumnValuesResult } from "@/lib/grid";
@@ -34,8 +37,18 @@ const emit = defineEmits<{
 const { blankToken, maxValues } = limits();
 
 const root = ref<HTMLElement | null>(null);
-const candidates = ref<ColumnValue[]>([]);
+
+/** 지금 보여 주는 후보. 좁힌 글자가 있으면 그것으로 받은 것이다. */
+const shown = ref<ColumnValue[]>([]);
+
+/**
+ * 좁히지 않고 받은 후보 전부. **화면에 그리지 않는다** — [`leaveAll`] 이 쓴다.
+ */
+const everyValue = ref<ColumnValue[]>([]);
+
+/** 그 전부가 상한에 걸려 잘렸는가. */
 const truncated = ref(false);
+
 const loading = ref(true);
 const errorMessage = ref<string | null>(null);
 const search = ref("");
@@ -64,21 +77,24 @@ const popVars = computed(() => ({
 }));
 
 const allShownChecked = computed(
-  () =>
-    candidates.value.length > 0 &&
-    candidates.value.every((c) => all.value || checked.value.has(c.value)),
+  () => shown.value.length > 0 && shown.value.every((c) => all.value || checked.value.has(c.value)),
 );
 
+/** 좁힌 글자로 다시 받는다. 늦게 온 답이 새 답을 덮지 않게 번호를 센다. */
 let token = 0;
-async function fetchCandidates() {
+async function fetchShown() {
   const mine = ++token;
   loading.value = true;
   errorMessage.value = null;
   try {
     const res = await props.load(search.value.trim());
     if (mine !== token) return;
-    candidates.value = res.values;
-    truncated.value = res.truncated;
+    shown.value = res.values;
+    // 좁히지 않고 받은 것이면 그것이 곧 전부다.
+    if (!search.value.trim()) {
+      everyValue.value = res.values;
+      truncated.value = res.truncated;
+    }
   } catch (e) {
     if (mine !== token) return;
     errorMessage.value = e instanceof AppError ? e.message : String(e);
@@ -87,11 +103,22 @@ async function fetchCandidates() {
   }
 }
 
-/** 전체 상태에서 하나를 건드리면, 지금 보이는 후보 전부를 고른 것에서 시작한다. */
+/**
+ * 전체 상태를 벗어난다. 체크 상태를 **지금 통과하고 있는 값 전부**로 채운다.
+ *
+ * **좁혀 보이는 것으로 채우면 안 된다.** 「대」로 좁혀 대구·대전만 보이는 채로
+ * 대전 하나를 끄면, 사람이 뜻한 것은 "대전만 빼라" 인데 손대지도 않은 광주·
+ * 부산·서울·인천까지 함께 빠진다. 표는 멀쩡히 그려지고 어디에서도 오류가 나지
+ * 않는다 — 실제로 그렇게 났다.
+ *
+ * 그래서 좁히지 않고 받아 둔 목록에서 채운다. 그 목록이 상한에 걸려 잘렸으면
+ * 어떤 목록으로도 "하나만 빼라" 를 적을 수 없는데, 그때는 팝오버가 잘렸다고
+ * 말하고 있다.
+ */
 function leaveAll() {
   if (!all.value) return;
   all.value = false;
-  checked.value = new Set(candidates.value.map((c) => c.value));
+  checked.value = new Set(everyValue.value.map((c) => c.value));
 }
 
 function toggle(value: string) {
@@ -107,7 +134,7 @@ function toggleAllShown() {
   const on = allShownChecked.value;
   leaveAll();
   const next = new Set(checked.value);
-  for (const c of candidates.value) {
+  for (const c of shown.value) {
     if (on) next.delete(c.value);
     else next.add(c.value);
   }
@@ -121,9 +148,10 @@ function apply() {
 /**
  * 엔터로 적용한다.
  *
- * 글자를 쳐 둔 상태면 **지금 좁혀져 보이는 값들을 그대로 고른다.** 체크한
- * 것만 적용하면, 글자만 치고 엔터를 누른 사람 앞에서 표가 텅 빈다. 쳐서
- * 좁혔으면 그게 고른 것이라는 뜻이다.
+ * 글자를 쳐 둔 상태면 **지금 좁혀져 보이는 값들만 고른다.** 체크한 것만
+ * 적용하면, 글자만 치고 엔터를 누른 사람 앞에서 표가 텅 빈다. 쳐서 좁혔으면
+ * 그게 고른 것이라는 뜻이다 — 위의 [`leaveAll`] 과 달리 여기서는 좁힌 것이
+ * 사람이 **직접 말한 뜻**이라 그대로 받는다.
  *
  * 맞는 값이 하나도 없으면 **아무 일도 하지 않는다.** 그때 적용하면 아무것도
  * 지나지 못하는 필터가 걸리는데, 사람이 원한 것은 그게 아니다.
@@ -133,9 +161,9 @@ function applyTyped() {
     apply();
     return;
   }
-  if (!candidates.value.length) return;
+  if (!shown.value.length) return;
   all.value = false;
-  checked.value = new Set(candidates.value.map((c) => c.value));
+  checked.value = new Set(shown.value.map((c) => c.value));
   apply();
 }
 
@@ -152,13 +180,13 @@ function onPointerDown(e: PointerEvent) {
 let searchTimer: number | undefined;
 watch(search, () => {
   window.clearTimeout(searchTimer);
-  searchTimer = window.setTimeout(() => void fetchCandidates(), 200);
+  searchTimer = window.setTimeout(() => void fetchShown(), 200);
 });
 
 onMounted(() => {
   all.value = props.selected === null;
   checked.value = new Set(props.selected ?? []);
-  void fetchCandidates();
+  void fetchShown();
   window.addEventListener("keydown", onKeydown);
   // 팝오버가 열린 직후의 클릭까지 잡지 않도록 다음 틱에 등록한다.
   window.setTimeout(() => window.addEventListener("pointerdown", onPointerDown), 0);
@@ -200,7 +228,7 @@ onBeforeUnmount(() => {
       </label>
 
       <div class="dg-pop-list">
-        <label v-for="c in candidates" :key="c.value" class="dg-pop-row">
+        <label v-for="c in shown" :key="c.value" class="dg-pop-row">
           <input
             type="checkbox"
             :checked="all || checked.has(c.value)"
@@ -209,13 +237,13 @@ onBeforeUnmount(() => {
           <span class="dg-pop-val" :data-blank="c.value === blankToken">{{ c.value }}</span>
           <span class="dg-pop-count">{{ numberFormat.format(c.count) }}</span>
         </label>
-        <p v-if="!candidates.length" class="dg-pop-note">일치하는 값이 없습니다</p>
+        <p v-if="!shown.length" class="dg-pop-note">일치하는 값이 없습니다</p>
       </div>
 
-      <!-- 잘렸다는 것을 **말한다.** 잘린 줄 모르고 '모두 선택' 을 누르면
-           보이지 않던 값들이 빠진 필터가 걸린다. -->
+      <!-- 잘렸다는 것을 **말한다.** 잘린 줄 모르고 고르면, 보이지 않던 값들이
+           빠진 필터가 걸린다. -->
       <p v-if="truncated" class="dg-pop-note">
-        고유값이 많아 {{ numberFormat.format(maxValues) }}개까지만 보여 줍니다.
+        고유값이 많아 {{ numberFormat.format(maxValues) }}개까지만 봅니다.
         검색으로 좁혀 주세요.
       </p>
     </template>
