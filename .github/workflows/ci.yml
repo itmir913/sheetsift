@@ -29,7 +29,7 @@ jobs:
   gate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -50,7 +50,7 @@ jobs:
   wasm:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # SQLite 는 C 다. 이 줄이 없으면 이미지가 담아 둔 clang 에 기대게 되고,
       # 이미지가 바뀌는 날 까닭을 알기 어려운 자리에서 선다.
