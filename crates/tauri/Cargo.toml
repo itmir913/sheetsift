@@ -1,0 +1,42 @@
+[package]
+name = "sheetsift-tauri"
+# **앱 판을 기재하는 곳은 `tauri.conf.json` 하나다.** 여기 기재한 판은 상자의
+# 것이라 배포물에 노출되지 않고, 두 곳에 기재하면 한쪽만 상승한다.
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+publish = false
+
+# **워크스페이스 외부다.** 뿌리 `Cargo.toml` 의 `exclude` 가 그것을 기재한다.
+#
+# `tauri` 는 운영체제의 webview 를 수령한다 — 리눅스에서는 webkit2gtk 의 개발
+# 파일이 존재해야 컴파일된다. 워크스페이스에 수용하면 `cargo test --workspace`
+# 가 그것을 요구하게 되고, 데스크톱과 무관한 조각(`ci:gate`)이 데스크톱의
+# 사정으로 중단된다. 그래서 조각을 분리한다 — `ci:tauri` 가 이 상자를 담당한다.
+[workspace]
+
+[lib]
+# 창과 문은 라이브러리에 배치하고 실행 파일은 그것을 호출만 한다. 시험이
+# 참조하는 것도 그쪽이다.
+#
+# **`cdylib` 를 배치하지 않는다.** tauri 의 서식은 모바일을 위해 그것을
+# 기재하는데, 윈도에서 그러면 시험 실행 파일이 적재 시점에 중단된다
+# (`STATUS_ENTRYPOINT_NOT_FOUND`) — 시험이 1건도 실행되지 않고, 사유는 코드와
+# 무관하다. 모바일을 수행하는 시점에 재검토한다.
+name = "sheetsift_tauri_lib"
+crate-type = ["lib"]
+
+[dependencies]
+# 명령이 수행하는 작업 전부가 여기 소재한다. 이 상자는 그것을 창에 부착할 뿐이다.
+sheetsift-desk = { path = "../desk" }
+sheetsift-shell = { path = "../shell" }
+tauri = { version = "2", features = [] }
+# 파일 선택 대화상자. **경로만 반환한다** — 바이트를 화면으로 경유시키지 않는 것이
+# 데스크톱을 도입한 사유다.
+tauri-plugin-dialog = "2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }

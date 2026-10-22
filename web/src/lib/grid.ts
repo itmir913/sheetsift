@@ -6,7 +6,7 @@
  * 벌이라 **변경된 것은 그 한 행뿐**이다.
  */
 import { shallowRef } from "vue";
-import { Book, limits } from "@/lib/book";
+import { Book, limits } from "sheetsift-book";
 
 export type ColumnKind = "text" | "number";
 export type SortDir = "asc" | "desc";
@@ -145,7 +145,20 @@ function book(): Book {
 
 /** 양식 바이트를 수용해 개방한다. 기존에 개방한 것은 폐기한다. */
 export async function openBook(bytes: Uint8Array, name: string): Promise<ScreenCatalog> {
-  const b = await Book.open(bytes, name);
+  return received(await Book.open(bytes, name));
+}
+
+/**
+ * **경로로 개방한다.** 선택 대화상자가 반환한 것이 그것이다.
+ *
+ * 바이트로 개방하는 쪽과 동일한 위치로 귀착시킨다 — 개방 이후의 처리가 두 벌이
+ * 되면 일방만 수정된다.
+ */
+export async function openBookAt(path: string): Promise<ScreenCatalog> {
+  return received(await Book.openAt(path));
+}
+
+async function received(b: Book): Promise<ScreenCatalog> {
   open.value = b;
   const catalog = await b.listScreens<ScreenCatalog>({});
   setBlankMark(catalog.blank);

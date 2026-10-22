@@ -254,3 +254,90 @@ fn the_check_catches_a_pin_the_css_does_not_hold() {
     assert_eq!(max_pin("export const MAX_PIN = 9;\n"), Some(9));
     assert_eq!(pin_rules("[data-pin=\"0\"] {} [data-pin=\"1\"] {} [data-pin=\"0\"] {}"), 2);
 }
+
+/* ── 경계의 두 벌 ───────────────────────────────────────────────── */
+
+const BOOK_WASM: &str = include_str!("../../../web/src/lib/book.wasm.ts");
+const BOOK_TAURI: &str = include_str!("../../../web/src/lib/book.tauri.ts");
+
+/// `export` 로 반출하는 명칭들. 함수·클래스·구조·상수를 전부 수용한다.
+fn exported(src: &str) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    for line in src.lines().map(str::trim) {
+        let Some(rest) = line.strip_prefix("export ") else { continue };
+        let rest = rest.strip_prefix("async ").unwrap_or(rest);
+        let Some(after) = ["function ", "class ", "interface ", "const ", "type "]
+            .iter()
+            .find_map(|k| rest.strip_prefix(k))
+        else {
+            continue;
+        };
+        let name: String =
+            after.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+        if !name.is_empty() && !found.contains(&name) {
+            found.push(name);
+        }
+    }
+    found.sort();
+    found
+}
+
+/// 클래스가 반출하는 정적 메서드와 인스턴스 메서드 명칭.
+fn methods(src: &str) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    for line in src.lines().map(str::trim) {
+        let line = line.strip_prefix("static ").unwrap_or(line);
+        let line = line.strip_prefix("async ").unwrap_or(line);
+        let Some((head, _)) = line.split_once('(') else { continue };
+        if head.is_empty() || !head.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            continue;
+        }
+        if ["if", "for", "while", "catch", "switch", "return", "constructor"].contains(&head) {
+            continue;
+        }
+        if !found.contains(&head.to_string()) {
+            found.push(head.to_string());
+        }
+    }
+    found.sort();
+    found
+}
+
+#[test]
+fn the_two_boundaries_are_there_to_look_at() {
+    assert!(!exported(BOOK_WASM).is_empty(), "브라우저 벌의 반출을 탐색하지 못했습니다 — 검사가 실명한 것입니다");
+    assert!(!exported(BOOK_TAURI).is_empty(), "창 벌의 반출을 탐색하지 못했습니다 — 검사가 실명한 것입니다");
+    assert!(!methods(BOOK_WASM).is_empty(), "메서드를 탐색하지 못했습니다 — 검사가 실명한 것입니다");
+}
+
+/// **경계의 두 벌이 동일한 것을 반출하는가.**
+///
+/// 화면은 `sheetsift-book` 이라는 명칭으로 반입하고 어느 쪽인지 인지하지
+/// 않는다. 일방에만 존재하는 문이 발생하면 **그 벌에서만 화면이 중단되고**,
+/// 타입 검사는 기준으로 삼은 일방만 참조하므로 통과한다.
+#[test]
+fn both_boundaries_export_the_same_things() {
+    assert_eq!(exported(BOOK_WASM), exported(BOOK_TAURI), "경계의 두 벌이 상이한 것을 반출합니다");
+}
+
+/// 문 명칭도 동일해야 한다. 반출하는 것이 동일해도 그 내부가 상이하면 동일한
+/// 사안이 발생한다.
+#[test]
+fn both_boundaries_offer_the_same_doors() {
+    let wasm = methods(BOOK_WASM);
+    let tauri = methods(BOOK_TAURI);
+    let only_wasm: Vec<&String> = wasm.iter().filter(|m| !tauri.contains(m)).collect();
+    let only_tauri: Vec<&String> = tauri.iter().filter(|m| !wasm.contains(m)).collect();
+    assert!(
+        only_wasm.is_empty() && only_tauri.is_empty(),
+        "일방에만 존재하는 문이 있습니다 — 브라우저: {only_wasm:?}, 창: {only_tauri:?}"
+    );
+}
+
+/// 그 검사가 실제로 차단하는지 판정한다.
+#[test]
+fn the_check_catches_a_door_on_only_one_side() {
+    let doctored = "export function onlyHere(): void {}\n";
+    assert_eq!(exported(doctored), ["onlyHere"]);
+    assert!(!exported(BOOK_WASM).contains(&"onlyHere".to_string()));
+}

@@ -8,7 +8,11 @@
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
-    "paths": { "@/*": ["./src/*"] }
+    // 경계의 두 벌 중 하나를 화면이 반입한다. 타입 검사는 브라우저 벌을
+    // 기준으로 수행하고(`vite.config.ts` 가 구동 시점에 선택한다), 창 벌도
+    // `include` 에 포함되어 동일하게 검사된다. 양측의 반출 목록이 일치하는지는
+    // `crates/shell/tests/screen.rs` 가 글자로 대조한다.
+    "paths": { "@/*": ["./src/*"], "sheetsift-book": ["./src/lib/book.wasm.ts"] }
   },
   "include": ["src/**/*.ts", "src/**/*.vue"]
 }

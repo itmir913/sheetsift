@@ -22,7 +22,7 @@ import {
   type Sort,
 } from "@/lib/grid";
 import { useColumnLayout } from "@/composables/useColumnLayout";
-import { AppError } from "@/lib/book";
+import { AppError } from "sheetsift-book";
 
 const props = defineProps<{ screen: ScreenDef }>();
 

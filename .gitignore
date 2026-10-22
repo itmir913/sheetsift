@@ -1,2 +1,7 @@
 /target
 node_modules/
+
+# tauri 앱은 자체 워크스페이스라 산출물도 자체 위치에 적재된다.
+/crates/tauri/target
+# tauri 가 빌드 시점에 생성하는 권한 정의. 소스가 아니다.
+/crates/tauri/gen

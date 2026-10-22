@@ -13,8 +13,15 @@ import AppTooltip from "@/components/AppTooltip.vue";
 import ThemeToggle from "@/components/ThemeToggle.vue";
 import FilePick from "@/components/FilePick.vue";
 import DataGrid from "@/components/DataGrid.vue";
-import { listScreens, openBook, type HeaderSpec, type ScreenDef } from "@/lib/grid";
-import { AppError, start } from "@/lib/book";
+import {
+  listScreens,
+  openBook,
+  openBookAt,
+  type HeaderSpec,
+  type ScreenCatalog,
+  type ScreenDef,
+} from "@/lib/grid";
+import { AppError, start } from "sheetsift-book";
 import { APP_NAME, APP_TAGLINE } from "@/lib/app";
 import { ui } from "@/i18n";
 
@@ -91,6 +98,22 @@ onMounted(async () => {
  * 자료를 판독한다.
  */
 async function pick(file: File) {
+  await opened(file.name, async () =>
+    openBook(new Uint8Array(await file.arrayBuffer()), file.name),
+  );
+}
+
+/**
+ * 선택 대화상자가 반환한 경로를 개방한다. **바이트를 경유시키지 않는다.**
+ *
+ * 창에서만 도달한다(`canPickFile`). 개방 이후의 처리는 투입한 파일과 동일한
+ * 위치를 경유한다 — 두 벌이 되면 일방만 수정된다.
+ */
+async function pickAt(path: string, name: string) {
+  await opened(name, () => openBookAt(path));
+}
+
+async function opened(name: string, open: () => Promise<ScreenCatalog>) {
   busy.value = true;
   errorMessage.value = null;
   note.value = null;
@@ -100,9 +123,9 @@ async function pick(file: File) {
   // 양식이 교체되면 선행 양식의 지정은 무의미하다. 시트 명칭이 우연히 일치하면
   // 전혀 상이한 표에 그 지정이 적용된다.
   headers.value = {};
-  fileName.value = file.name;
+  fileName.value = name;
   try {
-    const catalog = await openBook(new Uint8Array(await file.arrayBuffer()), file.name);
+    const catalog = await open();
     groupNames.value = catalog.groups;
     screens.value = catalog.screens;
     current.value = groups.value[0]?.items[0] ?? screens.value[0] ?? null;
@@ -232,6 +255,7 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
               :note="errorMessage ?? note"
               :danger="errorMessage !== null"
               @pick="pick"
+              @pick-at="pickAt"
             />
           </div>
 

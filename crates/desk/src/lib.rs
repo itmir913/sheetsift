@@ -20,4 +20,7 @@ pub mod error;
 pub mod file;
 
 pub use desk::Desk;
+/// 조회 결과의 구조. 부착하는 겹이 그것을 반환하므로 여기서 재노출한다 — 바탕을
+/// 직접 수령하게 하면 판이 두 곳에 기재된다.
+pub use sheetsift_core::grid;
 pub use error::{ErrorCode, Fault, Result, ShellError};

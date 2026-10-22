@@ -12,7 +12,7 @@
  */
 import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { type ColumnDef, type ColumnValue, type ColumnValuesResult } from "@/lib/grid";
-import { AppError, limits } from "@/lib/book";
+import { AppError, limits } from "sheetsift-book";
 
 const props = defineProps<{
   column: ColumnDef;

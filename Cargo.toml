@@ -1,6 +1,10 @@
 [workspace]
 resolver = "2"
 members = ["crates/aead", "crates/core", "crates/desk", "crates/shell", "crates/wasm"]
+# **tauri 앱은 워크스페이스 외부다.** 그 상자가 운영체제의 webview 를 요구해,
+# 수용하면 데스크톱과 무관한 조각(`ci:gate`)까지 그것을 요구하게 된다. 사유는
+# `crates/tauri/Cargo.toml` 의 머리 주석에 소재한다.
+exclude = ["crates/tauri"]
 
 # 열쇠 도출과 암호만은 **시험에서도 최적화해 실행한다.**
 #

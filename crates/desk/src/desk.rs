@@ -64,8 +64,18 @@ impl Desk {
     pub fn open_workbook(&mut self, path: &Path) -> Result<()> {
         let name = file::name_of(path);
         let bytes = file::read(path)?;
-        let viewer = Viewer::open(&bytes, &name)?;
-        self.open = Some(Book { viewer, name });
+        self.open_bytes(&bytes, &name)
+    }
+
+    /// **수령한 바이트로 개방한다.** 창에 투입(drag-drop)한 파일이 그것이다 —
+    /// 그 경로는 웹과 동일하게 바이트로 도달한다.
+    ///
+    /// 경로로 개방하는 쪽을 존치하는 사유는 **용량**이다. 바이트로 수령하면
+    /// 화면이 파일 전체를 1회 적재하므로, 데스크톱이 해소하려는 제약이 그대로
+    /// 잔존한다. 선택 대화상자는 경로만 전달한다.
+    pub fn open_bytes(&mut self, bytes: &[u8], name: &str) -> Result<()> {
+        let viewer = Viewer::open(bytes, name)?;
+        self.open = Some(Book { viewer, name: name.to_string() });
         Ok(())
     }
 

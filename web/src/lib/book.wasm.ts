@@ -1,5 +1,9 @@
 /**
- * **경계.** 화면과 바탕(wasm) 사이는 여기 단일 위치로만 통과한다.
+ * **경계 — 브라우저 벌.** 화면과 바탕(wasm) 사이는 여기 단일 위치로만 통과한다.
+ *
+ * 창에서 구동할 때는 `book.tauri.ts` 가 그 위치를 담당한다. 양자는 **동일한
+ * 것을 반출해야** 하고(`crates/shell/tests/screen.rs` 가 대조한다), 화면은
+ * `sheetsift-book` 이라는 명칭으로 반입해 어느 쪽인지 인지하지 않는다.
  *
  * goe-navi 는 Tauri 명령을 호출하고 이쪽은 wasm 메서드를 호출하지만, 문 명칭도
  * 요청의 항목 명칭도 동일한 벌이라 **변경되는 것은 호출 대상뿐**이다. 화면
@@ -116,6 +120,17 @@ export class Book {
     }
   }
 
+  /**
+   * 경로로 개방한다. **브라우저에서는 중단한다** — 경로라는 개념이 부재하다.
+   *
+   * [`canPickFile`] 이 거짓이라 화면이 여기 도달하지 않는다. 그래도 반출하는
+   * 사유는 양측의 반출 목록이 동일해야 하기 때문이다 — 상이하면 화면이 어느
+   * 쪽에서 구동 중인지 분기해 판독하게 된다.
+   */
+  static openAt(path: string): Promise<Book> {
+    return Promise.reject(new Error(`no paths in a browser: ${path}`));
+  }
+
   listScreens<T>(request: unknown): Promise<T> {
     return this.#call<T>(() => this.#inner.listScreens(JSON.stringify(request)));
   }
@@ -127,4 +142,19 @@ export class Book {
   columnValues<T>(request: unknown): Promise<T> {
     return this.#call<T>(() => this.#inner.columnValues(JSON.stringify(request)));
   }
+}
+
+/* ── 파일을 선택하는 방법 ───────────────────────────────────────── */
+
+/**
+ * **브라우저는 선택 대화상자를 보유하지 않는다.** 파일을 수령하는 경로는
+ * `<input type=file>` 과 투입 둘뿐이고, 양자 모두 바이트로 도달한다.
+ */
+export function canPickFile(): boolean {
+  return false;
+}
+
+/** 선택 대화상자. 브라우저에는 부재하므로 아무것도 반환하지 않는다. */
+export function pickFile(): Promise<{ path: string; name: string } | null> {
+  return Promise.resolve(null);
 }
