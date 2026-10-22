@@ -1,7 +1,7 @@
 /**
  * 화면에 도달할 수 있는 오류 코드 목록.
  *
- * ⚠ `crates/core/src/error.rs` 와 `crates/tauri/src/error.rs` 의 `ErrorCode`
+ * ⚠ `crates/core/src/error.rs` 와 `crates/desk/src/error.rs` 의 `ErrorCode`
  *    양자와 반드시 일치해야 한다. `crates/shell/tests/screen.rs` 가 대조한다.
  *
  * **바탕은 사람이 판독할 문구를 생성하지 않는다.** 코드와 치환 값만 전달하고,
@@ -41,7 +41,7 @@ export const ERROR_CODES = [
   "SIFT_META_INVALID",
   "SIFT_VERSION_TOO_NEW",
 
-  // 하기는 **데스크톱 껍질만** 발생시킨다(`crates/tauri`). 브라우저에는 경로라는
+  // 하기는 **데스크톱 껍질만** 발생시킨다(`crates/desk`). 브라우저에는 경로라는
   // 개념이 부재하므로 영구히 도달하지 않으나, 화면이 단일 벌이라 여기 존재해야
   // 한다 — 부재하면 창에서 코드가 그대로 표시된다.
   "FILE_READ_FAILED",

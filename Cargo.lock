@@ -1001,22 +1001,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "sheetsift-shell"
-version = "0.0.0"
-dependencies = [
- "serde",
- "serde_json",
- "sheetsift-core",
-]
-
-[[package]]
-name = "sheetsift-tauri"
+name = "sheetsift-desk"
 version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
  "sheetsift-core",
  "sheetsift-shell",
+]
+
+[[package]]
+name = "sheetsift-shell"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sheetsift-core",
 ]
 
 [[package]]

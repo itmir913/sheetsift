@@ -14,7 +14,7 @@
 const ERROR_RS: &str = include_str!("../../core/src/error.rs");
 /// 데스크톱 껍질이 자체로 발생시키는 코드. 바탕은 파일 시스템을 인지하지 않아
 /// 파일을 판독하지 못한 사유를 진술할 수단이 부재하다.
-const DESK_RS: &str = include_str!("../../tauri/src/error.rs");
+const DESK_RS: &str = include_str!("../../desk/src/error.rs");
 const CODES_TS: &str = include_str!("../../../web/src/i18n/codes.ts");
 const MESSAGES_TS: &str = include_str!("../../../web/src/i18n/messages.ko.ts");
 

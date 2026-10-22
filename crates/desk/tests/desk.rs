@@ -7,8 +7,8 @@
 
 use std::path::{Path, PathBuf};
 
-use sheetsift_tauri::error::Fault;
-use sheetsift_tauri::{file, Desk};
+use sheetsift_desk::error::Fault;
+use sheetsift_desk::{file, Desk};
 
 /// 웹에는 파일 시스템이 부재해 실행 파일 내부에 수용하지만, 여기서는 그 반대다 —
 /// **디스크에 실재해야** 판독 경로를 판정할 수 있어서, 수용한 것을 1회 기록한다.
