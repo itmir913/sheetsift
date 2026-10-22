@@ -369,7 +369,7 @@
 /* ── 열 고정 (좌측 열 고정) ───────────────────────────────────
    각 고정 열의 좌측 offset 은 컴포넌트가 --dg-pin-N 으로 전달한다.
    하기 [data-pin="N"] 규칙 수가 useColumnLayout.ts 의 MAX_PIN 과 동일해야 한다.
-   규칙이 부재하는 번호는 고정되지 않고 그대로 이동한다 — 산정은 crates/web/tests/screen.rs 가 수행한다. */
+   규칙이 부재하는 번호는 고정되지 않고 그대로 이동한다 — 산정은 crates/shell/tests/screen.rs 가 수행한다. */
 .dg-hcell[data-pin],
 .dg-fcell[data-pin],
 .dg-cell[data-pin] {

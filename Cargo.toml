@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/aead", "crates/core", "crates/web"]
+members = ["crates/aead", "crates/core", "crates/shell", "crates/wasm"]
 
 # 열쇠 도출과 암호만은 **시험에서도 최적화해 실행한다.**
 #

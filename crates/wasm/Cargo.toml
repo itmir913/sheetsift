@@ -1,0 +1,29 @@
+[package]
+name = "sheetsift-wasm"
+# 여기는 판을 기재하는 곳이 아니다. 판은 이 상자를 굽는 곳이 결정한다.
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+publish = false
+
+# `cdylib` 는 wasm 으로 굽는 데 필요하고, `rlib` 는 **데스크톱에서 시험을
+# 실행하려고** 배치한다 — 소스를 글자로 판독하는 시험이 여기 소재한다.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# **이 상자에 논리를 배치하지 않는다.** 알맹이는 `sheetsift-shell` 에 소재하고,
+# 여기 소재하는 것은 문자를 수용해 문자를 반환하는 박막 껍질뿐이다. 여기 유입된
+# 만큼이 `cargo test --workspace` 외부로 이탈한다 — 브라우저가 존재해야 판정
+# 가능한 코드이기 때문이다.
+[dependencies]
+sheetsift-shell = { path = "../shell" }
+sheetsift-core = { path = "../core" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# **브라우저와 수수하는 겹.** 이 의존성이 이 상자 외부로 확산하지 않는 것이
+# 상자를 분할한 사유다 — 데스크톱 껍질이 그것을 함께 수령하지 않는다.
+wasm-bindgen = "0.2"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"

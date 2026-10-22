@@ -10,7 +10,7 @@
 # looked at every day went through different lines. So the parts live in
 # `package.json` and this file only says which part runs where.
 #
-# `crates/web/tests/gate.rs` holds the two together: every part must run here,
+# `crates/shell/tests/gate.rs` holds the two together: every part must run here,
 # and `npm run ci` must be all of the parts. Add a part and forget this file,
 # or add a job here that runs something no part contains, and the gate stops.
 #
@@ -130,7 +130,7 @@ jobs:
   # `needs` is what holds that. Written down as a rule it gets deleted one day,
   # and then a revision whose tests fail ships anyway. A test reads this file
   # and stops the first gate if the line goes missing
-  # (`crates/web/tests/boundary.rs`).
+  # (`crates/wasm/tests/boundary.rs`).
   #
   # What ships is the screen in `web/`, a Vite + Vue app (see `docs/web.md`).
   # Vite writes it to `web/dist`, and that folder is what goes up -- not `web/`
@@ -197,9 +197,9 @@ jobs:
       # source and the build drift apart.
       - name: Build the wasm layer
         run: |
-          cargo build -p sheetsift-web --target wasm32-unknown-unknown --release
+          cargo build -p sheetsift-wasm --target wasm32-unknown-unknown --release
           wasm-bindgen --target web --no-typescript --out-dir web/pkg \
-            target/wasm32-unknown-unknown/release/sheetsift_web.wasm
+            target/wasm32-unknown-unknown/release/sheetsift_wasm.wasm
 
       - uses: actions/setup-node@v7
         with:
@@ -223,7 +223,7 @@ jobs:
       # page -- and the deploy looks like a success.
       - name: Check what is about to ship
         run: |
-          for f in web/dist/index.html web/pkg/sheetsift_web.js web/pkg/sheetsift_web_bg.wasm; do
+          for f in web/dist/index.html web/pkg/sheetsift_wasm.js web/pkg/sheetsift_wasm_bg.wasm; do
             if [ ! -s "$f" ]; then
               echo "$f is missing or empty" >&2
               exit 1

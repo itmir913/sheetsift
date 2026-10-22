@@ -1,8 +1,8 @@
 //! **브라우저와 수수하는 겹.** 문자를 수용해 문자를 반환하는 것이 전부다.
 //!
-//! 알맹이는 [`crate::Viewer`] 에 소재하고 이 파일을 인지하지 않는다. 여기
-//! 소재하는 것은 `wasm_bindgen` 이 포착할 수 있는 형태로 변환하는 껍질뿐이다 —
-//! 오류를 `JsValue` 로, 구조체를 JSON 문자로.
+//! 알맹이는 [`sheetsift_shell::Viewer`] 에 소재하고 이 상자를 인지하지 않는다.
+//! 여기 소재하는 것은 `wasm_bindgen` 이 포착할 수 있는 형태로 변환하는 껍질뿐
+//! 이다 — 오류를 `JsValue` 로, 구조체를 JSON 문자로.
 //!
 //! **박막으로 유지하는 것이 요점이다.** 여기 논리가 유입되면 그만큼이
 //! `cargo test --workspace` 외부로 이탈한다. 브라우저가 존재해야 판정 가능한
@@ -22,7 +22,7 @@
 
 use wasm_bindgen::prelude::*;
 
-use crate::{Ask, CatalogAsk, Limits, ValuesAsk, Viewer};
+use sheetsift_shell::{Ask, CatalogAsk, Limits, ValuesAsk, Viewer};
 
 /// 화면이 임의로 기재하면 안 되는 값들 (JSON). 기동 시 1회 수령한다.
 #[wasm_bindgen]

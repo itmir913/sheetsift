@@ -2,9 +2,9 @@
  * 구운 wasm 겹의 구조.
  *
  * **수동 기재한다.** `wasm-bindgen` 은 `--no-typescript` 로 컴파일하기 때문에 `.d.ts`
- * 가 산출되지 않는다. 여기 기재한 것이 `crates/web/src/bindings.rs` 와 상이하면
+ * 가 산출되지 않는다. 여기 기재한 것이 `crates/wasm/src/lib.rs` 와 상이하면
  * 타입 검사는 묵시적으로 통과하고 브라우저에서야 발현되므로, 명칭이 상이해지는
- * 것만은 `crates/web/tests/boundary.rs` 가 글자로 차단한다.
+ * 것만은 `crates/wasm/tests/boundary.rs` 가 글자로 차단한다.
  *
  * 수용하는 것도 반환하는 것도 **JSON 문자 하나**다. 그 약정이 경계의 전부다.
  *

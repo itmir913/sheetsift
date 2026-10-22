@@ -12,7 +12,8 @@ xlsx 는 zip 내부의 XML 이라 직접 판독해서는 신속히 조회할 수
 |---|---|
 | `crates/core` | 표 변환(`sheet`), 구조 식별(`infer`), 수용 형식(`sift`), 조회 엔진(`grid`), 비밀번호 봉투(`vault`), 서명한 그릇(`seal`) |
 | `crates/aead` | AES-256-GCM 한 겹. 개발 빌드에서도 최적화해 실행하려고 분리 배치한다 |
-| `crates/web` | 바탕을 브라우저에 부착하는 겹. 알맹이는 통상 Rust 이고, `wasm_bindgen` 은 한 파일에만 존재한다 |
+| `crates/shell` | 플랫폼 중립 알맹이(`Viewer`). 변환한 연결·열 정의·요청을 단일 위치에 결속한다 |
+| `crates/wasm` | 바탕을 브라우저에 부착하는 껍질. `wasm_bindgen` 은 이 상자에만 존재한다 |
 | `web/` | Vite + Vue 조회 화면. 표·정렬·필터·인쇄까지 동작한다 |
 
 ## 사용하지 않는 층은 도입하지 않는다
@@ -80,9 +81,9 @@ wasm 타깃의 시험과 clippy(`ci:wasm`), 화면의 타입 검사(`ci:web`). �
 ## 브라우저에서 개방하기
 
 ```bash
-cargo build -p sheetsift-web --target wasm32-unknown-unknown --release
+cargo build -p sheetsift-wasm --target wasm32-unknown-unknown --release
 wasm-bindgen --target web --no-typescript --out-dir web/pkg \
-  target/wasm32-unknown-unknown/release/sheetsift_web.wasm
+  target/wasm32-unknown-unknown/release/sheetsift_wasm.wasm
 cd web && npm install && npm run dev
 ```
 

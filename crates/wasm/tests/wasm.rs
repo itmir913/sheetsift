@@ -5,11 +5,11 @@
 //! 문자를 반환하는가, 오류가 발생하는가.
 //!
 //! ```bash
-//! cargo test -p sheetsift-web --target wasm32-unknown-unknown
+//! cargo test -p sheetsift-wasm --target wasm32-unknown-unknown
 //! ```
 #![cfg(target_arch = "wasm32")]
 
-use sheetsift_web::bindings::Book;
+use sheetsift_wasm::Book;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -102,6 +102,6 @@ fn a_broken_request_is_thrown() {
 /// 화면이 임의로 기재하면 안 되는 값들이 문자로 도달한다.
 #[wasm_bindgen_test]
 fn the_limits_come_across() {
-    let l = sheetsift_web::bindings::limits().expect("상한을 수령하지 못했습니다");
+    let l = sheetsift_wasm::limits().expect("상한을 수령하지 못했습니다");
     assert!(l.contains("blankToken") && l.contains("maxPage"), "{l}");
 }

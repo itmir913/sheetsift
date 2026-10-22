@@ -1,7 +1,7 @@
 # 웹 껍데기를 컴파일하고 기동하는 법
 
-`crates/web` 이 바탕을 브라우저에 부착하는 겹이고, `web/` 이 그것을 사용하는
-화면이다. Vite + Vue 로 구축하고, goe-navi 의 조회 화면을 그대로 이식했다.
+`crates/shell` 이 플랫폼 중립 알맹이고, `crates/wasm` 이 그것을 브라우저에
+부착하는 껍질이고, `web/` 이 그 껍질을 사용하는 화면이다. Vite + Vue 로 구축하고, goe-navi 의 조회 화면을 그대로 이식했다.
 
 한동안 `web/` 에는 경계가 작동하는지 확인하려고 배치한 1매짜리 하네스가
 존재했다. 화면이 도입되면서 소멸했다 — 그 하네스가 수호하던 것(어느 문을 어떤
@@ -20,9 +20,9 @@
 rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --locked
 
-cargo build -p sheetsift-web --target wasm32-unknown-unknown --release
+cargo build -p sheetsift-wasm --target wasm32-unknown-unknown --release
 wasm-bindgen --target web --no-typescript --out-dir web/pkg \
-  target/wasm32-unknown-unknown/release/sheetsift_web.wasm
+  target/wasm32-unknown-unknown/release/sheetsift_wasm.wasm
 ```
 
 `wasm-bindgen-cli` 의 판은 `wasm-bindgen` 크레이트와 **동일해야** 한다. 불일치
@@ -54,7 +54,7 @@ clang 이 부재하는 환경에서는 화면을 수정한 뒤 푸시해 **배�
 화면은 깃허브 Pages 로 배포된다 — `ci.yml` 의 `pages` 잡이 컴파일하고 배포한다.
 **관문의 조각을 전부 경과한 이후에만 작동한다**(`needs`). 그 행에서 하나가
 누락되면 시험이 정지하는 판이 그대로 배포되고 배포는 정상적으로 성공하므로,
-누락 여부는 `ci:gate` 가 문자로 판독한다(`crates/web/tests/gate.rs`).
+누락 여부는 `ci:gate` 가 문자로 판독한다(`crates/shell/tests/gate.rs`).
 
 컴파일한 것(`web/pkg`)은 저장소에 수용하지 않으니 그 잡이 생성한다. 그다음
 Vite 가 `web/dist` 를 산출하고, **배포되는 것은 그 폴더다** — `web/` 자체가
@@ -76,16 +76,17 @@ Vite 가 `web/dist` 를 산출하고, **배포되는 것은 그 폴더다** — 
 
 대신 **관문이 참조할 수 있는 범위를 최대한 확대해 두었다.**
 
-`crates/web` 의 알맹이(`Viewer`)에는 `wasm_bindgen` 이 1행도 부재한다. 통상
+`crates/shell` 의 알맹이(`Viewer`)에는 `wasm_bindgen` 이 1행도 부재한다. 통상
 Rust 라서 `cargo test --workspace` 가 데스크톱에서 그대로 참조한다 — 양식을
 개방하고, 시트를 선택하고, 정렬·필터를 적용하고, 머리글을 탐색하지 못했을 때
 어떻게 되는지까지.
 
-브라우저와 수수하는 겹(`bindings.rs`)은 문자를 수령해 문자를 반환하는 껍질뿐
-이고, 그것만 별도로 확인한다.
+브라우저와 수수하는 겹(`crates/wasm`)은 문자를 수령해 문자를 반환하는 껍질뿐
+이고, 그것만 별도로 확인한다. **그 의존성이 상자 하나에 격리된 것이 분할한
+사유다** — 데스크톱 껍질이 `wasm-bindgen` 을 함께 수령하지 않는다.
 
 ```bash
-cargo test -p sheetsift-web --target wasm32-unknown-unknown
+cargo test -p sheetsift-wasm --target wasm32-unknown-unknown
 ```
 
 **여기 로직이 유입되면 그만큼이 관문 외부로 이탈한다.** 박막으로 유지하는 것이
@@ -158,7 +159,7 @@ cargo test -p sheetsift-web --target wasm32-unknown-unknown
 메서드를 호출하는데, 문 명칭과 요청의 항목 명칭을 동일한 벌로 배치했으므로
 **수정한 것은 호출 대상뿐**이었다. 그 위치가 `web/src/lib/book.ts` 하나다.
 
-| goe-navi (Tauri) | `crates/web` (껍질) |
+| goe-navi (Tauri) | `crates/wasm` (껍질) |
 |---|---|
 | `list_screens` | `listScreens()` |
 | `query_rows { request }` | `queryRows(request)` |
@@ -168,7 +169,7 @@ cargo test -p sheetsift-web --target wasm32-unknown-unknown
 요청은 **단일 묶음**으로 전달된다. 문자 셋을 위치로 수령하던 시기는 위치만
 교체해 전달해도 오류가 발생하지 않아서, 열 명칭 위치에 필터가 혼입된 상태로
 "그런 값 없습니다" 가 표시되었다. 그 위치가 재증가하는지는 시험이 문자로
-판독한다(`crates/web/tests/boundary.rs`).
+판독한다(`crates/wasm/tests/boundary.rs`).
 
 요청이 **무슨 표를 참조하는지 지참한다**(`screenId`). 개방해 둔 것을 겹이
 기억하면, 표를 교체한 이후 지연 도달한 전 요청의 응답이 신규 표의 것처럼

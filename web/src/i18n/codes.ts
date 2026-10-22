@@ -2,7 +2,7 @@
  * 바탕(`sheetsift-core`)이 반환하는 오류 코드 목록.
  *
  * ⚠ `crates/core/src/error.rs` 의 `ErrorCode` 와 반드시 일치해야 한다.
- *    `crates/web/tests/screen.rs` 가 두 파일을 대조한다.
+ *    `crates/shell/tests/screen.rs` 가 두 파일을 대조한다.
  *
  * **바탕은 사람이 판독할 문구를 생성하지 않는다.** 코드와 치환 값만 전달하고,
  * 문구로 변환하는 작업은 이 디렉터리의 사전이 수행한다.

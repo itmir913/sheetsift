@@ -16,7 +16,7 @@ const CODES_TS: &str = include_str!("../../../web/src/i18n/codes.ts");
 const MESSAGES_TS: &str = include_str!("../../../web/src/i18n/messages.ko.ts");
 
 /// 겹이 오류를 문자로조차 변환하지 못한 위치에서 발생시키는 코드. 바탕의 enum
-/// 에는 부재하고 `bindings.rs` 가 생성한다.
+/// 에는 부재하고 `sheetsift-wasm` 의 껍질이 생성한다.
 const SHELL_ONLY: &str = "UNKNOWN";
 
 /// `ErrorCode` 의 변종 명칭을 serde 가 반출하는 문자로. `#[serde(rename_all =

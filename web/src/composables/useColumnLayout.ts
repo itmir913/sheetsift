@@ -34,7 +34,7 @@ export const MAX_WIDTH = 40;
  *
  * `grid.css` 의 `[data-pin="N"]` 규칙 수와 일치해야 한다 — 규칙이 부재하는
  * 번호는 고정되지 않고 유실된다. 오류는 발생하지 않는다.
- * `crates/web/tests/screen.rs` 가 두 파일을 산정해 대조한다.
+ * `crates/shell/tests/screen.rs` 가 두 파일을 산정해 대조한다.
  */
 export const MAX_PIN = 4;
 

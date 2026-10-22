@@ -1001,12 +1001,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "sheetsift-web"
+name = "sheetsift-shell"
 version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
  "sheetsift-core",
+]
+
+[[package]]
+name = "sheetsift-wasm"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sheetsift-core",
+ "sheetsift-shell",
  "wasm-bindgen",
  "wasm-bindgen-test",
 ]

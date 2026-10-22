@@ -97,7 +97,7 @@ npm run ci
 검사를 추가할 사안이 발생하면 **시험으로 배치한다.** 조각 내부에서 작동하는
 것이라 별도 입력할 명령이 생성되지 않는다. 시험으로 배치할 수 없는 것(화면의 타입
 검사처럼)만 조각이 되고, 조각은 **반드시 `ci` 와 액션 양측에 등재되어야 한다** —
-`crates/web/tests/gate.rs` 가 그것을 확인한다.
+`crates/shell/tests/gate.rs` 가 그것을 확인한다.
 
 소스를 문자로 판독해 확인하는 검사도 시험으로 배치한다
 (`crates/core/tests/secrets.rs`). 소거하는 행이 누락되거나 소거 기능이
@@ -134,7 +134,7 @@ npm run ci
 
 실행 위치가 하나뿐인 검사는 그 위치가 소멸하는 것으로 묵시적으로 소멸한다. 그래서
 **그 파일이 삭제되거나 조각 하나가 누락되면 `ci:gate` 가 정지한다**
-(`crates/web/tests/gate.rs` · `boundary.rs`).
+(`crates/shell/tests/gate.rs` · `boundary.rs`).
 
 ## 묵시적으로 오류가 발생하느니 정지한다
 

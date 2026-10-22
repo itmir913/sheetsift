@@ -63,7 +63,7 @@ clang 구성요소). CLion 이 포함한 것은 `clangd` 와 `clang-tidy` 뿐이
 판독한다. 기재해 두면 크레이트를 상승시키는 날 그 파일만 노후화한다.
 
 **그 액션이 삭제되거나 조각 하나가 누락되면 `ci:gate` 가 정지한다**
-(`crates/web/tests/boundary.rs`). 실행 위치가 하나뿐인 검사는 그 위치가
+(`crates/wasm/tests/boundary.rs`). 실행 위치가 하나뿐인 검사는 그 위치가
 소멸하는 것으로 묵시적으로 소멸한다.
 
 ### 임의의 clang 이 가능한 것이 아니다

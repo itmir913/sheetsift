@@ -1,6 +1,6 @@
 //! **경계는 요청 단일 덩어리로 통과한다.**
 //!
-//! 브라우저와 수수하는 겹([`bindings`](../src/bindings.rs))의 메서드는 self
+//! 브라우저와 수수하는 겹([`sheetsift-wasm`](../src/lib.rs))의 메서드는 self
 //! 이외의 인자를 둘 이상 수용하지 않는다. 수용하는 것은 JSON 문자 하나다.
 //!
 //! 사유는 부르는 곳이다. 동일한 요청을 위치마다 상이한 수의 인자로 전달하면,
@@ -54,7 +54,7 @@ fn methods(src: &str) -> Vec<Method> {
     found
 }
 
-const SRC: &str = include_str!("../src/bindings.rs");
+const SRC: &str = include_str!("../src/lib.rs");
 
 /// **보전 대상을 탐색하지 못하면 통과가 아니라 실패다.** 파일 명칭이 변경되거나
 /// 껍질이 타 위치로 이전되면, 아무것도 판정하지 못하는 검사가 묵시적으로
