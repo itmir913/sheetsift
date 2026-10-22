@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /**
- * 양식을 받는 자리.
+ * 양식을 수령하는 위치.
  *
- * **고르는 것도 끌어다 놓는 것도 같은 한 길로 간다.** 두 길을 따로 두었더니
- * 끌어다 놓은 파일만 이름을 잃어, csv 의 시트 이름이 매번 달라졌다.
+ * **선택도 투입도 동일한 단일 경로를 경유한다.** 두 경로를 개별 배치했더니
+ * 투입한 파일만 명칭을 상실해, csv 의 시트 명칭이 매회 상이했다.
  */
 import { ref } from "vue";
 
@@ -16,7 +16,7 @@ const over = ref(false);
 function onInput(ev: Event) {
   const file = (ev.target as HTMLInputElement).files?.[0];
   if (file) emit("pick", file);
-  // 같은 파일을 다시 고를 수 있어야 한다. 비우지 않으면 change 가 오지 않는다.
+  // 동일한 파일을 재선택할 수 있어야 한다. 초기화하지 않으면 change 가 발생하지 않는다.
   (ev.target as HTMLInputElement).value = "";
 }
 
@@ -37,8 +37,8 @@ function onDrop(ev: DragEvent) {
       @drop.prevent="onDrop"
     >
       <input type="file" class="hidden" accept=".xlsx,.xls,.csv" @change="onInput" />
-      <span class="font-medium">xlsx 또는 csv 파일을 고르거나 여기에 끌어다 놓습니다</span>
-      <span class="text-fg-subtle">{{ busy ? "읽는 중…" : "파일은 이 브라우저 안에서만 열립니다" }}</span>
+      <span class="font-medium">xlsx 또는 csv 파일을 선택하거나 이 영역에 투입하십시오</span>
+      <span class="text-fg-subtle">{{ busy ? "판독 중…" : "파일은 이 브라우저 내부에서만 개방됩니다" }}</span>
     </label>
 
     <p v-if="note" role="status" aria-live="polite" :class="danger ? 'text-danger' : 'text-fg-muted'">

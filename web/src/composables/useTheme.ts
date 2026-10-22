@@ -11,7 +11,7 @@ function readStored(): ThemePreference {
     const v = localStorage.getItem(STORAGE_KEY);
     if (v === "light" || v === "dark" || v === "system") return v;
   } catch {
-    /* 저장소 접근이 막힌 환경에서도 동작해야 한다. */
+    /* 저장소 접근이 차단된 환경에서도 동작해야 한다. */
   }
   return "system";
 }

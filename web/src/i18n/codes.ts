@@ -1,18 +1,18 @@
 /**
- * 바탕(`sheetsift-core`)이 돌려주는 오류 코드 목록.
+ * 바탕(`sheetsift-core`)이 반환하는 오류 코드 목록.
  *
- * ⚠ `crates/core/src/error.rs` 의 `ErrorCode` 와 반드시 같아야 한다.
- *    `crates/web/tests/messages.rs` 가 두 파일을 대조한다.
+ * ⚠ `crates/core/src/error.rs` 의 `ErrorCode` 와 반드시 일치해야 한다.
+ *    `crates/web/tests/screen.rs` 가 두 파일을 대조한다.
  *
- * **바탕은 사람이 읽을 문구를 만들지 않는다.** 코드와 치환 값만 넘기고, 말로
- * 바꾸는 일은 이 디렉터리의 사전이 한다.
+ * **바탕은 사람이 판독할 문구를 생성하지 않는다.** 코드와 치환 값만 전달하고,
+ * 문구로 변환하는 작업은 이 디렉터리의 사전이 수행한다.
  *
- * 쓰지 않는 코드까지 적는다. 그릇의 오류 코드가 한 enum 이라, 보는 겹이 영영
- * 내지 않을 코드도 여기 한 줄이 있어야 한다 — 없으면 그날 화면에 코드가
- * 그대로 뜬다.
+ * 사용하지 않는 코드까지 기재한다. 그릇의 오류 코드가 단일 enum 이라, 열람 겹이
+ * 영구히 발생시키지 않을 코드도 여기 한 행이 존재해야 한다 — 부재하면 그 시점에
+ * 화면에 코드가 그대로 표시된다.
  */
 export const ERROR_CODES = [
-  /** 바탕이 아니라 겹에서 난 것. 오류를 글자로조차 바꾸지 못한 자리. */
+  /** 바탕이 아니라 겹에서 발생한 것. 오류를 문자로조차 변환하지 못한 위치. */
   "UNKNOWN",
   "DB_QUERY_FAILED",
   "INVALID_SORT_KEY",
@@ -44,11 +44,11 @@ export const ERROR_CODES = [
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
-/** 바탕이 던진 것의 생김새. */
+/** 바탕이 발생시킨 것의 구조. */
 export interface AppErrorPayload {
   code: ErrorCode;
-  /** 문구의 `{이름}` 자리에 채울 값. */
+  /** 문구의 `{이름}` 위치에 충전할 값. */
   params?: Record<string, string>;
-  /** 개발자용 원문(영문). 사람에게 보이지 않는다. */
+  /** 개발자용 원문(영문). 사람에게 노출되지 않는다. */
   detail?: string;
 }
