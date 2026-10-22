@@ -1,25 +1,26 @@
 //! 오류 표현.
 //!
-//! **사람이 읽을 문구를 만들지 않는다.** 코드와 치환 값만 돌려주고, 문구는 앱이
-//! 붙인다. 같은 그릇이 앱마다 다른 말로 안내되어야 하기 때문이다 — 봉인이 깨졌을
-//! 때 "다시 설치하세요" 가 맞는 앱도, "파일을 다시 받으세요" 가 맞는 앱도 있다.
+//! **사람이 읽을 문구를 생성하지 않는다.** 코드와 치환 값만 반환하고, 문구는 앱이
+//! 부여한다. 동일한 그릇이 앱마다 상이한 문구로 안내되어야 하기 때문이다 — 봉인이
+//! 훼손된 경우 "재설치하십시오" 가 적절한 앱도, "파일을 재수신하십시오" 가 적절한
+//! 앱도 존재한다.
 //!
-//! `detail` 에는 개발자용 영문 원문을 담는다(로그·디버그 전용).
+//! `detail` 에는 개발자용 영문 원문을 수용한다(로그·디버그 전용).
 
 use std::collections::BTreeMap;
 
 use serde::Serialize;
 
-/// 이 크레이트가 내는 오류 코드.
+/// 이 크레이트가 발생시키는 오류 코드.
 ///
-/// 직렬화한 이름(`DATA_SEAL_INVALID`)이 앱의 문구 사전과 맞물리는 열쇠다. 앱은
-/// 제 코드 옆에 이것을 그대로 품어 내보낸다 — 이름을 한 벌 더 적어 옮기면 두 벌이
-/// 갈라진다.
+/// 직렬화된 명칭(`DATA_SEAL_INVALID`)이 앱의 문구 사전과 결합하는 열쇠다. 앱은
+/// 자체 코드 옆에 이것을 그대로 수용해 노출한다 — 명칭을 한 벌 더 기재해 이전하면
+/// 양자가 분기한다.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ErrorCode {
     DbQueryFailed,
-    /// 정렬·필터·값 목록이 표에 없는 열을 가리켰다.
+    /// 정렬·필터·값 목록이 표에 부재하는 열을 지시했다.
     InvalidSortKey,
     DataSealInvalid,
     DataSignatureInvalid,
@@ -33,46 +34,46 @@ pub enum ErrorCode {
     VaultFileDamaged,
     VaultKeyDerivationFailed,
     VaultSealFailed,
-    /// 양식을 열지 못했다. zip 이 아니거나 속이 상했다.
+    /// 양식을 개방하지 못했다. zip 이 아니거나 내용이 손상되었다.
     SheetWorkbookUnreadable,
-    /// 양식 안의 시트 하나를 읽지 못했다. **건너뛰지 않는다** — 조용히 빠진
-    /// 시트는 표 하나가 없는 DB 가 되고, 그것은 화면에서야 드러난다.
+    /// 양식 내부의 시트 하나를 판독하지 못했다. **생략하지 않는다** — 묵시적으로
+    /// 누락된 시트는 표 하나가 부재하는 DB 가 되고, 그것은 화면에서야 발현된다.
     SheetUnreadable,
-    /// 시트에 머리글 줄조차 없다.
+    /// 시트에 머리글 행조차 부재한다.
     SheetEmpty,
-    /// 정의가 가리키는 열이 시트에 없다.
+    /// 정의가 지시하는 열이 시트에 부재한다.
     SheetColumnMissing,
-    /// 표를 만들거나 줄을 넣지 못했다.
+    /// 표를 생성하거나 행을 삽입하지 못했다.
     SheetTableFailed,
-    /// csv 의 글자 표기를 알아내지 못했다. UTF-8 도 CP949 도 아니다.
-    /// **깨진 글자를 보이지 않는다** — 그러면 사전이 조용히 갈린다.
+    /// csv 의 문자 표기를 판별하지 못했다. UTF-8 도 CP949 도 아니다.
+    /// **훼손된 문자를 표시하지 않는다** — 그러면 사전이 묵시적으로 분기한다.
     SheetEncodingUnknown,
-    /// 만든 DB 를 바이트로 꺼내지 못했다.
+    /// 생성한 DB 를 바이트로 추출하지 못했다.
     SheetSerializeFailed,
-    /// `.sift` 의 머리가 우리 것이 아니거나 속이 상했다.
+    /// `.sift` 의 머리가 우리 것이 아니거나 내용이 손상되었다.
     #[cfg(feature = "sift")]
     SiftFormatInvalid,
-    /// 풀어 낸 알맹이가 우리가 만든 생김새가 아니다.
+    /// 해제한 내용이 우리가 생성한 구조가 아니다.
     #[cfg(feature = "sift")]
     SiftSchemaUnexpected,
-    /// 담긴 지문·열 정보를 읽지 못했다.
+    /// 수록된 지문·열 정보를 판독하지 못했다.
     #[cfg(feature = "sift")]
     SiftMetaInvalid,
-    /// 이 앱이 모르는 판의 `.sift` 다. **빠진 칸을 기본값으로 채우지 않는다** —
-    /// 그러면 그럴듯한 거짓이 나온다.
+    /// 이 앱이 인지하지 못하는 판의 `.sift` 다. **누락된 항목을 기본값으로 충전하지
+    /// 않는다** — 그러면 그럴듯한 허위가 산출된다.
     #[cfg(feature = "sift")]
     SiftVersionTooNew,
-    /// 봉한 바이트를 쓰지 못했다. 쓰는 일은 앱이 하지만, 비밀번호 바꾸기처럼
-    /// 쓰기가 그릇의 약속에 들어가는 자리가 있어 코드는 여기 둔다.
+    /// 봉인한 바이트를 기록하지 못했다. 기록은 앱이 수행하지만, 비밀번호 변경처럼
+    /// 기록이 그릇의 약정에 포함되는 위치가 존재해 코드는 여기 배치한다.
     VaultWriteFailed,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Error {
     pub code: ErrorCode,
-    /// 문구 템플릿의 `{이름}` 자리에 채울 값.
+    /// 문구 템플릿의 `{이름}` 위치에 충전할 값.
     pub params: BTreeMap<String, String>,
-    /// 개발자용 원문(영문). 사용자에게 보이지 않는다.
+    /// 개발자용 원문(영문). 사용자에게 노출되지 않는다.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
 }
@@ -94,7 +95,7 @@ impl Error {
 }
 
 impl std::fmt::Display for Error {
-    /// 로그용. 영문만 쓴다.
+    /// 로그용. 영문만 사용한다.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.code)?;
         if let Some(d) = &self.detail {

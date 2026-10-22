@@ -1,21 +1,23 @@
-//! 표 하나를 정렬·필터해 한 쪽씩 읽는다.
+//! 표 하나를 정렬·필터해 한 페이지씩 판독한다.
 //!
-//! 무엇이 어느 표의 어느 열인지는 [`Table`] 이 말해 준다. 그 정의를 어디서
-//! 읽어 오는지(빌드 때 넣은 자료, 사용자가 연 파일)는 이 모듈이 모른다.
+//! 무엇이 어느 표의 어느 열인지는 [`Table`] 이 제시한다. 그 정의를 어디서
+//! 판독하는지(빌드 시 주입한 자료, 사용자가 개방한 파일)는 이 모듈이 인지하지
+//! 않는다.
 //!
-//! SQL 조각(열 참조·기준 테이블 이름)은 [`Table`] 의 정의에서만 온다.
-//! 사용자가 넣은 값(검색어·선택 값)은 **반드시 바인딩 파라미터**로만 들어가고,
-//! 정렬·필터 키는 정의에 있는 열인지 검증한 뒤에만 SQL 에 쓴다.
+//! SQL 조각(열 참조·기준 테이블 명칭)은 [`Table`] 의 정의에서만 유래한다.
+//! 사용자가 주입한 값(검색어·선택 값)은 **반드시 바인딩 파라미터**로만
+//! 진입하고, 정렬·필터 열쇠는 정의에 존재하는 열인지 검증한 뒤에만 SQL 에
+//! 사용한다.
 //!
-//! ## 두 종류의 필터
+//! ## 필터 2종
 //! - `contains` : 열 검색. 부분일치(LIKE).
-//! - `values`   : 엑셀식 값 선택. 그 열의 고유값 중 체크한 것만 남긴다.
-//!   `None` 이면 전체 허용, `Some(빈 목록)` 이면 아무것도 통과하지 않는다.
+//! - `values`   : 엑셀식 값 선택. 그 열의 고유값 중 선택한 것만 존치한다.
+//!   `None` 이면 전체 허용, `Some(공백 목록)` 이면 아무것도 통과하지 않는다.
 //!
 //! ## 사전 인코딩(Dict) 열
-//! 큰 표는 반복되는 문자열을 `dict` 테이블의 정수 id 로 바꿔 저장한다. 이때
+//! 대형 표는 반복되는 문자열을 `dict` 테이블의 정수 id 로 변환해 저장한다. 이때
 //! **id 를 가나다순으로 부여**하므로 `ORDER BY t.col`(정수) 가 곧 가나다순
-//! 정렬이다. 덕분에 정렬·집계에는 조인이 전혀 필요 없고, 화면에 내보낼 행에만
+//! 정렬이다. 그 결과 정렬·집계에는 조인이 전혀 불필요하고, 화면에 노출할 행에만
 //! 조인한다.
 
 use rusqlite::{types::ValueRef, Connection};
@@ -24,14 +26,15 @@ use serde_json::Value as Json;
 
 use crate::{Error, ErrorCode, Result};
 
-/// 한 번에 가져갈 수 있는 행 수의 상한.
+/// 1회에 수령 가능한 행 수의 상한.
 ///
-/// **부르는 쪽이 알아야 하는 값이다.** 이보다 큰 수를 넣으면 말없이 여기까지만
-/// 온다 — 모르고 1000 을 달라고 한 화면은 500 줄을 받고도 다 받은 줄 안다.
+/// **부르는 곳이 인지해야 하는 값이다.** 이보다 큰 수를 주입하면 묵시적으로
+/// 여기까지만 도달한다 — 인지하지 못한 채 1000 을 요청한 화면은 500행을 수령하고도
+/// 전량 수령한 것으로 판단한다.
 pub const MAX_LIMIT: u32 = 500;
-/// 값 선택 목록의 상한. 넘으면 잘라서 보내고 검색으로 좁히게 한다.
+/// 값 선택 목록의 상한. 초과하면 절단해 전송하고 검색으로 축소하게 한다.
 pub const MAX_VALUES: u32 = 1000;
-/// 화면에서 비어 있는 값을 나타내는 표식. 실제 데이터의 빈칸/NULL 에 대응한다.
+/// 화면에서 공백 값을 표현하는 표식. 실제 자료의 공백 셀/NULL 에 대응한다.
 pub const BLANK_TOKEN: &str = "(비어 있음)";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,41 +42,41 @@ pub const BLANK_TOKEN: &str = "(비어 있음)";
 pub enum ColumnKind {
     /// 문자열. 좌측 정렬, 부분일치 필터.
     Text,
-    /// 숫자. 우측 정렬, 자릿수 맞춤.
+    /// 숫자. 우측 정렬, 자릿수 정합.
     Number,
 }
 
-/// 열 하나. 화면에 보이는 것과 SQL 에 쓰는 것을 함께 안다.
+/// 열 하나. 화면에 노출되는 것과 SQL 에 사용하는 것을 함께 보유한다.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Column {
-    /// 결과 컬럼 별칭이자 화면에서 쓰는 키.
+    /// 결과 컬럼 별칭이자 화면에서 사용하는 열쇠.
     pub key: String,
-    /// 화면에 보이는 이름.
+    /// 화면에 노출되는 명칭.
     pub label: String,
-    /// 기준 테이블의 열 이름. 계산으로 만드는 열은 비어 있다.
+    /// 기준 테이블의 열 명칭. 연산으로 생성하는 열은 공백이다.
     #[serde(skip_serializing)]
     pub column: String,
     pub kind: ColumnKind,
     pub sortable: bool,
     pub filterable: bool,
-    /// 양수에 `+` 를 붙일 숫자인가. 격차처럼 부호에 뜻이 있는 열에 쓴다.
+    /// 양수에 `+` 를 부착할 숫자인가. 격차처럼 부호에 의미가 존재하는 열에 사용한다.
     #[serde(default)]
     pub signed: bool,
-    /// 사전 인코딩 열인가. 그렇다면 값은 정수 id 이고 dict 를 조인해야 한다.
+    /// 사전 인코딩 열인가. 해당하면 값은 정수 id 이고 dict 를 조인해야 한다.
     #[serde(skip_serializing)]
     pub dict: bool,
-    /// dict 조인에 쓸 별칭. 정의를 읽어 들인 뒤 [`assign_aliases`] 가 매긴다.
+    /// dict 조인에 사용할 별칭. 정의를 판독한 뒤 [`assign_aliases`] 가 부여한다.
     #[serde(skip)]
     pub alias: String,
 }
 
 impl Column {
-    /// 기준 테이블 안에서의 열 참조. 정렬·필터에 쓴다.
+    /// 기준 테이블 내부의 열 참조. 정렬·필터에 사용한다.
     pub fn base_ref(&self) -> String {
         format!("t.\"{}\"", self.column)
     }
-    /// 화면에 내보낼 식. 사전 열은 조인한 문자열을 쓴다.
+    /// 화면에 노출할 식. 사전 열은 조인한 문자열을 사용한다.
     pub fn display_ref(&self) -> String {
         if self.dict {
             format!("{}.s", self.alias)
@@ -83,13 +86,13 @@ impl Column {
     }
 }
 
-/// 조회할 수 있는 표. 정의를 들고 있는 쪽이 구현한다.
+/// 조회 가능한 표. 정의를 보유한 곳이 구현한다.
 pub trait Table {
-    /// 오류에 실어 보낼 이름. 어느 표에서 났는지 가리는 데만 쓴다.
+    /// 오류에 첨부할 명칭. 어느 표에서 발생했는지 식별하는 용도로만 사용한다.
     fn id(&self) -> &str;
-    /// 기준 테이블 이름.
+    /// 기준 테이블 명칭.
     fn base(&self) -> &str;
-    /// 열을 화면 차례대로.
+    /// 열을 화면 순서대로.
     fn columns(&self) -> Box<dyn Iterator<Item = &Column> + '_>;
 
     fn column(&self, key: &str) -> Option<&Column> {
@@ -97,8 +100,8 @@ pub trait Table {
     }
 }
 
-/// 같은 열을 두 번 조인하지 않도록 사전 열마다 별칭(d1, d2 …)을 매긴다.
-/// 같은 기준 열을 쓰는 사전 열은 별칭을 함께 쓴다.
+/// 동일한 열을 2회 조인하지 않도록 사전 열마다 별칭(d1, d2 …)을 부여한다.
+/// 동일한 기준 열을 사용하는 사전 열은 별칭을 공유한다.
 pub fn assign_aliases<'a>(columns: impl Iterator<Item = &'a mut Column>) {
     let mut alias_of: Vec<(String, String)> = Vec::new();
     for c in columns {
@@ -117,7 +120,7 @@ pub fn assign_aliases<'a>(columns: impl Iterator<Item = &'a mut Column>) {
     }
 }
 
-/// 화면에 필요한 dict 조인 절을 만든다. (중복 별칭 제거)
+/// 화면에 필요한 dict 조인 절을 생성한다. (중복 별칭 제거)
 fn dict_joins(table: &dyn Table) -> String {
     let mut seen: Vec<&str> = Vec::new();
     let mut out = String::new();
@@ -153,22 +156,22 @@ pub struct Sort {
 #[serde(rename_all = "camelCase")]
 pub struct Filter {
     pub key: String,
-    /// 여러 열을 **OR 로 묶어** 보고 싶을 때. 비면 `key` 하나만 본다.
+    /// 복수의 열을 **OR 로 결합**해 조회할 때 사용한다. 공백이면 `key` 하나만 참조한다.
     ///
-    /// 검색창 하나로 두 열을 한꺼번에 찾는 화면이 쓴다. 열끼리는 AND 가 기본이라,
-    /// 그대로 두면 "이 열에도 있고 저 열에도 있다" 가 된다.
+    /// 검색창 하나로 두 열을 동시에 탐색하는 화면이 사용한다. 열 상호간은 AND 가
+    /// 기본이라, 그대로 유지하면 "이 열에도 존재하고 저 열에도 존재한다" 가 된다.
     #[serde(default)]
     pub keys: Vec<String>,
-    /// 열 검색(부분일치). 빈 문자열이면 적용하지 않는다.
+    /// 열 검색(부분일치). 공백 문자열이면 적용하지 않는다.
     #[serde(default)]
     pub contains: String,
     /// 값 선택. None = 전체 허용.
     #[serde(default)]
     pub values: Option<Vec<String>>,
-    /// 이 열이 **빈칸이 아닌 줄만** 고른다.
+    /// 이 열이 **공백이 아닌 행만** 선택한다.
     ///
-    /// 그림을 그리는 화면이 쓴다. 값이 없는 줄은 막대를 그릴 수 없는데, 그런
-    /// 줄까지 세어 쪽을 나누면 통째로 빈 쪽이 생긴다.
+    /// 도형을 묘사하는 화면이 사용한다. 값이 부재하는 행은 막대를 묘사할 수 없는데,
+    /// 그런 행까지 산입해 페이지를 분할하면 전체가 공백인 페이지가 발생한다.
     #[serde(default)]
     pub not_blank: bool,
 }
@@ -179,7 +182,7 @@ impl Filter {
     }
 }
 
-/// 한 쪽을 읽는 요청.
+/// 한 페이지를 판독하는 요청.
 #[derive(Debug, Clone, Default)]
 pub struct Query {
     pub sorts: Vec<Sort>,
@@ -194,7 +197,7 @@ pub struct Page {
     /// 필터를 적용한 전체 행 수.
     pub total: u32,
     pub offset: u32,
-    /// 열 차례대로 담은 행들.
+    /// 열 순서대로 수용한 행들.
     pub rows: Vec<Vec<Json>>,
     pub elapsed_ms: f64,
 }
@@ -210,24 +213,24 @@ pub struct ColumnValue {
 #[serde(rename_all = "camelCase")]
 pub struct ColumnValues {
     pub values: Vec<ColumnValue>,
-    /// [`MAX_VALUES`] 를 넘어 잘렸는가.
+    /// [`MAX_VALUES`] 를 초과해 절단되었는가.
     pub truncated: bool,
     pub elapsed_ms: f64,
 }
 
-/// `LIKE` 에서 뜻을 갖는 글자를 막는다.
+/// `LIKE` 에서 의미를 보유하는 문자를 차단한다.
 pub fn like_escape(s: &str) -> String {
     s.replace('\\', r"\\").replace('%', r"\%").replace('_', r"\_")
 }
 
-/// 값이 없는 칸을 가려내는 SQL 조각.
+/// 값이 부재하는 셀을 식별하는 SQL 조각.
 ///
-/// **무엇을 "없음" 으로 볼지는 자료가 정한다**(`blank`). 여기에 글자를 박아 두면,
-/// 자료가 `–` 나 `N/A` 로 바뀌었을 때 값 선택 목록과 필터가 같은 파일 안에서
-/// 갈라진다 — 후보에는 `(비어 있음)` 이 뜨는데 그걸 고르면 0건이 되고, 아무 오류도
-/// 나지 않는다.
+/// **무엇을 "부재" 로 간주할지는 자료가 결정한다**(`blank`). 여기에 문자를 고정하면,
+/// 자료가 `–` 나 `N/A` 로 변경되었을 때 값 선택 목록과 필터가 동일한 파일 내부에서
+/// 분기한다 — 후보에는 `(비어 있음)` 이 표시되는데 그것을 선택하면 0건이 되고, 어떠한
+/// 오류도 발생하지 않는다.
 fn is_blank_sql(base: &str, blank: &str) -> String {
-    // 자료가 정하는 글자라 따옴표가 들어올 일은 드물지만, SQL 에 그대로 넣으므로 막는다.
+    // 자료가 결정하는 문자라 따옴표가 진입할 여지는 희소하나, SQL 에 그대로 주입하므로 차단한다.
     let mark = blank.replace('\'', "''");
     format!("({base} IS NULL OR {base} = '' OR {base} = '{mark}')")
 }
@@ -239,7 +242,7 @@ fn unknown_column(table: &dyn Table, key: &str, what: &str) -> Error {
         .detail(what)
 }
 
-/// 필터 하나를 WHERE 조각으로 바꾼다.
+/// 필터 하나를 WHERE 조각으로 변환한다.
 fn filter_clause(col: &Column, f: &Filter, blank: &str, binds: &mut Vec<String>) -> Option<String> {
     let base = col.base_ref();
     let mut parts: Vec<String> = Vec::new();
@@ -249,7 +252,7 @@ fn filter_clause(col: &Column, f: &Filter, blank: &str, binds: &mut Vec<String>)
     if !needle.is_empty() {
         binds.push(format!("%{}%", like_escape(needle)));
         parts.push(if col.dict {
-            // 사전에서 먼저 id 집합을 구한 뒤 정수 비교한다.
+            // 사전에서 우선 id 집합을 산출한 뒤 정수 비교한다.
             format!(r"{base} IN (SELECT id FROM dict WHERE s LIKE ? ESCAPE '\')")
         } else {
             format!(r"{base} LIKE ? ESCAPE '\'")
@@ -259,7 +262,7 @@ fn filter_clause(col: &Column, f: &Filter, blank: &str, binds: &mut Vec<String>)
     // ② 값 선택 (엑셀식 체크박스)
     if let Some(values) = &f.values {
         if values.is_empty() {
-            // 전부 해제 → 아무 행도 통과하지 않는다.
+            // 전부 해제 → 어떠한 행도 통과하지 않는다.
             return Some("0 = 1".to_string());
         }
         let has_blank = values.iter().any(|v| v == BLANK_TOKEN);
@@ -283,7 +286,7 @@ fn filter_clause(col: &Column, f: &Filter, blank: &str, binds: &mut Vec<String>)
         parts.push(format!("({})", alt.join(" OR ")));
     }
 
-    // ③ 빈칸이 아닌 줄만
+    // ③ 공백이 아닌 행만
     if f.not_blank {
         parts.push(if col.dict {
             format!("{base} IS NOT NULL")
@@ -299,8 +302,8 @@ fn filter_clause(col: &Column, f: &Filter, blank: &str, binds: &mut Vec<String>)
     }
 }
 
-/// WHERE 절과 바인딩 값을 만든다. 기준 테이블 기준으로만 만든다(조인 없음).
-/// `skip_key` 가 주어지면 그 열의 필터는 제외한다(값 선택 목록을 만들 때 쓴다).
+/// WHERE 절과 바인딩 값을 생성한다. 기준 테이블 기준으로만 생성한다(조인 없음).
+/// `skip_key` 가 지정되면 그 열의 필터는 제외한다(값 선택 목록 생성 시 사용한다).
 fn build_where(
     table: &dyn Table,
     filters: &[Filter],
@@ -349,7 +352,7 @@ fn build_where(
 }
 
 /// ORDER BY 절. 배열 순서가 그대로 정렬 우선순위(1순위, 2순위, …)다.
-/// 사전 인코딩 열은 id 자체가 가나다순이라 조인 없이 정수 정렬로 끝난다.
+/// 사전 인코딩 열은 id 자체가 가나다순이라 조인 없이 정수 정렬로 완결된다.
 fn build_order(table: &dyn Table, sorts: &[Sort], blank: &str) -> Result<String> {
     if sorts.is_empty() {
         return Ok(String::new());
@@ -367,13 +370,13 @@ fn build_order(table: &dyn Table, sorts: &[Sort], blank: &str) -> Result<String>
             SortDir::Desc => "DESC",
         };
         let base = col.base_ref();
-        // 값 없음은 방향과 무관하게 늘 뒤로 보낸다. 무엇이 없음인지는 자료가 정한다.
+        // 값 부재는 방향과 무관하게 항상 후위로 배치한다. 무엇이 부재인지는 자료가 결정한다.
         let missing = format!("{} ASC", is_blank_sql(&base, blank));
         let expr = if col.dict {
             // 사전 열은 정수 id 그대로 (가나다순).
             base.clone()
         } else if col.kind == ColumnKind::Number {
-            // 숫자 열은 TEXT 로 저장돼 있을 수 있어 CAST 후 정렬.
+            // 숫자 열은 TEXT 로 저장되어 있을 수 있어 CAST 후 정렬.
             format!("CAST({base} AS REAL)")
         } else {
             base.clone()
@@ -396,10 +399,10 @@ fn value_to_json(v: ValueRef<'_>) -> Json {
     }
 }
 
-/// 한 쪽을 읽는다.
+/// 한 페이지를 판독한다.
 pub fn run(conn: &Connection, table: &dyn Table, blank: &str, q: &Query) -> Result<Page> {
-    // `std::time::Instant` 가 아닌 까닭은 상자 파일에 적어 두었다. wasm 에는
-    // 운영체제의 시계가 없어 **부르는 순간 패닉한다.**
+    // `std::time::Instant` 가 아닌 사유는 상자 파일에 기재했다. wasm 에는
+    // 운영체제의 시계가 부재해 **호출하는 즉시 패닉한다.**
     let started = web_time::Instant::now();
 
     let (where_sql, binds) = build_where(table, &q.filters, blank, None)?;
@@ -409,11 +412,11 @@ pub fn run(conn: &Connection, table: &dyn Table, blank: &str, q: &Query) -> Resu
     let params: Vec<&dyn rusqlite::ToSql> =
         binds.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
-    // 전체 행 수. 기준 테이블만 보므로 조인이 전혀 없다.
+    // 전체 행 수. 기준 테이블만 참조하므로 조인이 전혀 없다.
     let count_sql = format!("SELECT COUNT(*) FROM {base} t{where_sql}", base = table.base());
     let total: i64 = conn.query_row(&count_sql, params.as_slice(), |r| r.get(0))?;
 
-    // 본문: 안쪽에서 정렬·LIMIT 으로 행을 좁힌 뒤, 그 몇십 행에만 dict 를 조인한다.
+    // 본문: 내부에서 정렬·LIMIT 으로 행을 축소한 뒤, 그 수십 행에만 dict 를 조인한다.
     let select_list = table
         .columns()
         .map(|c| format!("{} AS \"{}\"", c.display_ref(), c.key))
@@ -450,19 +453,20 @@ pub fn run(conn: &Connection, table: &dyn Table, blank: &str, q: &Query) -> Resu
 
 /// 한 열의 고유값 목록과 각 값의 행 수.
 ///
-/// 엑셀 필터 드롭다운처럼, **그 열 자신의 필터는 빼고** 나머지 필터를 반영한다.
-/// 그래야 체크를 풀었다 걸었다 해도 후보 목록이 사라지지 않는다.
+/// 엑셀 필터 드롭다운과 동일하게, **그 열 자신의 필터는 제외하고** 나머지
+/// 필터를 반영한다. 그래야 선택을 해제하고 재설정해도 후보 목록이 소멸하지
+/// 않는다.
 ///
-/// `needle` 은 **후보 자체를 좁히는 글자**다. 비면 좁히지 않는다.
+/// `needle` 은 **후보 자체를 축소하는 문자**다. 공백이면 축소하지 않는다.
 ///
-/// 이것이 필터와 따로 있는 까닭이 있다. 값이 [`MAX_VALUES`] 를 넘으면 잘라서
-/// 보내는데, 그 뒤를 볼 길이 없으면 **목록에 없는 값을 없는 값으로 읽는다.**
-/// 받은 쪽에서 걸러 보여 주는 것으로는 안 된다 — 거기 온 것이 이미 앞에서
-/// 잘린 것이라, 찾는 값이 그 뒤에 있으면 "없습니다" 가 뜬다. 조용히 틀리는
-/// 쪽이다.
+/// 이것이 필터와 별도로 존재하는 사유가 존재한다. 값이 [`MAX_VALUES`] 를
+/// 초과하면 절단해 전송하는데, 그 이후를 확인할 경로가 부재하면 **목록에 없는
+/// 값을 부재하는 값으로 판독한다.** 받은 곳에서 여과해 표시하는 방식으로는
+/// 불가하다 — 거기 도달한 것이 이미 전단에서 절단된 것이라, 탐색하는 값이 그
+/// 이후에 소재하면 "없습니다" 가 표시된다. 묵시적으로 오류를 범하는 쪽이다.
 ///
-/// 필터로 넘길 수도 없다. 제 열의 필터는 위에서 말한 까닭으로 **일부러**
-/// 빠지고, 전체 검색처럼 그 열을 걸치는 필터도 함께 빠진다.
+/// 필터로 전달할 수도 없다. 자체 열의 필터는 상기한 사유로 **의도적으로**
+/// 누락되고, 전체 검색처럼 그 열을 포괄하는 필터도 함께 누락된다.
 pub fn column_values(
     conn: &Connection,
     table: &dyn Table,
@@ -479,8 +483,8 @@ pub fn column_values(
 
     let (mut where_sql, mut binds) = build_where(table, filters, blank, Some(key))?;
 
-    /* 좁히는 글자는 **이 열에 거는 부분일치**다. 사전 열이면 사전에서 찾는다 —
-       그 처리를 여기 한 벌 더 적지 않고 필터 한 조각을 빌려 쓴다. */
+    /* 축소하는 문자는 **이 열에 적용하는 부분일치**다. 사전 열이면 사전에서
+       탐색한다 — 그 처리를 여기 한 벌 더 기재하지 않고 필터 한 조각을 차용한다. */
     if !needle.trim().is_empty() {
         let only = Filter { contains: needle.to_string(), ..Filter::default() };
         if let Some(clause) = filter_clause(col, &only, blank, &mut binds) {
@@ -496,9 +500,9 @@ pub fn column_values(
         binds.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
     let base = col.base_ref();
-    let over = MAX_VALUES + 1; // 하나 더 받아 "잘렸는지" 판단한다.
+    let over = MAX_VALUES + 1; // 하나 더 수령해 "절단 여부" 를 판정한다.
 
-    // 기준 테이블에서만 GROUP BY 한 뒤, 좁혀진 목록에만 dict 를 조인한다.
+    // 기준 테이블에서만 GROUP BY 한 뒤, 축소된 목록에만 dict 를 조인한다.
     let inner = format!(
         "SELECT {base} AS v, COUNT(*) AS n FROM {table} t{where_sql} \
          GROUP BY v ORDER BY v LIMIT {over}",
@@ -522,7 +526,7 @@ pub fn column_values(
             Json::String(s) => s,
             other => other.to_string(),
         };
-        // 빈 값 표식이 여러 번 나올 수 있으니 합친다.
+        // 공백 값 표식이 복수 회 출현할 수 있으므로 병합한다.
         if let Some(last) = values.last_mut() {
             let last: &mut ColumnValue = last;
             if last.value == text {
@@ -543,7 +547,7 @@ pub fn column_values(
 mod tests {
     use super::*;
 
-    /// 시험용 표. 정의는 코드에 적지만 **조회는 정의만 보고 한다.**
+    /// 시험용 표. 정의는 코드에 기재하나 **조회는 정의만 참조해 수행한다.**
     struct T {
         columns: Vec<Column>,
     }
@@ -576,7 +580,7 @@ mod tests {
 
     const BLANK: &str = "-";
 
-    /// 사전 열(`city`)과 글자 열(`name`)과 숫자 열(`score`). 사전 id 는 가나다순이다.
+    /// 사전 열(`city`)과 문자 열(`name`)과 숫자 열(`score`). 사전 id 는 가나다순이다.
     fn fixture() -> (Connection, T) {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(
@@ -619,17 +623,17 @@ mod tests {
         page.rows.iter().map(|r| r[0].as_str().unwrap().to_string()).collect()
     }
 
-    /// 값이 없는 칸을 가려내는 글자가 **자료에서 온다**는 것을 못 박는다.
+    /// 값이 부재하는 셀을 식별하는 문자가 **자료에서 유래한다**는 것을 고정한다.
     #[test]
     fn the_blank_mark_comes_from_the_data() {
         let sql = is_blank_sql("t.x", "N/A");
         assert!(sql.contains("'N/A'"), "{sql}");
         assert!(!sql.contains("'-'"), "{sql}");
-        // 따옴표가 든 표기도 SQL 을 깨뜨리지 않는다.
+        // 따옴표가 포함된 표기도 SQL 을 훼손하지 않는다.
         assert!(is_blank_sql("t.x", "it's").contains("'it''s'"));
     }
 
-    /// 사전 열은 **조인한 글자로** 나간다. 정수 id 가 화면에 새면 안 된다.
+    /// 사전 열은 **조인한 문자로** 노출된다. 정수 id 가 화면에 누출되면 안 된다.
     #[test]
     fn dictionary_columns_come_out_as_text() {
         let (conn, t) = fixture();
@@ -639,7 +643,7 @@ mod tests {
     }
 
     /// 사전 열의 정렬은 id 정렬이고, id 가 가나다순이라 곧 가나다순이다.
-    /// 값 없음은 방향과 무관하게 뒤로 간다.
+    /// 값 부재는 방향과 무관하게 후위로 이동한다.
     #[test]
     fn sorting_a_dictionary_column_is_alphabetical_and_blanks_go_last() {
         let (conn, t) = fixture();
@@ -649,8 +653,8 @@ mod tests {
         assert_eq!(cities.last().unwrap(), &&Json::Null);
     }
 
-    /// 숫자 열은 글자로 저장돼 있어도 **수로** 정렬한다. 글자로 견주면 "100" 이
-    /// "85.5" 보다 앞선다. 빈칸 표식과 빈 글자는 뒤로 간다.
+    /// 숫자 열은 문자로 저장되어 있어도 **수치로** 정렬한다. 문자로 비교하면 "100" 이
+    /// "85.5" 보다 선행한다. 공백 표식과 공백 문자는 후위로 이동한다.
     #[test]
     fn numbers_sort_as_numbers() {
         let (conn, t) = fixture();
@@ -658,7 +662,7 @@ mod tests {
         assert_eq!(names(&page)[..4], ["나", "가", "라", "100%"]);
     }
 
-    /// 배열 차례가 우선순위다. 같은 도시 안에서 이름으로 갈린다.
+    /// 배열 순서가 우선순위다. 동일 도시 내부에서 명칭으로 분기한다.
     #[test]
     fn sorts_apply_in_the_order_given() {
         let (conn, t) = fixture();
@@ -686,13 +690,13 @@ mod tests {
         assert_eq!(page.total, 0);
     }
 
-    /// 빈칸 표식을 고르면 NULL·빈 글자·자료의 빈칸 글자가 모두 걸린다.
+    /// 공백 표식을 선택하면 NULL·공백 문자·자료의 공백 문자가 전부 포착된다.
     #[test]
     fn picking_the_blank_token_finds_every_kind_of_blank() {
         let (conn, t) = fixture();
         let page =
             run(&conn, &t, BLANK, &query(vec![], vec![picked("score", &[BLANK_TOKEN])])).unwrap();
-        assert_eq!(page.total, 2, "'-' 와 '' 둘 다 빈칸이다");
+        assert_eq!(page.total, 2, "'-' 와 '' 양자 모두 공백이다");
         let page =
             run(&conn, &t, BLANK, &query(vec![], vec![picked("city", &[BLANK_TOKEN])])).unwrap();
         assert_eq!(page.total, 1);
@@ -705,7 +709,7 @@ mod tests {
         assert_eq!(run(&conn, &t, BLANK, &query(vec![], vec![f])).unwrap().total, 4);
     }
 
-    /// `keys` 로 묶은 열은 OR 이다.
+    /// `keys` 로 결합한 열은 OR 이다.
     #[test]
     fn grouped_keys_are_ored() {
         let (conn, t) = fixture();
@@ -715,15 +719,15 @@ mod tests {
         assert_eq!(run(&conn, &t, BLANK, &query(vec![], vec![f])).unwrap().total, 2);
     }
 
-    /// 값 목록은 자기 열 필터를 빼고 센다. 빈칸은 한 줄로 합친다.
+    /// 값 목록은 자체 열 필터를 제외하고 산정한다. 공백은 한 행으로 병합한다.
     #[test]
     fn value_list_ignores_its_own_column_filter_and_merges_blanks() {
         let (conn, t) = fixture();
         let res = column_values(&conn, &t, BLANK, "score", &[picked("score", &["90"])], "").unwrap();
         let blank = res.values.iter().find(|v| v.value == BLANK_TOKEN).unwrap();
         assert_eq!(blank.count, 2);
-        assert_eq!(res.values.len(), 5, "자기 열 필터를 제외하지 않았다");
-        // 다른 열의 필터는 반영한다.
+        assert_eq!(res.values.len(), 5, "자체 열 필터를 제외하지 않았다");
+        // 타 열의 필터는 반영한다.
         let res = column_values(&conn, &t, BLANK, "name", &[picked("city", &["서울"])], "").unwrap();
         assert_eq!(res.values.len(), 2);
     }
@@ -737,7 +741,7 @@ mod tests {
         assert_eq!(e.code, ErrorCode::InvalidSortKey);
     }
 
-    /// `%` 는 와일드카드가 아니라 글자로 찾는다.
+    /// `%` 는 와일드카드가 아니라 문자로 탐색한다.
     #[test]
     fn filter_wildcards_are_escaped() {
         let (conn, t) = fixture();
@@ -747,7 +751,7 @@ mod tests {
         assert_eq!(page.total, 0);
     }
 
-    /// 같은 기준 열을 쓰는 사전 열은 별칭을 함께 쓴다. 두 번 조인하지 않는다.
+    /// 동일한 기준 열을 사용하는 사전 열은 별칭을 공유한다. 2회 조인하지 않는다.
     #[test]
     fn the_same_dictionary_column_is_joined_once() {
         let mut cols = vec![col("a", ColumnKind::Text, true), col("b", ColumnKind::Text, true)];
