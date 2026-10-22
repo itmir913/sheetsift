@@ -157,6 +157,31 @@ fn the_action_runs_every_gate_command() {
     assert!(missing.is_empty(), "액션이 돌리지 않는 줄이 있습니다: {missing:?}");
 }
 
+/// 배포가 관문을 지난 뒤에만 도는지 본다.
+///
+/// `needs` 한 줄이 그것을 지킨다. 그 줄이 없으면 **시험이 서는 판이 그대로
+/// 올라가고**, 배포는 멀쩡히 성공한다 — 어디에서도 드러나지 않는다.
+fn deploys_only_after(src: &str) -> bool {
+    // 배포하는 자리가 없으면 지킬 것도 없다.
+    !src.contains("actions/deploy-pages") || src.contains("needs: [gate, wasm]")
+}
+
+#[test]
+fn what_goes_out_has_passed_both_gates() {
+    assert!(
+        ACTION.contains("actions/deploy-pages"),
+        "배포하는 자리를 찾지 못했습니다 — 검사가 눈먼 것입니다"
+    );
+    assert!(deploys_only_after(ACTION), "배포가 관문을 지나지 않고 돕니다 — needs 가 없습니다");
+}
+
+/// 그 검사가 정말 막는지 본다 — `needs` 를 뺀 배포를 먹여 본다.
+#[test]
+fn the_check_catches_a_deploy_that_skips_the_gates() {
+    assert!(!deploys_only_after("- uses: actions/deploy-pages@v4\n"));
+    assert!(deploys_only_after("needs: [gate, wasm]\n- uses: actions/deploy-pages@v4\n"));
+}
+
 /// 그 검사가 정말 막는지 본다 — 한 줄만 돌리는 관문을 먹여 본다.
 #[test]
 fn the_check_catches_a_gate_that_runs_only_one_of_them() {

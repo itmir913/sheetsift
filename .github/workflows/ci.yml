@@ -1,20 +1,27 @@
-# **관문 둘이 한 파일에 있다.**
+# Both gates live in this one file.
 #
-# `gate` 는 커밋 전에 이 컴퓨터에서 돌리는 것과 같은 줄이다. `wasm` 은 여기서
-# 돌리지 못하는 둘째 관문이다 — wasm 으로 구우려면 SQLite 의 C 소스를 컴파일할
-# clang 이 있어야 하고(`rusqlite` 를 `bundled` 로 받는다), 러너 이미지에는 있다.
-# 까닭과 깔고 가는 길은 `docs/wasm.md` 에 있다.
+# `gate` runs the same lines you run locally before committing. `wasm` is the
+# second gate, the one that cannot run on the author's machine: building for
+# wasm compiles SQLite's C sources (`rusqlite` is taken with `bundled`), which
+# needs clang, and the runner image has one. See `docs/wasm.md` for why, and
+# for how to get it locally.
 #
-# **한 파일에 두는 까닭이 있다.** 관문을 파일 둘로 나누면 한쪽만 고쳐지고, 나가는
-# 것과 평소 보는 것이 다른 줄을 지나게 된다. 무엇이 걸러지는지는 한 자리에서
-# 읽을 수 있어야 한다. 잡을 둘로 가른 것은 **무엇이 막았는지 가려지지 않게**
-# 하려는 것뿐이다.
+# `pages` deploys, and only after both gates pass (`needs`).
 #
-# 공개 저장소라 러너 분이 무료다. 밀어 넣을 때마다 돌린다.
+# Why one file: split the gates across two and one of them gets edited alone,
+# so what ships and what you look at every day stop going through the same
+# lines. What is checked -- and what must pass before anything ships -- should
+# be readable in one place. The jobs are separate only so that a failure says
+# which part failed.
+#
+# Triggers: what lands on `main`, what asks to be merged, and what you run by
+# hand. The real gate is `cargo test --workspace` before the commit; what runs
+# here is that plus the thing this machine cannot answer (wasm).
 name: ci
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -25,7 +32,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # 데스크톱 관문. `CLAUDE.md` 가 말하는 그 둘이다.
+  # The desktop gate -- the two lines `CLAUDE.md` names.
   gate:
     runs-on: ubuntu-latest
     steps:
@@ -35,62 +42,158 @@ jobs:
         with:
           key: gate
 
-      - name: 시험
+      - name: Tests
         run: cargo test --workspace
 
-      - name: clippy
+      - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-  # **데스크톱이 볼 수 없는 자리.**
+  # What the desktop gate cannot see.
   #
-  # `tests/wasm.rs` 들은 맨 위가 `#![cfg(target_arch = "wasm32")]` 라, 데스크톱에서
-  # `cargo test --workspace` 를 돌리면 통째로 빈 파일이 된다. 공개 함수의 모양을
-  # 바꾸고 그 파일의 부르는 자리를 안 고쳐도 첫째 관문은 초록불이다. 브라우저와
-  # 주고받는 겹(`bindings.rs`)도 그 타깃에서만 컴파일되므로 마찬가지다.
+  # The `tests/wasm.rs` files start with `#![cfg(target_arch = "wasm32")]`, so
+  # `cargo test --workspace` on a desktop reads them as empty files. Change the
+  # shape of a public function, leave those call sites alone, and the first gate
+  # still goes green. The layer that talks to the browser (`bindings.rs`) is
+  # compiled only for that target too, so the same holds for it.
   wasm:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
-      # SQLite 는 C 다. 이 줄이 없으면 이미지가 담아 둔 clang 에 기대게 되고,
-      # 이미지가 바뀌는 날 까닭을 알기 어려운 자리에서 선다.
-      - name: C 컴파일러
+      # SQLite is C. Without this line we would be leaning on whatever clang the
+      # runner image happens to carry, and the day the image changes it breaks
+      # somewhere far from the cause.
+      - name: Install clang
         run: sudo apt-get update && sudo apt-get install -y clang
 
-      - name: wasm 타깃
+      - name: Add the wasm target
         run: rustup target add wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
         with:
           key: wasm
 
-      # **판을 손으로 적지 않는다.** `wasm-bindgen-cli` 의 판은 `wasm-bindgen`
-      # 크레이트와 같아야 하고, 어긋나면 도구가 그렇다고 말하고 선다. 여기 숫자를
-      # 적어 두면 크레이트를 올리는 날 이 파일만 낡는다 — 자물쇠 파일에서 읽는다.
-      - name: wasm-bindgen 판
+      # Do not write the version here. `wasm-bindgen-cli` must match the
+      # `wasm-bindgen` crate -- when they differ the tool says so and stops.
+      # A number written here would go stale the day the crate is bumped, so
+      # read it from the lock file.
+      - name: Read the wasm-bindgen version from Cargo.lock
         id: bindgen
         run: |
           v=$(awk '$0=="name = \"wasm-bindgen\"" {f=1; next} f && /^version = / {gsub(/[",]/,"",$3); print $3; exit}' Cargo.lock)
           if [ -z "$v" ]; then
-            echo "Cargo.lock 에서 wasm-bindgen 판을 찾지 못했습니다" >&2
+            echo "could not find the wasm-bindgen version in Cargo.lock" >&2
             exit 1
           fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "wasm-bindgen $v"
 
-      # 미리 구운 것을 받는다. `cargo install` 로 받으면 매번 몇 분을 굽는다.
+      # Take the prebuilt one. `cargo install` would spend minutes every run.
       - uses: taiki-e/install-action@v2
         with:
           tool: wasm-bindgen-cli@${{ steps.bindgen.outputs.version }}
 
-      # 껍질은 이 타깃에서만 컴파일된다. 데스크톱 clippy 는 그 파일을 보지 못한다.
-      - name: clippy (껍질)
+      # The shell compiles only for this target, so desktop clippy never sees it.
+      - name: Clippy (the browser shell)
         run: cargo clippy -p sheetsift-web --all-targets --target wasm32-unknown-unknown -- -D warnings
 
-      # `docs/wasm.md` 와 `CLAUDE.md` 에 적힌 그 두 줄이다. 돌리는 명령을 새로
-      # 만들지 않는다.
-      - name: 바탕
+      # The two lines written in `docs/wasm.md` and `CLAUDE.md`. No new commands.
+      - name: Tests (core, wasm)
         run: cargo test -p sheetsift-core --target wasm32-unknown-unknown
 
-      - name: 껍질
+      - name: Tests (web, wasm)
         run: cargo test -p sheetsift-web --target wasm32-unknown-unknown
+
+  # Only what passed the gates ships.
+  #
+  # `needs` is what holds that. Written down as a rule it gets deleted one day,
+  # and then a revision whose tests fail ships anyway. A test reads this file
+  # and stops the first gate if the line goes missing
+  # (`crates/web/tests/boundary.rs`).
+  #
+  # What ships is `web/`, which is a harness and not the product screen (see
+  # `docs/web.md`) -- it exists to see the boundary actually run in a browser.
+  # When the real screen arrives, only the folder this job points at changes.
+  pages:
+    needs: [gate, wasm]
+    # A branch asking to be merged does not ship. Running it by hand means
+    # "ship it", so that does.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+
+    # Keep two runs from landing on the same place at once. Do not cancel one in
+    # flight: if it is cut off, nobody knows what is actually deployed.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # Building needs the C compiler too, for the same reason as the tests.
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+
+      - name: Add the wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      # Reuse what the `wasm` job warmed. Saving is that job's business -- two
+      # jobs saving under one key overwrite each other.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm
+          save-if: false
+
+      - name: Read the wasm-bindgen version from Cargo.lock
+        id: bindgen
+        run: |
+          v=$(awk '$0=="name = \"wasm-bindgen\"" {f=1; next} f && /^version = / {gsub(/[",]/,"",$3); print $3; exit}' Cargo.lock)
+          if [ -z "$v" ]; then
+            echo "could not find the wasm-bindgen version in Cargo.lock" >&2
+            exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "wasm-bindgen $v"
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@${{ steps.bindgen.outputs.version }}
+
+      # The two lines from `docs/wasm.md`. The built output (`web/pkg`) is not
+      # kept in the repository, so it is made here -- keeping it would let the
+      # source and the build drift apart.
+      - name: Build the web harness
+        run: |
+          cargo build -p sheetsift-web --target wasm32-unknown-unknown --release
+          wasm-bindgen --target web --no-typescript --out-dir web/pkg \
+            target/wasm32-unknown-unknown/release/sheetsift_web.wasm
+
+      # Check the build is actually there. If it is not, what ships is a blank
+      # page -- and the deploy looks like a success.
+      - name: Check what is about to ship
+        run: |
+          for f in web/index.html web/app.js web/pkg/sheetsift_web.js web/pkg/sheetsift_web_bg.wasm; do
+            if [ ! -s "$f" ]; then
+              echo "$f is missing or empty" >&2
+              exit 1
+            fi
+          done
+          ls -l web/pkg
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
