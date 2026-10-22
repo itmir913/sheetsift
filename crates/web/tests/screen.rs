@@ -1,12 +1,13 @@
-//! **화면이 바탕과 맞물려 있는가.**
+//! **화면이 바탕과 결합되어 있는가.**
 //!
-//! 화면은 TypeScript 라 `cargo test` 가 돌려 볼 수 없다. 그래서 **소스를 글자로
-//! 읽는다** — 여기서 보는 것들은 어긋나도 오류가 나지 않고, 화면에 틀린 것이
-//! 그럴듯하게 떠 있는 쪽으로 조용히 흘러가기 때문이다.
+//! 화면은 TypeScript 라 `cargo test` 가 실행할 수 없다. 그래서 **소스를 글자로
+//! 판독한다** — 여기서 판정하는 것들은 불일치해도 오류가 발생하지 않고, 화면에
+//! 상이한 것이 그럴듯하게 표시되는 방향으로 묵시적으로 진행되기 때문이다.
 //!
-//! **지키는 대상을 찾지 못하면 통과가 아니라 실패다.** 파일 이름이 바뀌거나
-//! 찾는 글귀가 사라지면, 아무것도 못 보는 검사가 조용히 초록불이 된다. 그래서
-//! 일부러 어긋낸 입력을 먹여 정말 서는지도 같은 파일에서 본다.
+//! **보전 대상을 탐색하지 못하면 통과가 아니라 실패다.** 파일 명칭이 변경되거나
+//! 탐색하는 문구가 소멸하면, 아무것도 판정하지 못하는 검사가 묵시적으로
+//! 통과한다. 그래서 의도적으로 훼손한 입력을 투입해 실제로 중단하는지도 동일한
+//! 파일에서 판정한다.
 
 /* ── 오류 코드 사전 ──────────────────────────────────────────────── */
 
@@ -14,12 +15,12 @@ const ERROR_RS: &str = include_str!("../../core/src/error.rs");
 const CODES_TS: &str = include_str!("../../../web/src/i18n/codes.ts");
 const MESSAGES_TS: &str = include_str!("../../../web/src/i18n/messages.ko.ts");
 
-/// 겹이 오류를 글자로조차 바꾸지 못한 자리에서 내는 코드. 바탕의 enum 에는
-/// 없고 `bindings.rs` 가 만든다.
+/// 겹이 오류를 문자로조차 변환하지 못한 위치에서 발생시키는 코드. 바탕의 enum
+/// 에는 부재하고 `bindings.rs` 가 생성한다.
 const SHELL_ONLY: &str = "UNKNOWN";
 
-/// `ErrorCode` 의 변종 이름을 serde 가 내보내는 글자로. `#[serde(rename_all =
-/// "SCREAMING_SNAKE_CASE")]` 와 같은 규칙이다.
+/// `ErrorCode` 의 변종 명칭을 serde 가 반출하는 문자로. `#[serde(rename_all =
+/// "SCREAMING_SNAKE_CASE")]` 와 동일한 규칙이다.
 fn screaming(variant: &str) -> String {
     let mut out = String::new();
     for (i, c) in variant.char_indices() {
@@ -31,10 +32,11 @@ fn screaming(variant: &str) -> String {
     out
 }
 
-/// `error.rs` 의 `ErrorCode` 변종들을 찾는다.
+/// `error.rs` 의 `ErrorCode` 변종들을 탐색한다.
 ///
-/// `#[cfg(feature = ...)]` 이 붙은 것도 센다. 이 저장소의 기본은 다 켠 것이고,
-/// **끄는 앱도 그 코드의 문구를 적어야 한다** — 코드가 한 enum 이라서다.
+/// `#[cfg(feature = ...)]` 이 부착된 것도 산정한다. 이 저장소의 기본은 전부
+/// 활성화한 상태이고, **비활성화하는 앱도 그 코드의 문구를 기재해야 한다** —
+/// 코드가 단일 enum 이라서다.
 fn backend_codes(src: &str) -> Vec<String> {
     let from = match src.find("pub enum ErrorCode {") {
         Some(at) => at,
@@ -51,11 +53,12 @@ fn backend_codes(src: &str) -> Vec<String> {
         .collect()
 }
 
-/// `codes.ts` 의 `ERROR_CODES` 에 적힌 글자들.
+/// `codes.ts` 의 `ERROR_CODES` 에 기재된 문자들.
 ///
-/// 줄마다 하나씩 적혀 있지만 **줄을 세지 않는다.** 한 줄에 여럿이 적혀도 같게
-/// 읽어야 한다 — 서식을 바꾸는 날 검사가 "목록이 비었다" 로 서면, 고친 사람은
-/// 제가 무엇을 깨뜨렸는지 못 찾는다.
+/// 행마다 하나씩 기재되어 있으나 **행을 산정하지 않는다.** 한 행에 복수가
+/// 기재되어도 동일하게 판독해야 한다 — 서식을 변경하는 시점에 검사가 "목록이
+/// 공백이다" 로 중단되면, 수정한 사람은 자신이 무엇을 훼손했는지 규명하지
+/// 못한다.
 fn listed_codes(src: &str) -> Vec<String> {
     let from = match src.find("export const ERROR_CODES = [") {
         Some(at) => at,
@@ -63,8 +66,8 @@ fn listed_codes(src: &str) -> Vec<String> {
     };
     let body = &src[from..];
     let to = body.find("] as const;").unwrap_or(body.len());
-    // 따옴표 쌍을 차례로 집는다. 코드 모양(대문자와 밑줄)인 것만 남겨, 주석에
-    // 따옴표가 섞여 들어와도 목록이 불어나지 않는다.
+    // 따옴표 쌍을 순차 추출한다. 코드 형태(대문자와 밑줄)인 것만 존치해, 주석에
+    // 따옴표가 혼입되어도 목록이 증가하지 않는다.
     body[..to]
         .split('"')
         .skip(1)
@@ -74,11 +77,12 @@ fn listed_codes(src: &str) -> Vec<String> {
         .collect()
 }
 
-/// 사전(`messages.ko.ts`)이 문구를 적어 둔 코드들.
+/// 사전(`messages.ko.ts`)이 문구를 기재한 코드들.
 ///
-/// 값이 **다음 줄로 넘어간 것도 센다.** 긴 문구는 줄을 넘기는데, 같은 줄에
-/// 따옴표가 있는 것만 세면 그런 줄이 "문구가 없다" 로 잡힌다 — 멀쩡한 사전을
-/// 두고 검사가 서는 쪽이라, 아무도 못 믿게 된다.
+/// 값이 **다음 행으로 이월된 것도 산정한다.** 장문은 행을 이월하는데, 동일한
+/// 행에 따옴표가 존재하는 것만 산정하면 그러한 행이 "문구가 부재한다" 로
+/// 포착된다 — 정상인 사전을 두고 검사가 중단되는 쪽이라, 누구도 신뢰하지 않게
+/// 된다.
 fn spoken_codes(src: &str) -> Vec<String> {
     let lines: Vec<&str> = src.lines().map(str::trim).collect();
     let mut found = Vec::new();
@@ -87,7 +91,7 @@ fn spoken_codes(src: &str) -> Vec<String> {
         if name.is_empty() || !name.chars().all(|c| c.is_ascii_uppercase() || c == '_') {
             continue;
         }
-        // 값이 있어야 문구다. 같은 줄에 없으면 바로 다음 줄에 있어야 한다.
+        // 값이 존재해야 문구다. 동일한 행에 부재하면 직후 행에 존재해야 한다.
         let here = rest.trim();
         let said = if here.is_empty() {
             lines.get(i + 1).is_some_and(|n| n.starts_with('"'))
@@ -105,31 +109,31 @@ fn spoken_codes(src: &str) -> Vec<String> {
 fn the_sources_are_there_to_look_at() {
     assert!(
         !backend_codes(ERROR_RS).is_empty(),
-        "바탕의 ErrorCode 를 찾지 못했습니다 — 검사가 눈먼 것입니다"
+        "바탕의 ErrorCode 를 탐색하지 못했습니다 — 검사가 실명한 것입니다"
     );
     assert!(
         !listed_codes(CODES_TS).is_empty(),
-        "화면의 ERROR_CODES 를 찾지 못했습니다 — 검사가 눈먼 것입니다"
+        "화면의 ERROR_CODES 를 탐색하지 못했습니다 — 검사가 실명한 것입니다"
     );
     assert!(
         !spoken_codes(MESSAGES_TS).is_empty(),
-        "화면의 문구 사전을 찾지 못했습니다 — 검사가 눈먼 것입니다"
+        "화면의 문구 사전을 탐색하지 못했습니다 — 검사가 실명한 것입니다"
     );
 }
 
-/// **바탕이 낼 수 있는 코드가 화면 목록에 다 있는가.**
+/// **바탕이 발생시킬 수 있는 코드가 화면 목록에 전부 존재하는가.**
 ///
-/// 빠지면 그 코드가 오는 날 화면에 코드 글자가 그대로 뜬다. 오류는 나지 않는다.
+/// 누락되면 그 코드가 도달하는 시점에 화면에 코드 문자가 그대로 표시된다. 오류는 발생하지 않는다.
 #[test]
 fn the_screen_lists_every_backend_code() {
     let listed = listed_codes(CODES_TS);
     let missing: Vec<String> =
         backend_codes(ERROR_RS).into_iter().filter(|c| !listed.contains(c)).collect();
-    assert!(missing.is_empty(), "화면 목록에 없는 바탕 코드가 있습니다: {missing:?}");
+    assert!(missing.is_empty(), "화면 목록에 부재하는 바탕 코드가 존재합니다: {missing:?}");
 }
 
-/// 화면 목록에 **바탕에 없는 코드**가 남아 있지 않은가. 이름을 바꾼 날 옛
-/// 이름이 사전에 그대로 남으면, 그 줄은 영영 화면에 뜰 수 없다.
+/// 화면 목록에 **바탕에 부재하는 코드**가 잔존하지 않는가. 명칭을 변경한 시점에
+/// 구 명칭이 사전에 그대로 잔존하면, 그 행은 영구히 화면에 표시될 수 없다.
 #[test]
 fn the_screen_lists_nothing_the_backend_cannot_send() {
     let backend = backend_codes(ERROR_RS);
@@ -137,20 +141,20 @@ fn the_screen_lists_nothing_the_backend_cannot_send() {
         .into_iter()
         .filter(|c| c != SHELL_ONLY && !backend.contains(c))
         .collect();
-    assert!(extra.is_empty(), "바탕에 없는 코드가 화면 목록에 있습니다: {extra:?}");
+    assert!(extra.is_empty(), "바탕에 부재하는 코드가 화면 목록에 존재합니다: {extra:?}");
 }
 
-/// **목록에 있는 코드마다 문구가 있는가.** 하나라도 비면 그날 코드가 뜬다.
+/// **목록에 존재하는 코드마다 문구가 존재하는가.** 하나라도 공백이면 그 시점에 코드가 표시된다.
 #[test]
 fn every_listed_code_has_something_to_say() {
     let spoken = spoken_codes(MESSAGES_TS);
     let silent: Vec<String> =
         listed_codes(CODES_TS).into_iter().filter(|c| !spoken.contains(c)).collect();
-    assert!(silent.is_empty(), "문구가 없는 코드가 있습니다: {silent:?}");
+    assert!(silent.is_empty(), "문구가 부재하는 코드가 존재합니다: {silent:?}");
 }
 
-/* 아래 셋은 **이 검사가 정말 막는지**를 본다. 글자를 읽는 검사는 제 눈이
-   멀어도 조용하다. */
+/* 하기 셋은 **이 검사가 실제로 차단하는지**를 판정한다. 글자를 판독하는 검사는
+   자체가 실명해도 묵시적이다. */
 
 #[test]
 fn the_check_catches_a_code_the_screen_never_heard_of() {
@@ -172,36 +176,36 @@ fn the_check_catches_a_code_with_no_words_for_it() {
 
 #[test]
 fn the_check_reads_a_dictionary_line() {
-    let doctored = "  SHEET_EMPTY: \"머리글 줄이 없습니다.\",\n  notACode: \"x\",\n";
+    let doctored = "  SHEET_EMPTY: \"머리글 행이 부재합니다.\",\n  notACode: \"x\",\n";
     assert_eq!(spoken_codes(doctored), ["SHEET_EMPTY"]);
 }
 
-/// 줄을 넘긴 문구도 읽는가. 읽지 못하면 **멀쩡한 사전을 두고 검사가 선다** —
-/// 한 번 그러고 나면 아무도 그 검사를 믿지 않는다.
+/// 행을 이월한 문구도 판독하는가. 판독하지 못하면 **정상인 사전을 두고 검사가
+/// 중단된다** — 1회 그렇게 발생하면 누구도 그 검사를 신뢰하지 않는다.
 #[test]
 fn the_check_reads_a_message_wrapped_onto_the_next_line() {
-    let doctored = "  SHEET_ENCODING_UNKNOWN:\n    \"글자 표기를 알아내지 못했습니다.\",\n";
+    let doctored = "  SHEET_ENCODING_UNKNOWN:\n    \"문자 표기를 판별하지 못했습니다.\",\n";
     assert_eq!(spoken_codes(doctored), ["SHEET_ENCODING_UNKNOWN"]);
 }
 
-/// 값이 없는 줄은 문구가 아니다. 그것까지 세면 빈 칸을 못 잡는다.
+/// 값이 부재하는 행은 문구가 아니다. 그것까지 산정하면 공백 항목을 포착하지 못한다.
 #[test]
 fn the_check_does_not_count_a_code_with_nothing_after_it() {
     assert_eq!(spoken_codes("  SHEET_EMPTY:\n\n  OTHER: \"x\",\n"), ["OTHER"]);
 }
 
-/* ── 붙잡을 수 있는 열 수 ────────────────────────────────────────── */
+/* ── 고정 가능한 열 수 ──────────────────────────────────────────── */
 
 const LAYOUT_TS: &str = include_str!("../../../web/src/composables/useColumnLayout.ts");
 const GRID_CSS: &str = include_str!("../../../web/src/styles/grid.css");
 
-/// 화면이 붙잡을 수 있다고 믿는 열 수(`MAX_PIN`).
+/// 화면이 고정 가능하다고 판단하는 열 수(`MAX_PIN`).
 fn max_pin(src: &str) -> Option<usize> {
     let at = src.find("export const MAX_PIN = ")?;
     src[at..].split('=').nth(1)?.trim().trim_end_matches(';').split(';').next()?.trim().parse().ok()
 }
 
-/// `grid.css` 가 실제로 붙잡아 주는 번호의 수.
+/// `grid.css` 가 실제로 고정하는 번호의 수.
 fn pin_rules(src: &str) -> usize {
     let mut seen: Vec<&str> = Vec::new();
     for (_, rest) in src.match_indices("[data-pin=\"").map(|(i, _)| (i, &src[i + 11..])) {
@@ -214,18 +218,18 @@ fn pin_rules(src: &str) -> usize {
     seen.len()
 }
 
-/// **붙잡는다고 해 놓고 흘러가지 않는가.**
+/// **고정한다고 선언하고 유실되지 않는가.**
 ///
-/// 규칙이 없는 번호는 조용히 흘러간다. 단추는 눌리고 숫자도 올라가는데 열만
-/// 안 붙잡힌다 — 어디에서도 오류가 나지 않는다.
+/// 규칙이 부재하는 번호는 묵시적으로 유실된다. 단추는 작동하고 수치도 상승하는데
+/// 열만 고정되지 않는다 — 어디에서도 오류가 발생하지 않는다.
 #[test]
 fn the_screen_cannot_pin_more_columns_than_the_css_holds() {
-    let declared = max_pin(LAYOUT_TS).expect("MAX_PIN 을 찾지 못했습니다 — 검사가 눈먼 것입니다");
+    let declared = max_pin(LAYOUT_TS).expect("MAX_PIN 을 탐색하지 못했습니다 — 검사가 실명한 것입니다");
     let rules = pin_rules(GRID_CSS);
-    assert!(rules > 0, "grid.css 에서 고정 규칙을 찾지 못했습니다 — 검사가 눈먼 것입니다");
+    assert!(rules > 0, "grid.css 에서 고정 규칙을 탐색하지 못했습니다 — 검사가 실명한 것입니다");
     assert!(
         declared <= rules,
-        "MAX_PIN 은 {declared} 인데 grid.css 가 붙잡아 주는 번호는 {rules} 개뿐입니다"
+        "MAX_PIN 은 {declared} 인데 grid.css 가 고정하는 번호는 {rules} 개뿐입니다"
     );
 }
 
