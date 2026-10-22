@@ -2,13 +2,13 @@
 /**
  * 앱의 **유일한** 표.
  *
- * 화면마다 표를 따로 만들면 어느 화면에는 열 검색이 있고 어느 화면에는 없는
- * 식으로 갈라진다(실제로 그랬다). 그래서 표를 그리는 일은 전부 여기로 모으고,
- * 다른 컴포넌트는 `dg-*` 클래스를 직접 쓰지 못하게 막아 두었다
+ * 화면마다 표를 개별 생성하면 일부 화면에는 열 검색이 존재하고 일부 화면에는
+ * 부재하는 식으로 분기한다(실제로 그러했다). 그래서 표를 묘사하는 작업은 전부
+ * 여기로 집약하고, 타 컴포넌트는 `dg-*` 클래스를 직접 사용하지 못하게 차단했다
  * (`scripts/check-grid.mjs`).
  *
- * 이 컴포넌트는 **그리기만** 한다. 데이터를 어디서 가져오는지, 정렬·필터를
- * 어떻게 적용하는지는 쓰는 쪽이 정한다. 조회 화면은 SQL 로, 성적 검색은
+ * 이 컴포넌트는 **묘사만** 수행한다. 자료를 어디서 수령하는지, 정렬·필터를
+ * 어떻게 적용하는지는 쓰는 곳이 결정한다. 조회 화면은 SQL 로, 성적 검색은
  * 메모리에서 처리한다.
  */
 import { computed, ref } from "vue";
@@ -22,51 +22,51 @@ const props = withDefaults(
     columns: LaidOutColumn[];
     rows: Row[];
     sorts: Sort[];
-    /** 열 검색어. 키가 없으면 빈 문자열로 본다. */
+    /** 열 검색어. 열쇠가 부재하면 공백 문자열로 판정한다. */
     filterText: Record<string, string>;
-    /** 엑셀식 값 선택. 키가 없거나 null 이면 그 열은 전체 허용. */
+    /** 엑셀식 값 선택. 열쇠가 부재하거나 null 이면 그 열은 전체 허용. */
     filterValues: Record<string, string[] | null>;
-    /** 왼쪽에 붙잡아 둘 열 수. */
+    /** 좌측에 고정할 열 수. */
     pinned: number;
     /**
-     * 값 선택 목록을 가져오는 방법.
+     * 값 선택 목록을 수령하는 방법.
      *
-     * `needle` 은 후보를 좁히는 글자다. **거르는 일을 바탕까지 넘긴다** —
-     * 받아 둔 목록을 화면에서 걸러 보여 주면, 값이 많아 목록이 앞에서 잘린
-     * 열에서 찾는 값이 그 뒤에 있을 때 "없습니다" 가 뜬다.
+     * `needle` 은 후보를 축소하는 문자다. **여과 작업을 바탕까지 전달한다** —
+     * 수령한 목록을 화면에서 여과해 표시하면, 값이 다수라 목록이 전단에서
+     * 절단된 열에서 탐색하는 값이 그 이후에 소재할 때 "없습니다" 가 표시된다.
      */
     loadValues: (columnKey: string, needle: string) => Promise<ColumnValuesResult>;
     busy?: boolean;
     emptyText?: string;
     /**
-     * 열 검색·값 선택 줄을 그릴지. **끄면 자리도 차지하지 않는다.**
+     * 열 검색·값 선택 행을 묘사할지. **비활성화하면 공간도 점유하지 않는다.**
      *
-     * 거르지 않는 표(한 학생의 성적표처럼 줄이 몇 개뿐인 것)에서는 이 줄이
-     * 못 쓰는 칸만 늘어놓는다.
+     * 여과하지 않는 표(개별 성적표처럼 행이 수 개뿐인 것)에서는 이 행이 사용
+     * 불가한 셀만 배열한다.
      */
     showFilters?: boolean;
   }>(),
   {
     busy: false,
-    emptyText: "조건에 맞는 행이 없습니다. 필터를 줄여 보세요.",
+    emptyText: "조건에 부합하는 행이 부재합니다. 필터를 축소해 주십시오.",
     showFilters: true,
   },
 );
 
 const emit = defineEmits<{
-  /** 헤더를 눌렀다(정렬). 쓰는 쪽이 cycleSort 로 처리한다. */
+  /** 머리글을 조작했다(정렬). 쓰는 곳이 cycleSort 로 처리한다. */
   sort: [key: string];
   "update:filterText": [value: Record<string, string>];
   "update:filterValues": [value: Record<string, string[] | null>];
-  /** 열을 끌어 옮겼다. */
+  /** 열을 조작해 이전했다. */
   move: [from: number, to: number];
-  /** 열 너비를 끄는 중. */
+  /** 열 폭을 조작하는 중. */
   resize: [key: string, width: number];
-  /** 너비 끌기가 끝났다(저장할 시점). */
+  /** 폭 조작이 종료되었다(저장 시점). */
   resizeEnd: [];
 }>();
 
-/** 클릭과 드래그를 가르는 이동 거리(px). */
+/** 클릭과 조작을 구분하는 이동 거리(px). */
 const DRAG_THRESHOLD = 5;
 
 const root = ref<HTMLElement | null>(null);
@@ -80,13 +80,13 @@ function remPx(): number {
 
 const colTemplate = computed(() =>
   props.columns
-    // 나눠 갖는 열은 `width` 가 최소 너비다. 남는 자리는 그런 열끼리 똑같이
-    // 갈라 가지므로, 최소 너비가 같으면 폭도 같아진다.
+    // 배분받는 열은 `width` 가 최소 폭이다. 잔여 공간은 그러한 열 상호간에
+    // 균등 배분되므로, 최소 폭이 동일하면 폭도 동일해진다.
     .map((c) => (c.flex ? `minmax(${c.width}rem, ${c.flex}fr)` : `${c.width}rem`))
     .join(" "),
 );
 
-/** 열 너비의 합. 표의 가로 폭을 브라우저가 추정하지 않도록 직접 알려 준다. */
+/** 열 폭의 합계. 표의 수평 폭을 브라우저가 추정하지 않도록 직접 제시한다. */
 const totalWidth = computed(
   () => `${props.columns.reduce((sum, c) => sum + c.width, 0)}rem`,
 );
@@ -128,7 +128,7 @@ function sortOf(key: string): { rank: number; dir: Sort["dir"] } | null {
 const openFilterKey = ref<string | null>(null);
 const popX = ref(0);
 const popY = ref(0);
-/** 팝오버가 쓸 수 있는 최대 높이(px). 화면 밖으로 잘리지 않게 한다. */
+/** 팝오버가 사용 가능한 최대 높이(px). 화면 외부로 절단되지 않게 한다. */
 const popH = ref(420);
 
 const openFilterColumn = computed(
@@ -155,8 +155,8 @@ function openFilter(col: LaidOutColumn, ev: MouseEvent) {
     const b = btn.getBoundingClientRect();
     const POP_W = 320;
     const MARGIN = 12;
-    // 팝오버는 표와 함께 가로로 스크롤되는 상자 안에 놓이지만, 잘리지 말아야 할
-    // 기준은 **보이는 영역**이다. 상자는 화면보다 훨씬 넓을 수 있다.
+    // 팝오버는 표와 함께 수평 스크롤되는 상자 내부에 배치되지만, 절단되지 말아야
+    // 할 기준은 **가시 영역**이다. 상자는 화면보다 현저히 광범위할 수 있다.
     const view = box.closest(".app-main")?.getBoundingClientRect();
     const left = view?.left ?? 0;
     const right = view?.right ?? window.innerWidth;
@@ -166,7 +166,7 @@ function openFilter(col: LaidOutColumn, ev: MouseEvent) {
     popX.value =
       Math.max(left + MARGIN, Math.min(b.left, right - POP_W - MARGIN)) - r.left;
 
-    // 위아래 중 넓은 쪽에 놓고, 그 공간에 맞춰 높이를 줄인다.
+    // 상하 중 광범위한 측에 배치하고, 그 공간에 정합해 높이를 축소한다.
     const below = bottom - b.bottom - MARGIN;
     const above = b.top - top - MARGIN;
     if (below >= above) {
@@ -187,9 +187,9 @@ function applyFilterValues(values: string[] | null) {
   openFilterKey.value = null;
 }
 
-/* ── 열 순서 드래그 ────────────────────────────────────────────
-   헤더를 누른 채 옆으로 끌면 순서 바꾸기, 그냥 누르면 정렬.
-   DRAG_THRESHOLD 만큼 움직였는지로 둘을 가른다. */
+/* ── 열 순서 조작 ──────────────────────────────────────────────
+   머리글을 누른 채 수평 이동하면 순서 변경, 단순 조작이면 정렬.
+   DRAG_THRESHOLD 만큼 이동했는지로 양자를 구분한다. */
 
 const dragFrom = ref<number | null>(null);
 const dropAt = ref<number | null>(null);
@@ -231,7 +231,7 @@ function onHeaderPointerUp() {
     if (dragging.value && dropAt.value !== null) {
       emit("move", from, dropAt.value);
     } else {
-      // 움직이지 않았으면 클릭으로 본다 → 정렬.
+      // 이동하지 않았으면 클릭으로 판정한다 → 정렬.
       const col = props.columns[from];
       if (col?.sortable) emit("sort", col.key);
     }
@@ -241,7 +241,7 @@ function onHeaderPointerUp() {
   dragging.value = false;
 }
 
-/* ── 열 너비 드래그 ────────────────────────────────────────── */
+/* ── 열 폭 조작 ────────────────────────────────────────────── */
 
 let resizeKey: string | null = null;
 let resizeStartX = 0;
@@ -278,7 +278,7 @@ defineExpose({ close: () => (openFilterKey.value = null) });
 <template>
   <div ref="root" class="relative">
     <div class="dg gx-table" :data-dragging="dragging" :style="gridVars">
-      <!-- 열 헤더와 열 검색 줄. .app-main 기준으로 화면 맨 위에 붙는다. -->
+      <!-- 열 머리글과 열 검색 행. .app-main 기준으로 화면 최상단에 고정된다. -->
       <div class="gx-head">
         <div ref="headEl" class="dg-head">
           <div
@@ -294,15 +294,15 @@ defineExpose({ close: () => (openFilterKey.value = null) });
             :data-drop="dragging && dropAt === i"
             :data-tip="
               col.sortable
-                ? `${col.label}\n누르면 오름차순 → 내림차순 → 해제 · 옆으로 끌면 순서 바꾸기`
+                ? `${col.label}\n조작하면 오름차순 → 내림차순 → 해제 · 수평 이동하면 순서 변경`
                 : col.label
             "
             @pointerdown="onHeaderPointerDown(i, $event)"
           >
             <span class="dg-hlabel">{{ col.label }}</span>
-            <!-- 방향만 보인다. 몇 번째로 정렬했는지는 바로 위 정렬 칩이 번호로
-                 말해 주므로, 여기서 또 배지를 달면 머리글마다 그 폭을 늘 비워
-                 두게 된다(정렬하지 않은 열까지). -->
+            <!-- 방향만 노출된다. 몇 번째로 정렬했는지는 상단 정렬 칩이 번호로
+                 제시하므로, 여기서 재차 배지를 부착하면 머리글마다 그 폭을 항상
+                 확보해 두게 된다(정렬하지 않은 열까지). -->
             <span class="dg-sortmark" :data-visible="!!sortOf(col.key)" aria-hidden="true">
               {{ sortOf(col.key)?.dir === "desc" ? "▼" : "▲" }}
             </span>
@@ -310,13 +310,13 @@ defineExpose({ close: () => (openFilterKey.value = null) });
               class="dg-resize"
               :data-active="resizingKey === col.key"
               role="separator"
-              :aria-label="`${col.label} 너비 조절`"
+              :aria-label="`${col.label} 폭 조절`"
               @pointerdown="onResizeStart(col, $event)"
             ></span>
           </div>
         </div>
 
-        <!-- 왼쪽은 열 검색, 오른쪽 가로줄 단추는 엑셀식 값 선택 -->
+        <!-- 좌측은 열 검색, 우측 수평선 단추는 엑셀식 값 선택 -->
         <div v-if="showFilters" class="dg-filters">
           <div
             v-for="(col, i) in columns"
@@ -345,8 +345,8 @@ defineExpose({ close: () => (openFilterKey.value = null) });
                 :data-tip="`${col.label} — 값 선택`"
                 @click="openFilter(col, $event)"
               >
-                <!-- 필터를 뜻하는 가로줄 셋. 여기에 ▼ 를 쓰면 바로 위 머리글의
-                     내림차순 표식과 같은 글자가 되어, 정렬이 걸린 것처럼 보인다. -->
+                <!-- 필터를 의미하는 수평선 3개. 여기에 ▼ 를 사용하면 상단 머리글의
+                     내림차순 표식과 동일한 문자가 되어, 정렬이 적용된 것처럼 인식된다. -->
                 <svg class="dg-fbtn-icon" viewBox="0 0 16 16" aria-hidden="true">
                   <path
                     d="M2.4 4h11.2M4.6 8h6.8M6.9 12h2.2"
@@ -374,7 +374,7 @@ defineExpose({ close: () => (openFilterKey.value = null) });
             :data-pin-last="ci === pinned - 1"
             :data-tip="String(row[col.srcIndex] ?? '')"
           >
-            <!-- 칸을 특별하게 그려야 하는 화면(가능성 배지 등)만 이 자리를 쓴다. -->
+            <!-- 셀을 특수하게 묘사해야 하는 화면(가능성 배지 등)만 이 위치를 사용한다. -->
             <slot name="cell" :col="col" :row="row" :value="row[col.srcIndex]">
               {{ cellText(col, row[col.srcIndex]) }}
             </slot>
@@ -385,7 +385,7 @@ defineExpose({ close: () => (openFilterKey.value = null) });
       </div>
     </div>
 
-    <!-- 값 선택 팝오버. 표 위에 떠 있으므로 레이아웃에 영향을 주지 않는다. -->
+    <!-- 값 선택 팝오버. 표 상단에 부유하므로 레이아웃에 영향을 미치지 않는다. -->
     <ColumnFilter
       v-if="openFilterColumn"
       :key="openFilterColumn.key"

@@ -16,10 +16,11 @@ const props = withDefaults(
     sorts: Sort[];
     filters: Filter[];
     /**
-     * 칸 글자를 만드는 방법. **화면이 그리는 것과 같은 것을 넘긴다.**
+     * 셀 문자를 생성하는 방법. **화면이 묘사하는 것과 동일한 것을 전달한다.**
      *
-     * 여기서 따로 만들면 종이와 화면이 다른 글자를 낸다 — 실제로 인쇄물에만
-     * 값이 다르게 찍힌 적이 있다. 종이를 든 쪽이 틀린 값을 읽는다.
+     * 여기서 별도 생성하면 지면과 화면이 상이한 문자를 산출한다 — 실제로
+     * 인쇄물에만 값이 상이하게 출력된 사례가 존재한다. 지면을 보유한 측이
+     * 상이한 값을 판독한다.
      */
     format?: (col: LaidOutColumn, value: Cell) => string;
   }>(),
@@ -38,14 +39,14 @@ function labelOf(key: string): string {
   return props.columns.find((c) => c.key === key)?.label ?? key;
 }
 
-/** 적용된 정렬을 사람이 읽는 한 줄로. */
+/** 적용된 정렬을 사람이 판독하는 한 행으로. */
 const sortSummary = computed(() =>
   props.sorts
     .map((s, i) => `${i + 1}. ${labelOf(s.key)} ${s.dir === "asc" ? "오름차순" : "내림차순"}`)
     .join("  ·  "),
 );
 
-/** 적용된 필터를 사람이 읽는 목록으로. */
+/** 적용된 필터를 사람이 판독하는 목록으로. */
 const filterSummary = computed(() =>
   props.filters.map((f) => {
     const parts: string[] = [];
@@ -53,7 +54,7 @@ const filterSummary = computed(() =>
     if (f.values) {
       parts.push(
         f.values.length === 0
-          ? "선택 없음"
+          ? "선택 부재"
           : f.values.length <= 4
             ? f.values.join(", ")
             : `${f.values.slice(0, 3).join(", ")} 외 ${f.values.length - 3}개`,
@@ -64,12 +65,12 @@ const filterSummary = computed(() =>
 );
 
 /**
- * 열이 많으면 활자를 스스로 줄인다.
+ * 열이 다수면 활자를 자동 축소한다.
  *
- * 기본값은 A4 가로에 열 열대여섯 개를 넣는 기준인데, 사람이 들고 오는 양식은
- * 그 곱절인 것도 있다. 고정 크기로 두면 글자가 한 자씩 세로로 쪼개져 읽을 수
- * 없게 된다. 양식이 무엇이든 손댈 일이 없도록 여기서 정한다. 7pt 아래로는
- * 종이에서도 못 읽으므로 그 아래로는 내려가지 않는다.
+ * 기본값은 A4 가로에 열 15~16개를 수용하는 기준인데, 사람이 지참하는 양식은
+ * 그 배수인 것도 존재한다. 고정 크기로 설정하면 문자가 1자씩 수직 분할되어
+ * 판독할 수 없게 된다. 양식이 무엇이든 조작할 사안이 없도록 여기서 결정한다.
+ * 7pt 미만은 지면에서도 판독 불가하므로 그 이하로는 하강하지 않는다.
  */
 const BASE_COLUMNS = 16;
 const BASE_PT = 9;
@@ -84,7 +85,7 @@ const fontVars = computed(() => {
   };
 });
 
-/** `#` 열이 쓰고 남은 폭을, 화면에서 쓰는 열 너비 비율대로 나눈다. */
+/** `#` 열이 사용하고 잔여한 폭을, 화면에서 사용하는 열 폭 비율대로 배분한다. */
 const widthSum = computed(() =>
   props.columns.reduce((sum, c) => sum + c.width, 0) || 1,
 );
@@ -128,16 +129,16 @@ function colVars(col: LaidOutColumn): Record<string, string> {
       </dl>
 
       <p v-if="truncated" class="pv-warn">
-        조건에 맞는 행이 많아 상위 {{ numberFormat.format(rows.length) }}건만 인쇄합니다.
-        필터를 더 좁혀 주세요.
+        조건에 부합하는 행이 다수라 상위 {{ numberFormat.format(rows.length) }}건만
+        인쇄합니다. 필터를 추가로 축소해 주십시오.
       </p>
     </header>
 
-    <!-- 실제 table 을 쓴다. 브라우저가 페이지마다 thead 를 반복해 준다. -->
+    <!-- 실제 table 을 사용한다. 브라우저가 페이지마다 thead 를 반복 출력한다. -->
     <table class="pv-table">
-      <!-- 열 비율을 화면과 똑같이 준다.
-           비워 두면 브라우저가 글자를 보고 폭을 나누는데, 짧은 열(지역·계열)이
-           한 글자 폭까지 눌려 "자/연" 처럼 세로로 쪼개진다. -->
+      <!-- 열 비율을 화면과 동일하게 부여한다.
+           공백으로 두면 브라우저가 문자를 참조해 폭을 배분하는데, 단축 열
+           (지역·계열)이 1문자 폭까지 압축되어 "자/연" 처럼 수직 분할된다. -->
       <colgroup>
         <col class="pv-no-col" />
         <col v-for="col in columns" :key="col.key" :style="colVars(col)" />

@@ -1,26 +1,27 @@
 /**
- * 열 너비를 **재서** 정한다.
+ * 열 폭을 **측정해** 결정한다.
  *
- * 예전에는 `manifest.json` 에 열마다 `width` 를 손으로 적어 두었다. 그 숫자는
- * 누군가 화면을 보고 눈대중으로 정한 것이라, 라벨이 한 글자만 길어져도
- * 머리글이 잘렸다 — 그런데 아무도 그 사실을 알려 주지 않았다. 양식이 바뀔
- * 때마다 다시 어긋나는 값이 정의 파일에 박혀 있는 셈이었다.
+ * 종래에는 `manifest.json` 에 열마다 `width` 를 수동 기재했다. 그 수치는
+ * 누군가 화면을 참조해 개략 결정한 것이라, 라벨이 한 문자만 증가해도 머리글이
+ * 절단되었다 — 그런데 누구도 그 사실을 통지하지 않았다. 양식이 변경될 때마다
+ * 재차 불일치하는 값이 정의 파일에 고정되어 있는 셈이었다.
  *
- * 그래서 적지 않고 잰다. 진짜 머리글 칸과 **같은 클래스를 단 칸**을 화면
- * 밖에 하나 만들어 두고, 거기에 글자를 넣어 폭을 읽는다. 여백·가름선·정렬
- * 표식 자리가 전부 그 칸의 스타일에 이미 들어 있으므로, 여기서 `2.625rem`
- * 같은 숫자를 따로 들고 있지 않아도 된다. CSS 가 바뀌면 잰 값도 따라 바뀐다.
+ * 그래서 기재하지 않고 측정한다. 실제 머리글 셀과 **동일한 클래스를 부착한
+ * 셀**을 화면 외부에 하나 생성해 두고, 거기에 문자를 주입해 폭을 판독한다.
+ * 여백·구분선·정렬 표식 공간이 전부 그 셀의 스타일에 이미 포함되어 있으므로,
+ * 여기서 `2.625rem` 같은 수치를 별도 보유하지 않아도 된다. CSS 가 변경되면
+ * 측정값도 추종해 변경된다.
  *
- * 본문 값도 같이 잰다. 머리글만 재면 `전형방법` 처럼 **이름은 짧은데 안에
- * 문장이 들어 있는 열**이 서너 글자로 줄어든다. 다만 **화면을 열 때 딱 한
- * 번만** 잰다 — 쪽을 넘기거나 정렬·필터를 바꿀 때마다 다시 잡으면, 사용자가
- * 이미 보고 있던 표가 손도 대지 않았는데 움직인다. 그때는 이미 너비를 끌어
- * 조절할 기회가 있었다.
+ * 본문 값도 함께 측정한다. 머리글만 측정하면 `전형방법` 처럼 **명칭은 단축인데
+ * 내부에 문장이 수록된 열**이 서너 문자로 축소된다. 다만 **화면 개방 시 1회만**
+ * 측정한다 — 페이지를 이동하거나 정렬·필터를 변경할 때마다 재산정하면, 사용자가
+ * 이미 열람 중이던 표가 조작하지 않았는데 이동한다. 그 시점에는 이미 폭을 끌어
+ * 조절할 기회가 존재했다.
  */
 import { ref } from "vue";
 import { cellText, type ColumnKind, type Row } from "@/lib/grid";
 
-/** 잰 값은 글자마다 한 번만 구한다. 같은 라벨이 여러 화면에 나온다. */
+/** 측정값은 문자마다 1회만 산출한다. 동일한 라벨이 복수의 화면에 출현한다. */
 const cache = new Map<string, number>();
 
 let probeCell: HTMLElement | null = null;
@@ -28,29 +29,30 @@ let probeLabel: HTMLElement | null = null;
 let probeBody: HTMLElement | null = null;
 
 /**
- * 본문에서 재 볼 행 수. 500행을 다 재면 레이아웃을 그 수만큼 다시 잡게 된다.
- * 고르게 뽑아 보면 가장 긴 값은 거의 걸린다.
+ * 본문에서 측정할 행 수. 500행을 전부 측정하면 레이아웃을 그 수만큼 재산정하게
+ * 된다. 균등 추출하면 최장 값은 대부분 포착된다.
  */
 const SAMPLE_ROWS = 150;
 
-/** 한 열에서 실제로 재 볼 값의 수. 글자 수로 추린 뒤 이만큼만 진짜로 잰다. */
+/** 한 열에서 실제로 측정할 값의 수. 문자 수로 선별한 뒤 이만큼만 실측한다. */
 const SAMPLE_VALUES = 3;
 
 /**
- * 재서 잡을 수 있는 최대 너비(rem).
+ * 측정으로 산정 가능한 최대 폭(rem).
  *
- * 상한이 없으면 문장이 든 열 하나가 화면을 통째로 차지한다. 손으로 끌 때의
- * 한계(MAX_WIDTH)보다 낮게 둔다 — 자동으로는 여기까지만 넓히고, 더 보고
- * 싶으면 사용자가 끌어서 늘린다.
+ * 상한이 부재하면 문장이 수록된 열 하나가 화면을 전체 점유한다. 수동 조작 시의
+ * 한계(MAX_WIDTH)보다 낮게 배치한다 — 자동으로는 여기까지만 확장하고, 추가
+ * 열람이 필요하면 사용자가 조작해 확장한다.
  */
 export const AUTO_MAX_WIDTH = 24;
 
 /**
- * 글꼴이 바뀔 때마다 오른다. 이 값을 읽는 computed 는 글꼴이 다 실린 뒤
- * 다시 계산된다.
+ * 서체가 변경될 때마다 상승한다. 이 값을 판독하는 computed 는 서체가 전부
+ * 적재된 이후 재산출된다.
  *
- * 글꼴이 아직 안 실렸을 때 재면 대체 글꼴의 폭이 나온다. Pretendard 는
- * 한글 한 글자가 대체 글꼴보다 넓어서, 그대로 두면 모든 열이 조금씩 좁다.
+ * 서체가 아직 적재되지 않은 시점에 측정하면 대체 서체의 폭이 산출된다.
+ * Pretendard 는 한글 1문자가 대체 서체보다 광범위해, 그대로 유지하면 전 열이
+ * 소폭 협소해진다.
  */
 export const fontEpoch = ref(0);
 
@@ -69,7 +71,7 @@ function rootFontPx(): number {
 function ensureProbe() {
   if (probeCell?.isConnected) return;
 
-  // 이미 서 있으면 그것을 쓴다. 개발 중 모듈이 다시 실려도 재는 칸이 쌓이지 않는다.
+  // 이미 존재하면 그것을 사용한다. 개발 중 모듈이 재적재되어도 측정 셀이 누적되지 않는다.
   const standing = document.querySelector<HTMLElement>(".dg-probe");
   if (standing) {
     probeCell = standing.querySelector<HTMLElement>(".dg-hcell");
@@ -89,24 +91,24 @@ function ensureProbe() {
   const label = document.createElement("span");
   label.className = "dg-hlabel";
 
-  // 정렬 표식은 정렬하지 않은 열에서도 자리를 차지한다. 재는 칸에도 있어야
-  // 그만큼을 더한 폭이 나온다.
+  // 정렬 표식은 정렬하지 않은 열에서도 공간을 점유한다. 측정 셀에도 존재해야
+  // 그만큼을 가산한 폭이 산출된다.
   const mark = document.createElement("span");
   mark.className = "dg-sortmark";
   mark.textContent = "▲";
 
   cell.append(label, mark);
 
-  // 본문 칸도 따로 잰다. 여백이 머리글과 다르고, 숫자 열은 자릿수를 맞추느라
-  // 글자 폭까지 달라진다.
+  // 본문 셀도 별도 측정한다. 여백이 머리글과 상이하고, 숫자 열은 자릿수를
+  // 정합하느라 문자 폭까지 상이해진다.
   const body = document.createElement("div");
   body.className = "dg-cell";
 
   box.append(cell, body);
 
-  // 뒤에 빈 칸을 하나 세워 둔다. 이게 없으면 마지막 칸이 `:last-child` 가 되어
-  // **오른쪽 가름선이 없는 칸**으로 재어진다 — 표 안의 칸보다 1px 좁게 나오고,
-  // 그만큼 끝 글자가 말줄임으로 바뀐다.
+  // 후단에 공백 셀을 하나 배치한다. 이것이 부재하면 최종 셀이 `:last-child` 가
+  // 되어 **우측 구분선이 부재하는 셀**로 측정된다 — 표 내부의 셀보다 1px 협소하게
+  // 산출되고, 그만큼 종단 문자가 말줄임으로 전환된다.
   box.append(document.createElement("div"));
 
   document.body.append(box);
@@ -116,10 +118,10 @@ function ensureProbe() {
 }
 
 /**
- * 머리글이 잘리지 않는 최소 열 너비(rem).
+ * 머리글이 절단되지 않는 최소 열 폭(rem).
  *
- * 재는 것은 글자가 아니라 **칸 전체**다 — 좌우 여백과 정렬 표식 자리가
- * 포함된 값이 나온다.
+ * 측정 대상은 문자가 아니라 **셀 전체**다 — 좌우 여백과 정렬 표식 공간이
+ * 포함된 값이 산출된다.
  */
 export function headerWidthRem(label: string): number {
   const hit = cache.get(label);
@@ -128,22 +130,22 @@ export function headerWidthRem(label: string): number {
   ensureProbe();
   probeLabel!.textContent = label;
   const px = probeCell!.getBoundingClientRect().width;
-  // 0.25rem 단위로 올림한다. 소수점 아래가 떨어져 나가 한 글자가 말줄임으로
-  // 바뀌는 일을 막는다.
+  // 0.25rem 단위로 절상한다. 소수점 이하가 절사되어 1문자가 말줄임으로
+  // 전환되는 사태를 차단한다.
   const rem = Math.ceil((px / rootFontPx()) * 4) / 4;
 
   cache.set(label, rem);
   return rem;
 }
 
-/** 글자가 넓은 쪽인가. 진짜로 잴 값을 추리는 데만 쓴다. */
+/** 문자가 광범위한 쪽인가. 실측할 값을 선별하는 데만 사용한다. */
 function weigh(s: string): number {
   let w = 0;
   for (const ch of s) w += ch.codePointAt(0)! > 0x1100 ? 2 : 1;
   return w;
 }
 
-/** 본문 값 하나가 다 보이는 칸 너비(rem). */
+/** 본문 값 하나가 전부 노출되는 셀 폭(rem). */
 function bodyWidthRem(text: string, kind: ColumnKind): number {
   ensureProbe();
   probeBody!.dataset.kind = kind;
@@ -152,7 +154,7 @@ function bodyWidthRem(text: string, kind: ColumnKind): number {
   return Math.ceil((px / rootFontPx()) * 4) / 4;
 }
 
-/** 500행에서 고르게 뽑는다. 무작위로 뽑으면 열 때마다 폭이 달라진다. */
+/** 500행에서 균등 추출한다. 무작위 추출하면 개방할 때마다 폭이 상이해진다. */
 function sample(rows: Row[]): Row[] {
   if (rows.length <= SAMPLE_ROWS) return rows;
   const step = rows.length / SAMPLE_ROWS;
@@ -162,11 +164,11 @@ function sample(rows: Row[]): Row[] {
 }
 
 /**
- * 머리글과 본문을 함께 보고 잡은 열 너비(rem).
+ * 머리글과 본문을 함께 참조해 산정한 열 폭(rem).
  *
- * 글자 수로 긴 값 몇 개를 추린 뒤 **그것만 진짜로 잰다.** 500행 × 40열을 다
- * 재면 레이아웃을 2 만 번 다시 잡게 되는데, 추려서 재면 열마다 몇 번이면 된다.
- * 추리는 것은 어림이어도 마지막에 나오는 숫자는 잰 값이다.
+ * 문자 수로 장문 값 수 개를 선별한 뒤 **그것만 실측한다.** 500행 × 40열을 전부
+ * 측정하면 레이아웃을 2만 회 재산정하게 되는데, 선별해 측정하면 열마다 수 회면
+ * 충분하다. 선별은 근사치여도 최종 산출되는 수치는 실측값이다.
  */
 export function autoWidthRem(
   label: string,

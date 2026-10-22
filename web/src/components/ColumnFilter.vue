@@ -2,12 +2,13 @@
 /**
  * 엑셀식 값 선택 팝오버.
  *
- * **후보를 좁히는 일은 바탕이 한다.** goe-navi 에서는 받아 둔 목록을 화면에서
- * 걸렀는데, 그러면 값이 많아 목록이 앞에서 잘린 열에서 찾는 값이 그 뒤에
- * 있을 때 "없습니다" 가 뜬다. 자료는 멀쩡한데 화면만 그렇게 말한다.
+ * **후보 축소 작업은 바탕이 수행한다.** goe-navi 에서는 수령한 목록을 화면에서
+ * 여과했는데, 그러면 값이 다수라 목록이 전단에서 절단된 열에서 탐색하는 값이 그
+ * 이후에 소재할 때 "없습니다" 가 표시된다. 자료는 정상인데 화면만 그렇게
+ * 진술한다.
  *
- * 그래서 목록을 **두 벌** 든다. 좁힌 글자로 받은 것(보여 줄 것)과, 좁히지 않고
- * 받은 것(전부). 왜 둘이어야 하는지는 [`leaveAll`] 에 적었다.
+ * 그래서 목록을 **두 벌** 보유한다. 축소 문자로 수령한 것(표시할 것)과, 축소
+ * 없이 수령한 것(전체). 둘이어야 하는 사유는 [`leaveAll`] 에 기재했다.
  */
 import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { type ColumnDef, type ColumnValue, type ColumnValuesResult } from "@/lib/grid";
@@ -15,14 +16,14 @@ import { AppError, limits } from "@/lib/book";
 
 const props = defineProps<{
   column: ColumnDef;
-  /** 지금 선택 상태. null 이면 전체 선택. */
+  /** 현 선택 상태. null 이면 전체 선택. */
   selected: string[] | null;
-  /** 후보 목록을 가져오는 방법. `needle` 로 좁힌 것을 돌려준다. */
+  /** 후보 목록을 수령하는 방법. `needle` 로 축소한 것을 반환한다. */
   load: (needle: string) => Promise<ColumnValuesResult>;
-  /** 그리드 기준 자리(px). */
+  /** 그리드 기준 위치(px). */
   x: number;
   y: number;
-  /** 쓸 수 있는 최대 높이(px). 화면 밖으로 잘리지 않도록 부르는 쪽이 재 준다. */
+  /** 사용 가능한 최대 높이(px). 화면 외부로 절단되지 않도록 부르는 곳이 측정해 제공한다. */
   maxHeight?: number;
 }>();
 
@@ -31,22 +32,22 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-/* 빈칸 표식과 목록 상한은 **바탕이 내준다.** 여기 적어 두면 바탕이 그것을
-   바꾸는 날, 빈칸이 멀쩡한 값으로 보이고 안내문만 옛 숫자를 말한다 — 둘 다
-   오류가 나지 않는다. */
+/* 공백 표식과 목록 상한은 **바탕이 제공한다.** 여기 기재하면 바탕이 그것을
+   변경하는 시점에, 공백이 정상 값으로 인식되고 안내문만 구 수치를 제시한다 —
+   양자 모두 오류가 발생하지 않는다. */
 const { blankToken, maxValues } = limits();
 
 const root = ref<HTMLElement | null>(null);
 
-/** 지금 보여 주는 후보. 좁힌 글자가 있으면 그것으로 받은 것이다. */
+/** 현재 표시하는 후보. 축소 문자가 존재하면 그것으로 수령한 것이다. */
 const shown = ref<ColumnValue[]>([]);
 
 /**
- * 좁히지 않고 받은 후보 전부. **화면에 그리지 않는다** — [`leaveAll`] 이 쓴다.
+ * 축소 없이 수령한 후보 전체. **화면에 묘사하지 않는다** — [`leaveAll`] 이 사용한다.
  */
 const everyValue = ref<ColumnValue[]>([]);
 
-/** 그 전부가 상한에 걸려 잘렸는가. */
+/** 그 전체가 상한에 포착되어 절단되었는가. */
 const truncated = ref(false);
 
 const loading = ref(true);
@@ -54,17 +55,18 @@ const errorMessage = ref<string | null>(null);
 const search = ref("");
 
 /**
- * 체크한 값들. **후보를 좁혀도 그대로 남는다** — 좁힌 글자를 지웠을 때 앞서
- * 고른 것이 사라져 있으면, 사람은 자기가 고른 것이 무시당했다고 읽는다.
+ * 선택한 값들. **후보를 축소해도 그대로 존치된다** — 축소 문자를 소거했을 때
+ * 선행 선택한 것이 소멸해 있으면, 사람은 자신의 선택이 무시되었다고 판독한다.
  */
 const checked = ref<Set<string>>(new Set());
 
 /**
- * 거르지 않는 상태인가.
+ * 여과하지 않는 상태인가.
  *
- * **"전부 체크됨" 과 가르는 까닭이 있다.** 후보가 잘렸거나 글자로 좁혀져
- * 있으면 보이는 것이 전부가 아니라, 화면에 체크가 다 차 있어도 그것은 "전체"
- * 가 아니다. 그 둘을 같게 보면 안 고른 값들이 조용히 통과한다.
+ * **"전부 선택됨" 과 구분하는 사유가 존재한다.** 후보가 절단되었거나 문자로
+ * 축소되어 있으면 노출되는 것이 전체가 아니라, 화면에 선택이 전부 충전되어
+ * 있어도 그것은 "전체" 가 아니다. 그 양자를 동일하게 판정하면 선택하지 않은
+ * 값들이 묵시적으로 통과한다.
  */
 const all = ref(true);
 
@@ -80,7 +82,7 @@ const allShownChecked = computed(
   () => shown.value.length > 0 && shown.value.every((c) => all.value || checked.value.has(c.value)),
 );
 
-/** 좁힌 글자로 다시 받는다. 늦게 온 답이 새 답을 덮지 않게 번호를 센다. */
+/** 축소 문자로 재수령한다. 지연 도달한 응답이 신규 응답을 피복하지 않게 번호를 산정한다. */
 let token = 0;
 async function fetchShown() {
   const mine = ++token;
@@ -90,7 +92,7 @@ async function fetchShown() {
     const res = await props.load(search.value.trim());
     if (mine !== token) return;
     shown.value = res.values;
-    // 좁히지 않고 받은 것이면 그것이 곧 전부다.
+    // 축소 없이 수령한 것이면 그것이 곧 전체다.
     if (!search.value.trim()) {
       everyValue.value = res.values;
       truncated.value = res.truncated;
@@ -104,16 +106,16 @@ async function fetchShown() {
 }
 
 /**
- * 전체 상태를 벗어난다. 체크 상태를 **지금 통과하고 있는 값 전부**로 채운다.
+ * 전체 상태를 이탈한다. 선택 상태를 **현재 통과하고 있는 값 전체**로 충전한다.
  *
- * **좁혀 보이는 것으로 채우면 안 된다.** 「대」로 좁혀 대구·대전만 보이는 채로
- * 대전 하나를 끄면, 사람이 뜻한 것은 "대전만 빼라" 인데 손대지도 않은 광주·
- * 부산·서울·인천까지 함께 빠진다. 표는 멀쩡히 그려지고 어디에서도 오류가 나지
- * 않는다 — 실제로 그렇게 났다.
+ * **축소되어 노출되는 것으로 충전하면 안 된다.** 「대」로 축소해 대구·대전만
+ * 노출된 상태에서 대전 하나를 해제하면, 사람이 의도한 것은 "대전만 제외하라"
+ * 인데 조작하지도 않은 광주·부산·서울·인천까지 함께 제외된다. 표는 정상적으로
+ * 묘사되고 어디에서도 오류가 발생하지 않는다 — 실제로 그렇게 발생했다.
  *
- * 그래서 좁히지 않고 받아 둔 목록에서 채운다. 그 목록이 상한에 걸려 잘렸으면
- * 어떤 목록으로도 "하나만 빼라" 를 적을 수 없는데, 그때는 팝오버가 잘렸다고
- * 말하고 있다.
+ * 그래서 축소 없이 수령한 목록에서 충전한다. 그 목록이 상한에 포착되어
+ * 절단되었으면 어떠한 목록으로도 "하나만 제외하라" 를 기재할 수 없는데, 그
+ * 시점에는 팝오버가 절단되었다고 제시하고 있다.
  */
 function leaveAll() {
   if (!all.value) return;
@@ -129,7 +131,7 @@ function toggle(value: string) {
   checked.value = next;
 }
 
-/** 지금 좁혀져 보이는 것만 한꺼번에 켜고 끈다(엑셀과 같다). */
+/** 현재 축소되어 노출되는 것만 일괄 설정·해제한다(엑셀과 동일하다). */
 function toggleAllShown() {
   const on = allShownChecked.value;
   leaveAll();
@@ -148,13 +150,13 @@ function apply() {
 /**
  * 엔터로 적용한다.
  *
- * 글자를 쳐 둔 상태면 **지금 좁혀져 보이는 값들만 고른다.** 체크한 것만
- * 적용하면, 글자만 치고 엔터를 누른 사람 앞에서 표가 텅 빈다. 쳐서 좁혔으면
- * 그게 고른 것이라는 뜻이다 — 위의 [`leaveAll`] 과 달리 여기서는 좁힌 것이
- * 사람이 **직접 말한 뜻**이라 그대로 받는다.
+ * 문자를 입력한 상태면 **현재 축소되어 노출되는 값들만 선택한다.** 선택한 것만
+ * 적용하면, 문자만 입력하고 엔터를 조작한 사람 앞에서 표가 공백이 된다. 입력해
+ * 축소했으면 그것이 선택이라는 의미다 — 상기 [`leaveAll`] 과 달리 여기서는
+ * 축소가 사람이 **직접 진술한 의도**라 그대로 수용한다.
  *
- * 맞는 값이 하나도 없으면 **아무 일도 하지 않는다.** 그때 적용하면 아무것도
- * 지나지 못하는 필터가 걸리는데, 사람이 원한 것은 그게 아니다.
+ * 부합하는 값이 하나도 부재하면 **아무 작용도 하지 않는다.** 그 시점에 적용하면
+ * 아무것도 통과하지 못하는 필터가 적용되는데, 사람이 의도한 것은 그것이 아니다.
  */
 function applyTyped() {
   if (!search.value.trim()) {
@@ -176,7 +178,7 @@ function onPointerDown(e: PointerEvent) {
   if (root.value && !root.value.contains(e.target as Node)) emit("close");
 }
 
-/** 글자마다 바탕에 묻지 않는다. 치는 동안 요청이 줄줄이 나간다. */
+/** 문자마다 바탕에 질의하지 않는다. 입력 중 요청이 연속 발생한다. */
 let searchTimer: number | undefined;
 watch(search, () => {
   window.clearTimeout(searchTimer);
@@ -188,7 +190,7 @@ onMounted(() => {
   checked.value = new Set(props.selected ?? []);
   void fetchShown();
   window.addEventListener("keydown", onKeydown);
-  // 팝오버가 열린 직후의 클릭까지 잡지 않도록 다음 틱에 등록한다.
+  // 팝오버 개방 직후의 클릭까지 포착하지 않도록 차기 틱에 등록한다.
   window.setTimeout(() => window.addEventListener("pointerdown", onPointerDown), 0);
 });
 
@@ -216,7 +218,7 @@ onBeforeUnmount(() => {
       aria-label="값 검색"
     />
 
-    <p v-if="loading" class="dg-pop-note">불러오는 중…</p>
+    <p v-if="loading" class="dg-pop-note">준비 중…</p>
     <p v-else-if="errorMessage" class="dg-pop-note text-danger">{{ errorMessage }}</p>
 
     <template v-else>
@@ -237,14 +239,14 @@ onBeforeUnmount(() => {
           <span class="dg-pop-val" :data-blank="c.value === blankToken">{{ c.value }}</span>
           <span class="dg-pop-count">{{ numberFormat.format(c.count) }}</span>
         </label>
-        <p v-if="!shown.length" class="dg-pop-note">일치하는 값이 없습니다</p>
+        <p v-if="!shown.length" class="dg-pop-note">일치하는 값이 부재합니다</p>
       </div>
 
-      <!-- 잘렸다는 것을 **말한다.** 잘린 줄 모르고 고르면, 보이지 않던 값들이
-           빠진 필터가 걸린다. -->
+      <!-- 절단되었다는 것을 **제시한다.** 절단 사실을 인지하지 못한 채 선택하면,
+           노출되지 않던 값들이 누락된 필터가 적용된다. -->
       <p v-if="truncated" class="dg-pop-note">
-        고유값이 많아 {{ numberFormat.format(maxValues) }}개까지만 봅니다.
-        검색으로 좁혀 주세요.
+        고유값이 다수라 {{ numberFormat.format(maxValues) }}개까지만 표시합니다.
+        검색으로 축소해 주십시오.
       </p>
     </template>
 

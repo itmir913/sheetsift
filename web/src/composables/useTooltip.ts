@@ -1,36 +1,36 @@
 /**
- * 마우스를 얹었을 때 뜨는 설명.
+ * 포인터 접촉 시 표시되는 설명.
  *
- * 브라우저가 그려 주는 `title` 속성을 쓰지 않는다. 그 글상자는 **크기도 글꼴도
- * 우리가 정할 수 없어서**, 화면 전체가 Pretendard 에 `text-base` 인데 설명만
- * 작은 시스템 글꼴로 뜬다. 선생님이 표의 잘린 칸을 확인하려고 얹는 것이라
- * 오히려 본문보다 커야 한다.
+ * 브라우저가 묘사하는 `title` 속성을 사용하지 않는다. 그 문자 상자는 **크기도
+ * 서체도 우리가 결정할 수 없어서**, 화면 전체가 Pretendard 에 `text-base` 인데
+ * 설명만 소형 시스템 서체로 표시된다. 사용자가 표의 절단된 셀을 확인하려고
+ * 접촉하는 것이라 오히려 본문보다 대형이어야 한다.
  *
- * **요소마다 붙이지 않는다.** 표는 한 화면에 수천 칸이라, 칸마다 듣는 귀를
- * 달면 그 수만큼 늘어난다. 대신 `data-tip` 속성만 적어 두고 문서 하나가
- * 받아서 올라온 자리를 거슬러 찾는다(`closest`). 지금까지 `title` 을 적던
- * 자리에 이름만 바꿔 적으면 된다.
+ * **요소마다 부착하지 않는다.** 표는 한 화면에 수천 셀이라, 셀마다 수신기를
+ * 부착하면 그 수만큼 증가한다. 대신 `data-tip` 속성만 기재해 두고 문서 하나가
+ * 수신해 전파된 위치를 소급 탐색한다(`closest`). 종래 `title` 을 기재하던
+ * 위치에 명칭만 변경해 기재하면 된다.
  *
- * 띄우는 일은 `AppTooltip` 이 한다. 여기서는 **무엇을 어디에** 만 정한다.
+ * 표시 작업은 `AppTooltip` 이 수행한다. 여기서는 **무엇을 어디에** 만 결정한다.
  */
 import { reactive } from "vue";
 
-/** 설명을 띄울 곳에 붙이는 속성. */
+/** 설명을 표시할 위치에 부착하는 속성. */
 const ATTR = "data-tip";
 
 /**
- * 처음 뜨기까지 기다리는 시간(ms). 표 위를 가로질러 갈 뿐인데 칸마다 글상자가
- * 튀어나오면 읽을 수 없다.
+ * 최초 표시까지 대기하는 시간(ms). 표 위를 횡단할 뿐인데 셀마다 문자 상자가
+ * 출현하면 판독할 수 없다.
  */
 const DELAY = 350;
 
-/** 이미 떠 있을 때 옆 칸으로 옮기는 경우. 한 번 기다렸으므로 곧바로 따라간다. */
+/** 이미 표시된 상태에서 인접 셀로 이동하는 경우. 1회 대기했으므로 즉시 추종한다. */
 const DELAY_NEXT = 60;
 
 export interface TooltipState {
   open: boolean;
   text: string;
-  /** 가리키는 요소의 자리(창 기준). 어느 쪽에 붙일지는 `AppTooltip` 이 정한다. */
+  /** 지시 요소의 위치(창 기준). 어느 방향에 부착할지는 `AppTooltip` 이 결정한다. */
   anchor: { left: number; top: number; right: number; bottom: number };
 }
 
@@ -43,15 +43,15 @@ export const tooltip = reactive<TooltipState>({
 let timer: number | undefined;
 let current: Element | null = null;
 
-/* `Element` 로 받는다 — 차트의 점은 `<circle>` 이라 `HTMLElement` 가 아니다.
-   여기서 쓰는 것(속성 읽기·붙어 있는지·자리 재기)은 전부 `Element` 에 있다. */
+/* `Element` 로 수용한다 — 차트의 점은 `<circle>` 이라 `HTMLElement` 가 아니다.
+   여기서 사용하는 것(속성 판독·부착 여부·위치 측정)은 전부 `Element` 에 존재한다. */
 function textOf(el: Element): string {
   return (el.getAttribute(ATTR) ?? "").trim();
 }
 
 function show(el: Element): void {
   const text = textOf(el);
-  // 뜨기를 기다리는 사이에 글자가 지워졌거나 화면에서 빠졌을 수 있다.
+  // 표시를 대기하는 사이에 문자가 소거되었거나 화면에서 이탈했을 수 있다.
   if (!text || !el.isConnected) return;
   const r = el.getBoundingClientRect();
   tooltip.text = text;
@@ -67,7 +67,7 @@ export function hideTooltip(): void {
 }
 
 function onOver(ev: PointerEvent): void {
-  // 손가락으로 누르는 화면에서는 뜨지 않는다. 얹는다는 것이 없다.
+  // 터치로 조작하는 화면에서는 표시되지 않는다. 접촉이라는 개념이 부재한다.
   if (ev.pointerType !== "mouse") return;
   const target = ev.target instanceof Element ? ev.target.closest(`[${ATTR}]`) : null;
   const el = target && textOf(target) ? target : null;
@@ -88,10 +88,10 @@ function onKeyDown(ev: KeyboardEvent): void {
 let installed = false;
 
 /**
- * 문서 하나에 귀를 단다. `AppTooltip` 이 붙을 때 한 번만 부른다.
+ * 문서 하나에 수신기를 부착한다. `AppTooltip` 이 부착될 때 1회만 호출한다.
  *
- * 스크롤·휠·누름에는 **곧바로 없앤다.** 떠 있는 글상자는 자리를 한 번 잡고
- * 나면 따라가지 않으므로, 표가 움직이면 엉뚱한 칸 옆에 남는다.
+ * 스크롤·휠·조작 시에는 **즉시 제거한다.** 표시된 문자 상자는 위치를 1회 확정한
+ * 이후 추종하지 않으므로, 표가 이동하면 무관한 셀 옆에 잔존한다.
  */
 export function installTooltip(): void {
   if (installed) return;

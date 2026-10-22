@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /**
- * 표 위의 조작부. 표를 쓰는 화면은 전부 이것만 쓴다.
+ * 표 상단의 조작부. 표를 사용하는 화면은 전부 이것만 사용한다.
  *
- * **두 줄로 못 박아 둔다.** 위는 설정·페이지, 아래는 정렬 칩이다.
- * 한 줄에 몰아 넣었더니 정렬이 늘어날수록 오른쪽 설정 단추를 밀어내 잘렸다.
- * 정렬이 없을 때도 아래 줄 높이를 남겨 두므로, 정렬을 걸고 풀어도 표가
- * 위아래로 움직이지 않는다.
+ * **2행으로 고정한다.** 상단은 설정·페이지, 하단은 정렬 칩이다. 1행에 집약했더니
+ * 정렬이 증가할수록 우측 설정 단추를 압출해 절단되었다. 정렬이 부재할 때도
+ * 하단 행 높이를 존치하므로, 정렬을 적용하고 해제해도 표가 수직 이동하지
+ * 않는다.
  */
 import { ref, watch } from "vue";
 import type { HeaderSpec, Sort } from "@/lib/grid";
@@ -14,37 +14,38 @@ import type { LaidOutColumn } from "@/composables/useColumnLayout";
 const props = withDefaults(
   defineProps<{
     /**
-     * 열을 다루는 칸(열 고정·초기화·정렬 칩)을 접는다.
+     * 열을 취급하는 영역(열 고정·초기화·정렬 칩)을 축소한다.
      *
-     * 표가 아니라 그림을 그리는 화면(범위 차트)이 쓴다. 거기엔 고정할 열도
-     * 정렬 칩도 없는데, 쪽 넘기기는 표와 **같은 것**을 써야 갈라지지 않는다.
+     * 표가 아니라 도형을 묘사하는 화면(범위 차트)이 사용한다. 거기에는 고정할
+     * 열도 정렬 칩도 부재하는데, 페이지 이동은 표와 **동일한 것**을 사용해야
+     * 분기하지 않는다.
      */
     compact?: boolean;
     sorts?: Sort[];
     columns?: LaidOutColumn[];
     pinned?: number;
     pinLimit?: number;
-    /** 열 순서·너비를 손댄 적이 있어 '열 초기화'가 뜻이 있는가. */
+    /** 열 순서·폭을 조작한 이력이 존재해 '열 초기화' 가 의미를 보유하는가. */
     columnsCustomized?: boolean;
     hasFilters?: boolean;
-    /** 인쇄를 쓰는 화면인가. 인쇄할 것이 없으면 숨긴다. */
+    /** 인쇄를 사용하는 화면인가. 인쇄 대상이 부재하면 은폐한다. */
     canPrint?: boolean;
     printing?: boolean;
     printDisabled?: boolean;
     /**
-     * 머리글 지정. 없으면 조작부에 그 칸을 그리지 않는다.
+     * 머리글 지정. 부재하면 조작부에 그 영역을 묘사하지 않는다.
      *
-     * 양식마다 머리글이 1줄이기도 2줄이기도 하고, 상단에 제목 줄이 붙기도
+     * 양식마다 머리글이 1행이기도 2행이기도 하고, 상단에 제목 행이 부착되기도
      * 한다. **추정으로 전부 적중시킬 수 없으므로** 사람이 지정한다.
      */
     header?: HeaderSpec | null;
-    /** 그 지정이 추정인가. 참이면 확인을 요청하는 표시를 한다. */
+    /** 그 지정이 추정인가. 참이면 확인을 요청하는 표시를 수행한다. */
     headerGuessed?: boolean;
-    /** 시트의 총 줄 수. 지정 가능한 범위의 상한이다. */
+    /** 시트의 총 행 수. 지정 가능한 범위의 상한이다. */
     sheetRows?: number;
-    /** 지금 쪽(0부터). 쪽 넘김이 없는 화면은 넘기지 않는다. */
+    /** 현 페이지(0부터). 페이지 이동이 부재하는 화면은 전달하지 않는다. */
     page?: number;
-    /** 전체 쪽 수. 넘기지 않으면 쪽 넘김을 그리지 않는다. */
+    /** 전체 페이지 수. 전달하지 않으면 페이지 이동을 묘사하지 않는다. */
     pageCount?: number;
     busy?: boolean;
   }>(),
@@ -79,8 +80,8 @@ const emit = defineEmits<{
 }>();
 
 /* ── 머리글 범위 ───────────────────────────────────────────────
-   사람이 보는 숫자는 **1부터**다. 엑셀의 행 번호와 일치해야 원본을 보며
-   지정할 수 있다. 바탕은 0부터 세므로 오갈 때 환산한다. */
+   사람이 참조하는 수치는 **1부터**다. 엑셀의 행 번호와 일치해야 원본을 참조하며
+   지정할 수 있다. 바탕은 0부터 산정하므로 수수 시 환산한다. */
 
 function moveStart(by: number) {
   const h = props.header;
@@ -96,9 +97,9 @@ function moveRows(by: number) {
   if (rows !== h.rows) emit("setHeader", { at: h.at, rows });
 }
 
-/* ── 쪽 넘김 ───────────────────────────────────────────────────
-   **여기 있어야 한다.** 화면마다 따로 그리면 조회 화면에는 있고 성적
-   검색에는 없는 식으로 갈라진다. 실제로 그렇게 갈라져 있었다.      */
+/* ── 페이지 이동 ───────────────────────────────────────────────
+   **여기 존재해야 한다.** 화면마다 개별 묘사하면 조회 화면에는 존재하고 성적
+   검색에는 부재하는 식으로 분기한다. 실제로 그렇게 분기해 있었다.  */
 
 const numberFormat = new Intl.NumberFormat("ko-KR");
 const pageInput = ref("1");
@@ -127,8 +128,8 @@ function labelOf(key: string): string {
 
 <template>
   <div class="app-fixed gx-tools">
-    <!-- 위 줄: 페이지 이동(왼쪽) · 설정(오른쪽).
-         폭이 모자라면 설정 단추가 다음 줄로 넘어간다. -->
+    <!-- 상단 행: 페이지 이동(좌측) · 설정(우측).
+         폭이 부족하면 설정 단추가 차기 행으로 이월된다. -->
     <div class="gx-tools-row">
       <span v-if="pageCount !== undefined" class="gx-pager">
         <button
@@ -189,7 +190,7 @@ function labelOf(key: string): string {
             type="button"
             class="gx-pin-btn"
             :disabled="pinned <= 0"
-            aria-label="고정 열 줄이기"
+            aria-label="고정 열 감소"
             @click="emit('setPinned', pinned - 1)"
           >
             −
@@ -199,7 +200,7 @@ function labelOf(key: string): string {
             type="button"
             class="gx-pin-btn"
             :disabled="pinned >= pinLimit"
-            aria-label="고정 열 늘리기"
+            aria-label="고정 열 증가"
             @click="emit('setPinned', pinned + 1)"
           >
             ＋
@@ -212,8 +213,8 @@ function labelOf(key: string): string {
             type="button"
             class="gx-pin-btn"
             :disabled="header.at <= 0"
-            aria-label="머리글 시작 줄 위로"
-            data-tip="머리글이 시작하는 줄을 위로"
+            aria-label="머리글 개시 행 상향"
+            data-tip="머리글이 개시되는 행을 상향"
             @click="moveStart(-1)"
           >
             ↑
@@ -225,8 +226,8 @@ function labelOf(key: string): string {
             type="button"
             class="gx-pin-btn"
             :disabled="header.at + header.rows >= sheetRows"
-            aria-label="머리글 시작 줄 아래로"
-            data-tip="머리글이 시작하는 줄을 아래로"
+            aria-label="머리글 개시 행 하향"
+            data-tip="머리글이 개시되는 행을 하향"
             @click="moveStart(1)"
           >
             ↓
@@ -235,8 +236,8 @@ function labelOf(key: string): string {
             type="button"
             class="gx-pin-btn"
             :disabled="header.rows <= 1"
-            aria-label="머리글 줄 수 줄이기"
-            data-tip="머리글 줄 수를 줄인다"
+            aria-label="머리글 행 수 감소"
+            data-tip="머리글 행 수를 감소시킨다"
             @click="moveRows(-1)"
           >
             −
@@ -246,15 +247,15 @@ function labelOf(key: string): string {
             type="button"
             class="gx-pin-btn"
             :disabled="header.at + header.rows >= sheetRows"
-            aria-label="머리글 줄 수 늘리기"
-            data-tip="머리글 줄 수를 늘린다"
+            aria-label="머리글 행 수 증가"
+            data-tip="머리글 행 수를 증가시킨다"
             @click="moveRows(1)"
           >
             ＋
           </button>
-          <!-- 추정이라는 사실을 **표시한다.** 확정처럼 두면 열이 밀린 표가
-               정상으로 보인다. -->
-          <span v-if="headerGuessed" class="whitespace-nowrap text-warn" data-tip="바탕이 추정한 값입니다. 원본과 대조해 주세요.">
+          <!-- 추정이라는 사실을 **표시한다.** 확정처럼 배치하면 열이 이동한
+               표가 정상으로 인식된다. -->
+          <span v-if="headerGuessed" class="whitespace-nowrap text-warn" data-tip="바탕이 추정한 값입니다. 원본과 대조해 주십시오.">
             추정
           </span>
         </span>
@@ -264,7 +265,7 @@ function labelOf(key: string): string {
           type="button"
           class="gx-tool-btn"
           :disabled="printing || printDisabled"
-          data-tip="지금 화면의 정렬·필터를 그대로 인쇄합니다"
+          data-tip="현 화면의 정렬·필터를 그대로 인쇄합니다"
           @click="emit('print')"
         >
           {{ printing ? "준비 중…" : "인쇄" }}
@@ -273,7 +274,7 @@ function labelOf(key: string): string {
           type="button"
           class="gx-tool-btn"
           :disabled="!columnsCustomized"
-          data-tip="열 순서와 너비를 기본값으로"
+          data-tip="열 순서와 폭을 기본값으로"
           @click="emit('resetColumns')"
         >
           열 초기화
@@ -297,7 +298,7 @@ function labelOf(key: string): string {
       </span>
     </div>
 
-    <!-- 아래 줄: 정렬 칩. 많아지면 이 줄만 가로로 밀린다. -->
+    <!-- 하단 행: 정렬 칩. 증가하면 이 행만 수평 이동한다. -->
     <div v-if="!compact" class="gx-tools-row gx-sorts">
       <span class="shrink-0 font-medium text-fg-muted">
         {{ sorts.length ? "정렬" : "설명" }}
@@ -317,12 +318,12 @@ function labelOf(key: string): string {
           <span class="text-fg-subtle">✕</span>
         </button>
 
-        <!-- 정렬이 하나도 없을 때만 뜬다. 정렬만이 아니라 표를 다루는 법 전체를
-             알려 주는 자리라, 왼쪽 딱지도 '설명'으로 바뀐다. 두 글자로 길이가
-             같아 딱지가 바뀌어도 문구가 좌우로 움직이지 않는다. -->
+        <!-- 정렬이 전무할 때만 표시된다. 정렬뿐 아니라 표를 취급하는 방법
+             전체를 제시하는 위치라, 좌측 표지도 '설명' 으로 전환된다. 2문자로
+             길이가 동일해 표지가 전환되어도 문구가 수평 이동하지 않는다. -->
         <span v-if="!sorts.length" class="truncate text-fg-subtle">
-          열 제목을 눌러 정렬 / 열을 드래그해 순서 변경 /
-          열 사이 선을 드래그해 너비 조절
+          열 제목을 조작해 정렬 / 열을 이동해 순서 변경 /
+          열 사이 선을 조작해 폭 조절
         </span>
       </div>
       <slot name="status" />

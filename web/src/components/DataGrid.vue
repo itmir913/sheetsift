@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
- * 조회 화면. 표와 조작부는 공용 컴포넌트를 쓰고, 여기서는 **데이터만** 챙긴다.
- * 정렬·필터·페이지는 SQL 로 처리한다(12만 행을 화면에서 다룰 수 없다).
+ * 조회 화면. 표와 조작부는 공용 컴포넌트를 사용하고, 여기서는 **자료만**
+ * 확보한다. 정렬·필터·페이지는 SQL 로 처리한다(12만 행을 화면에서 취급할 수
+ * 없다).
  */
 import { computed, onBeforeUnmount, onMounted, ref, toRef, watch } from "vue";
 import GridTable from "@/components/GridTable.vue";
@@ -82,22 +83,23 @@ async function load() {
   } finally {
     if (mine === token) {
       busy.value = false;
-      // 첫 조회 결과로 열 너비를 잡는다. 두 번째부터는 아무 일도 하지 않는다.
-      // 조회가 실패했어도 불러야 표가 그려진다.
+      // 최초 조회 결과로 열 폭을 산정한다. 2회차부터는 아무 작용도 하지 않는다.
+      // 조회가 실패했어도 호출해야 표가 묘사된다.
       layout.measure(rows.value);
     }
   }
 }
 
-/** 정렬·필터가 바뀌면 첫 페이지부터 다시 본다. */
+/** 정렬·필터가 변경되면 첫 페이지부터 재조회한다. */
 function reload() {
   page.value = 0;
   void load();
 }
 
 /**
- * 값 선택(▼) 후보. 그 열 자신의 필터는 빼고 나머지를 반영한다(엑셀과 같다).
- * 좁히는 글자까지 바탕에 넘긴다 — 잘린 목록을 화면에서 거르면 안 된다.
+ * 값 선택(▼) 후보. 그 열 자체의 필터는 제외하고 나머지를 반영한다(엑셀과
+ * 동일하다). 축소하는 문자까지 바탕에 전달한다 — 절단된 목록을 화면에서
+ * 여과하면 안 된다.
  */
 function loadValues(columnKey: string, needle: string) {
   return columnValues(
@@ -111,8 +113,8 @@ function loadValues(columnKey: string, needle: string) {
 
 /* ── 페이지 이동 ───────────────────────────────────────────── */
 
-/* 한 쪽에 담는 줄 수. **바탕이 정한다** — 여기 적어 두면 그보다 큰 수를
-   달라고 하고선, 말없이 적게 받은 것을 다 받은 줄 안다. */
+/* 한 페이지에 수용하는 행 수. **바탕이 결정한다** — 여기 기재하면 그보다 큰
+   수를 요청하고선, 묵시적으로 적게 수령한 것을 전량 수령한 것으로 판단한다. */
 const PAGE = pageSize();
 
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / PAGE)));
@@ -124,14 +126,14 @@ function goto(p: number) {
   if (next === page.value) return;
   page.value = next;
   void load();
-  // 페이지를 넘기면 표 맨 위부터 보는 게 자연스럽다.
+  // 페이지를 이동하면 표 최상단부터 열람하는 것이 자연스럽다.
   gridRoot.value?.closest(".app-main")?.scrollTo({ top: 0 });
 }
 
-/** 페이지 번호 입력칸. 1부터 센다. */
+/** 페이지 번호 입력란. 1부터 산정한다. */
 
 
-/* ── 조작부에서 오는 것들 ───────────────────────────────────── */
+/* ── 조작부에서 전달되는 것들 ───────────────────────────────── */
 
 function onSort(key: string) {
   sorts.value = cycleSort(sorts.value, key);
@@ -158,8 +160,8 @@ function resetColumns() {
 }
 
 /* ── 인쇄 ──────────────────────────────────────────────────────
-   지금 화면의 정렬·필터를 그대로 종이에 낸다. 보이는 페이지가 아니라
-   조건에 맞는 전체(상한까지)를 낸다. */
+   현 화면의 정렬·필터를 그대로 지면에 출력한다. 노출된 페이지가 아니라
+   조건에 부합하는 전체(상한까지)를 출력한다. */
 
 const printRows = ref<Row[]>([]);
 const printTruncated = ref(false);
@@ -194,7 +196,7 @@ async function print() {
 
 onMounted(load);
 onBeforeUnmount(() => {
-  token += 1; // 떠난 뒤 도착한 응답을 무시한다
+  token += 1; // 이탈 이후 도달한 응답을 무시한다
 });
 
 watch(
@@ -247,8 +249,8 @@ watch(sorts, reload, { deep: true });
 
     <p v-if="errorMessage" class="app-fixed shrink-0 text-danger">{{ errorMessage }}</p>
 
-    <!-- 너비를 다 재기 전에는 그리지 않는다. 머리글만으로 한 번 그린 뒤
-         자료를 보고 다시 잡으면, 화면을 열 때마다 표가 한 번 튄다. -->
+    <!-- 폭을 전부 측정하기 이전에는 묘사하지 않는다. 머리글만으로 1회 묘사한
+         뒤 자료를 참조해 재산정하면, 화면을 개방할 때마다 표가 1회 변동한다. -->
     <GridTable
       v-if="layout.ready.value"
       :columns="columns"
@@ -267,7 +269,7 @@ watch(sorts, reload, { deep: true });
       @resize-end="layout.commit"
     />
 
-    <!-- 인쇄 뷰. 화면에서는 숨겨져 있고 @media print 에서만 나타난다. -->
+    <!-- 인쇄 뷰. 화면에서는 은폐되어 있고 @media print 에서만 출현한다. -->
     <Teleport to="body">
       <div v-if="printRows.length" class="print-root">
         <PrintView

@@ -9,7 +9,7 @@
 
 /* ─────────────────────────────────────────────────────────────
    Pretendard Variable — 오프라인 번들 (weight 45~920 단일 파일)
-   sans / mono / serif 를 모두 Pretendard로 통일한다.
+   sans / mono / serif 를 전부 Pretendard 로 통일한다.
    ───────────────────────────────────────────────────────────── */
 @font-face {
   font-family: "Pretendard Variable";
@@ -21,14 +21,14 @@
 }
 
 @theme {
-  /* text-base(1rem) 미만 금지 — 아래 두 값을 제거해 유틸리티 자체를 없앤다.
-     text-sm / text-xs 를 쓰면 클래스가 생성되지 않아 즉시 눈에 띈다. */
+  /* text-base(1rem) 미만 금지 — 하기 두 값을 제거해 유틸리티 자체를 소거한다.
+     text-sm / text-xs 를 사용하면 클래스가 생성되지 않아 즉시 발현된다. */
   --text-xs: initial;
   --text-xs--line-height: initial;
   --text-sm: initial;
   --text-sm--line-height: initial;
 
-  /* 폰트 — mono 도 Pretendard. 숫자 정렬은 tabular-nums 유틸리티로 처리한다. */
+  /* 서체 — mono 도 Pretendard. 숫자 정렬은 tabular-nums 유틸리티로 처리한다. */
   --font-sans: "Pretendard Variable", "Pretendard", system-ui, sans-serif;
   --font-mono: "Pretendard Variable", "Pretendard", system-ui, sans-serif;
   --font-serif: "Pretendard Variable", "Pretendard", system-ui, serif;
@@ -92,8 +92,8 @@
   }
 
   body {
-    /* 한국어 줄바꿈: 어절(띄어쓰기) 단위로 끊는다.
-       keep-all 만 쓰면 긴 URL·영문 토큰이 넘치므로 anywhere 로 보완한다. */
+    /* 한국어 개행: 어절(공백) 단위로 분할한다.
+       keep-all 만 사용하면 장문 URL·영문 토큰이 초과하므로 anywhere 로 보완한다. */
     word-break: keep-all;
     overflow-wrap: anywhere;
     -webkit-font-smoothing: antialiased;
@@ -101,24 +101,25 @@
     @apply bg-canvas text-fg font-sans text-base leading-relaxed;
   }
 
-  /* 끌어서 고르는 것을 막지 않는다. goe-navi 는 자료가 기관의 것이라 표를
-     훑어 담는 길을 막아 두었지만, 여기 열린 것은 **사람이 제 컴퓨터에서 제
-     파일을 연 것**이다. 제 자료를 복사하지 못하게 할 까닭이 없다. */
+  /* 조작해 선택하는 것을 차단하지 않는다. goe-navi 는 자료가 기관의 것이라
+     표를 일괄 수집하는 경로를 차단했지만, 여기 개방된 것은 **사용자가 자신의
+     컴퓨터에서 자신의 파일을 개방한 것**이다. 자신의 자료를 복제하지 못하게
+     할 사유가 부재한다. */
 
   :focus-visible {
     outline: 2px solid var(--c-focus);
     outline-offset: 2px;
   }
 
-  /* 숫자 열은 자릿수를 맞춘다. */
+  /* 숫자 열은 자릿수를 정합한다. */
   [data-numeric] {
     font-variant-numeric: tabular-nums;
   }
 }
 
 /* ─────────────────────────────────────────────────────────────
-   접히는 사이드바.
-   폭만 바뀌므로 내용은 그대로 두고 넘치는 부분만 감춘다.
+   축소되는 사이드바.
+   폭만 변경되므로 내용은 그대로 존치하고 초과 부분만 은폐한다.
    ───────────────────────────────────────────────────────────── */
 @layer components {
   .app-side {
@@ -135,9 +136,9 @@
     border-right-width: 0;
   }
 
-  /* 접히는 동안 내부가 찌그러지지 않도록 폭을 붙잡아 둔다.
-     위아래 두 칸으로 나눈다 — 조회 화면 목록은 길어지면 스크롤하고,
-     아래쪽(학생 데이터·업데이트·매뉴얼)은 늘 같은 자리에 붙어 있는다. */
+  /* 축소되는 동안 내부가 변형되지 않도록 폭을 고정한다.
+     상하 2개 영역으로 분할한다 — 조회 화면 목록은 증가하면 스크롤하고,
+     하단(학생 자료·갱신·매뉴얼)은 항상 동일한 위치에 고정된다. */
   .app-side-inner {
     display: flex;
     flex-direction: column;
@@ -145,21 +146,21 @@
     height: 100%;
   }
 
-  /* 위 칸 — 화면 목록. 여기만 스크롤한다. */
+  /* 상단 영역 — 화면 목록. 여기만 스크롤한다. */
   .app-side-scroll {
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
-    /* 목록이 짧을 때도 스크롤바 자리를 비워 둔다.
-       항목이 늘고 줄 때 글자가 좌우로 흔들리지 않는다. */
+    /* 목록이 단축일 때도 스크롤바 공간을 확보해 둔다.
+       항목이 증감할 때 문자가 수평 변동하지 않는다. */
     scrollbar-gutter: stable;
     padding: 0.75rem 0.25rem 0.75rem 0.75rem;
   }
 
   /* 묶음 제목.
-     아래 항목들과 **같은 크기**라(글자는 text-base 밑으로 못 내려간다) 색과
-     굵기, 그리고 구분선으로 가른다. 흐린 회색이면 '눌리지 않는 버튼'처럼
-     보여서, 오히려 본문보다 진하게 둔다. */
+     하단 항목들과 **동일한 크기**라(문자는 text-base 미만으로 하강 불가) 색과
+     굵기, 그리고 구분선으로 식별한다. 담색 회색이면 '조작 불가 버튼' 처럼
+     인식되어, 오히려 본문보다 농도를 높게 배치한다. */
   .app-side-group {
     padding: 0 0.5rem 0.5rem;
     margin-top: 1.25rem;
@@ -170,7 +171,7 @@
     letter-spacing: 0.01em;
   }
 
-  /* 첫 묶음 위에는 선도 여백도 두지 않는다(목록이 아래로 밀리지 않게). */
+  /* 최초 묶음 상단에는 선도 여백도 배치하지 않는다(목록이 하향 이동하지 않게). */
   .app-side-scroll > .app-side-group:first-child,
   .app-side-foot > .app-side-group:first-child {
     margin-top: 0;
@@ -178,7 +179,7 @@
     border-top: 0;
   }
 
-  /* 아래 칸 — 늘 보이는 자리. */
+  /* 하단 영역 — 항상 노출되는 위치. */
   .app-side-foot {
     flex: 0 0 auto;
     border-top: 1px solid var(--c-border);
@@ -193,14 +194,14 @@
 }
 
 /* ─────────────────────────────────────────────────────────────
-   본문 영역. 앱에서 세로 스크롤이 일어나는 유일한 곳이다.
+   본문 영역. 앱에서 수직 스크롤이 발생하는 유일한 위치다.
 
-   가로·세로 모두 여기서 스크롤한다. 표가 자체 스크롤러를 갖지 않으므로
-   표의 열 헤더는 `sticky top:0`, 열 고정 열은 `sticky left:*` 만으로
-   그냥 붙는다. 따로 위치를 맞춰 줄 필요가 없다.
+   수평·수직 모두 여기서 스크롤한다. 표가 자체 스크롤러를 보유하지 않으므로
+   표의 열 머리글은 `sticky top:0`, 고정 열은 `sticky left:*` 만으로 고정된다.
+   별도로 위치를 정합할 필요가 부재한다.
 
-   표가 아닌 것(제목·도구 줄·조건 카드)은 `.app-fixed` 를 달아
-   가로 스크롤과 무관하게 제자리에 두고, 폭은 App.vue 가 재서 넘긴다.
+   표가 아닌 것(제목·도구 행·조건 카드)은 `.app-fixed` 를 부착해 수평 스크롤과
+   무관하게 정위치에 배치하고, 폭은 App.vue 가 측정해 전달한다.
    ───────────────────────────────────────────────────────────── */
 @layer components {
   .app-main {
@@ -210,26 +211,26 @@
     gap: 0.75rem;
     min-width: 0;
     min-height: 0;
-    /* 패딩을 두지 않는다.
-       - 위쪽: sticky(top:0) 요소 위로 틈이 생겨 행이 비쳐 보인다.
-       - 좌우: sticky(left:*) 인 고정 열의 기준이 어긋난다.
-       여백은 .app-fixed 블록이 각자 갖고, 표는 화면 끝까지 쓴다. */
+    /* 패딩을 배치하지 않는다.
+       - 상단: sticky(top:0) 요소 위로 간극이 발생해 행이 투과 노출된다.
+       - 좌우: sticky(left:*) 인 고정 열의 기준이 불일치한다.
+       여백은 .app-fixed 블록이 각자 보유하고, 표는 화면 종단까지 사용한다. */
     padding: 0 0 1.25rem;
     overflow: auto;
     scrollbar-gutter: stable;
   }
 
-  /* `.app-fixed` 를 품는 상자. `.app-main` 의 직계 자식이 아닌 `.app-fixed`
-     는 반드시 이 안에 있어야 한다.
-     sticky 는 제 컨테이닝 블록 안에서만 움직인다. 이 상자가 보이는 폭만큼만
-     차지하면 그 안의 `.app-fixed` 는 움직일 자리가 없어, 가로로 스크롤할 때
-     표와 함께 왼쪽으로 쓸려 나간다. 스크롤되는 폭 전체를 차지하게 해 둔다. */
+  /* `.app-fixed` 를 수용하는 상자. `.app-main` 의 직계 자식이 아닌
+     `.app-fixed` 는 반드시 이 내부에 존재해야 한다.
+     sticky 는 자체 컨테이닝 블록 내부에서만 이동한다. 이 상자가 가시 폭만큼만
+     점유하면 그 내부의 `.app-fixed` 는 이동할 공간이 부재해, 수평 스크롤 시
+     표와 함께 좌측으로 이탈한다. 스크롤되는 폭 전체를 점유하게 배치한다. */
   .app-lane {
     width: max-content;
     min-width: 100%;
   }
 
-  /* 표가 아닌 블록. 가로로 스크롤해도 제자리에 남는다. */
+  /* 표가 아닌 블록. 수평 스크롤해도 정위치에 존치된다. */
   .app-fixed {
     position: sticky;
     left: 0;
