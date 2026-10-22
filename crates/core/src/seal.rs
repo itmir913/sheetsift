@@ -55,7 +55,16 @@
 //! AAD 로 결속하면 **머리가 상이한 채로 개방되는 경로가 구조적으로 부재한다.**
 //! 비용은 0 이다.
 
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, Verifier, VerifyingKey};
+
+/// 서명하는 곳이 보유하는 개인키. **여기서 생성하지 않는다** — 부르는 곳이
+/// 주입한다.
+///
+/// 재노출하는 사유는 판이다. 부르는 곳이 `ed25519-dalek` 을 자체로 수령해
+/// 구성하면 판이 두 곳에 기재되고, 상이해지는 날 타입이 불일치하는 것으로
+/// 발현된다 — 서명이 불일치하는 것으로 보이는 쪽보다는 양호하나, 기재할 사유가
+/// 부재하다.
+pub use ed25519_dalek::SigningKey;
 
 use crate::{Error, ErrorCode, Result};
 

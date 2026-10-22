@@ -205,3 +205,46 @@ fn a_workbook_becomes_a_queryable_db_in_the_browser() {
     let bytes = sheet::serialize(&conn).expect("바이트로 추출하지 못했습니다");
     assert!(bytes.starts_with(b"SQLite format 3\0"), "SQLite 머리가 아니다");
 }
+
+/// **서명한 그릇이 웹에서 개방되는가.**
+///
+/// 데스크톱에서 작동하는 것이 여기서 작동한다는 진술이 아니다. Ed25519 의
+/// 검증은 `curve25519-dalek` 이 수행하는데, 그 상자는 플랫폼마다 상이한 구현을
+/// 선택한다(`simd`·`u64`·`u32`). wasm 은 32비트라 선택되는 것이 데스크톱과
+/// 상이하고, **그 선택은 컴파일 시점에 묵시적으로 수행된다.**
+///
+/// 열쇠는 전부 시험 전용이다. **누구나 인지하는 값**이라 이 저장소에 기재해도
+/// 은닉하는 것이 감소하지 않는다 — 실제 열쇠는 부르는 곳이 주입한다.
+#[wasm_bindgen_test]
+fn a_signed_container_opens_in_the_browser() {
+    use sheetsift_core::seal;
+
+    const MAGIC: &[u8; seal::MAGIC_LEN] = b"TESTSEAL";
+    const KEY: [u8; 32] = [5u8; 32];
+    const IMAGE: &[u8] = b"SQLite format 3\0-- pretend this is a database --";
+
+    let signing = seal::SigningKey::from_bytes(&[7u8; 32]);
+    let verify = vec![signing.verifying_key().to_bytes()];
+
+    let sealed = seal::seal(IMAGE, MAGIC, "260801", [0, 5, 3], &KEY, &signing)
+        .expect("봉인하지 못했습니다");
+
+    let verified = seal::parse(&sealed, MAGIC, &verify).expect("서명을 확인하지 못했습니다");
+    let opened = seal::open(&verified, &KEY).expect("개방하지 못했습니다");
+    assert_eq!(opened, IMAGE, "알맹이가 상이합니다");
+
+    // **위조 교체를 차단하는가.** 타 열쇠로 서명한 것은 개방되지 않는다.
+    let other = seal::SigningKey::from_bytes(&[9u8; 32]);
+    let forged = seal::seal(b"forged", MAGIC, "260801", [0, 5, 3], &KEY, &other)
+        .expect("봉인하지 못했습니다");
+    assert!(seal::parse(&forged, MAGIC, &verify).is_err(), "타 열쇠의 서명이 통과했습니다");
+
+    // **훼손을 차단하는가.** 한 바이트만 변경해도 개방되지 않는다.
+    let mut torn = sealed.clone();
+    let at = sealed.len() / 2;
+    torn[at] ^= 0xFF;
+    assert!(
+        seal::parse(&torn, MAGIC, &verify).is_err(),
+        "훼손한 바이트가 통과했습니다"
+    );
+}
