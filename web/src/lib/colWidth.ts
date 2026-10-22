@@ -138,7 +138,7 @@ export function headerWidthRem(label: string): number {
   return rem;
 }
 
-/** 문자가 광범위한 쪽인가. 실측할 값을 선별하는 데만 사용한다. */
+/** 문자가 광폭인가. 실측할 값을 선별하는 데만 사용한다. */
 function weigh(s: string): number {
   let w = 0;
   for (const ch of s) w += ch.codePointAt(0)! > 0x1100 ? 2 : 1;

@@ -995,18 +995,18 @@ mod tests {
 
     /* ── 조용히 틀리느니 선다 ───────────────────────────────────── */
 
-    /// 머리글을 찾지 못하면 **첫 줄을 열 이름으로 쓰지 않는다.** 화면이 그
-    /// 까닭을 말할 수 있게 비워서 돌려준다.
+    /// 머리글을 탐색하지 못하면 **최초 행을 열 명칭으로 사용하지 않는다.**
+    /// 화면이 그 사유를 진술할 수 있게 공백으로 반환한다.
     #[test]
     fn a_sheet_without_a_header_opens_empty_and_says_so() {
         let csv = "1,2\n3,4\n".as_bytes();
         let v = Viewer::open(csv, "숫자.csv").unwrap();
         let view = screen(&v, 0);
         assert!(!view.header_found);
-        assert!(view.columns.is_empty(), "머리글을 못 찾았는데 열을 돌려주었다");
+        assert!(view.columns.is_empty(), "머리글을 탐색하지 못했는데 열을 반환했다");
     }
 
-    /// 두 줄 머리글은 한 줄로 합쳐 보여 준다. 화면이 한 줄이라 그렇다.
+    /// 2행 머리글은 1행으로 합성해 제시한다. 화면이 1행이라 그렇다.
     #[test]
     fn a_two_row_header_becomes_one_label() {
         let csv = "전형개요,,모집\n지역,대학,인원\n서울,가대,30\n부산,나대,20\n".as_bytes();
@@ -1014,7 +1014,7 @@ mod tests {
         let view = screen(&v, 0);
         let labels: Vec<&str> = view.columns.iter().map(|c| c.label.as_str()).collect();
         assert_eq!(labels, ["전형개요 · 지역", "전형개요 · 대학", "모집 · 인원"]);
-        assert_eq!(total(&mut v, &view.id), 2, "머리글 두 줄이 자료로 들어갔다");
+        assert_eq!(total(&mut v, &view.id), 2, "머리글 2행이 자료로 유입되었다");
     }
 
     /// 머리글 위의 안내 줄은 자료가 아니다. 그것까지 담으면 줄 수가 틀린다.
@@ -1082,7 +1082,7 @@ mod tests {
             ..Default::default()
         };
         let page = v.query_rows(&ask).expect("조회하지 못했습니다");
-        assert_eq!(page.total, 2, "머리글 두 줄이 자료로 섞였습니다");
+        assert_eq!(page.total, 2, "머리글 2행이 자료로 혼입되었습니다");
         assert_eq!(page.rows.len(), 2);
     }
 
@@ -1100,10 +1100,10 @@ mod tests {
         assert_eq!(v.query_rows(&two).expect("조회 실패").total, 2);
 
         let one = Ask { header: Some(HeaderSpec { at: 0, rows: 1 }), ..two.clone() };
-        // 1줄이면 둘째 줄이 자료가 되므로 한 줄이 늘어난다.
+        // 1행이면 2번째 행이 자료가 되므로 1행이 증가한다.
         assert_eq!(v.query_rows(&one).expect("조회 실패").total, 3);
 
-        // 되돌리면 다시 둘이다. 한 번 구축한 표가 눌러앉지 않는다.
+        // 복원하면 다시 둘이다. 1회 구축한 표가 잔류하지 않는다.
         assert_eq!(v.query_rows(&two).expect("조회 실패").total, 2);
     }
 

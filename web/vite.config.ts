@@ -8,13 +8,13 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
-      // 구운 wasm 겹. `docs/wasm.md` 의 두 줄이 여기에 내놓는다 — 저장소에는
-      // 담지 않으므로, 굽지 않은 채로 빌드하면 바로 선다.
+      // 컴파일한 wasm 겹. `docs/wasm.md` 의 2행이 여기에 산출한다 — 저장소에는
+      // 수용하지 않으므로, 컴파일하지 않은 상태로 빌드하면 즉시 정지한다.
       "sheetsift-wasm": fileURLToPath(new URL("./pkg/sheetsift_web.js", import.meta.url)),
     },
   },
-  // Pages 는 저장소 이름이 붙은 자리에 올라간다. 절대 경로로 구우면 그 자리에서
-  // 404 가 되고, 배포는 멀쩡히 성공한다 — 상대 경로로 굽는다.
+  // Pages 는 저장소 명칭이 부착된 위치에 배포된다. 절대 경로로 컴파일하면 그
+  // 위치에서 404 가 되고, 배포는 정상적으로 성공한다 — 상대 경로로 컴파일한다.
   base: "./",
   build: {
     outDir: "dist",
