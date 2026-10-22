@@ -12,12 +12,25 @@
 /* ── 오류 코드 사전 ──────────────────────────────────────────────── */
 
 const ERROR_RS: &str = include_str!("../../core/src/error.rs");
+/// 데스크톱 껍질이 자체로 발생시키는 코드. 바탕은 파일 시스템을 인지하지 않아
+/// 파일을 판독하지 못한 사유를 진술할 수단이 부재하다.
+const DESK_RS: &str = include_str!("../../tauri/src/error.rs");
 const CODES_TS: &str = include_str!("../../../web/src/i18n/codes.ts");
 const MESSAGES_TS: &str = include_str!("../../../web/src/i18n/messages.ko.ts");
 
 /// 겹이 오류를 문자로조차 변환하지 못한 위치에서 발생시키는 코드. 바탕의 enum
 /// 에는 부재하고 `sheetsift-wasm` 의 껍질이 생성한다.
 const SHELL_ONLY: &str = "UNKNOWN";
+
+/// 화면이 수용해야 하는 코드 전부 — 바탕의 것과 데스크톱 껍질의 것.
+///
+/// **화면은 단일 벌이다.** 브라우저에서 구동하든 창에서 구동하든 동일한 사전이
+/// 문구를 부여하므로, 일방만 발생시키는 코드도 거기 한 행이 존재해야 한다.
+fn every_code() -> Vec<String> {
+    let mut all = backend_codes(ERROR_RS);
+    all.extend(backend_codes(DESK_RS));
+    all
+}
 
 /// `ErrorCode` 의 변종 명칭을 serde 가 반출하는 문자로. `#[serde(rename_all =
 /// "SCREAMING_SNAKE_CASE")]` 와 동일한 규칙이다.
@@ -112,6 +125,10 @@ fn the_sources_are_there_to_look_at() {
         "바탕의 ErrorCode 를 탐색하지 못했습니다 — 검사가 실명한 것입니다"
     );
     assert!(
+        !backend_codes(DESK_RS).is_empty(),
+        "데스크톱 껍질의 ErrorCode 를 탐색하지 못했습니다 — 검사가 실명한 것입니다"
+    );
+    assert!(
         !listed_codes(CODES_TS).is_empty(),
         "화면의 ERROR_CODES 를 탐색하지 못했습니다 — 검사가 실명한 것입니다"
     );
@@ -127,16 +144,15 @@ fn the_sources_are_there_to_look_at() {
 #[test]
 fn the_screen_lists_every_backend_code() {
     let listed = listed_codes(CODES_TS);
-    let missing: Vec<String> =
-        backend_codes(ERROR_RS).into_iter().filter(|c| !listed.contains(c)).collect();
-    assert!(missing.is_empty(), "화면 목록에 부재하는 바탕 코드가 존재합니다: {missing:?}");
+    let missing: Vec<String> = every_code().into_iter().filter(|c| !listed.contains(c)).collect();
+    assert!(missing.is_empty(), "화면 목록에 부재하는 코드가 존재합니다: {missing:?}");
 }
 
 /// 화면 목록에 **바탕에 부재하는 코드**가 잔존하지 않는가. 명칭을 변경한 시점에
 /// 구 명칭이 사전에 그대로 잔존하면, 그 행은 영구히 화면에 표시될 수 없다.
 #[test]
 fn the_screen_lists_nothing_the_backend_cannot_send() {
-    let backend = backend_codes(ERROR_RS);
+    let backend = every_code();
     let extra: Vec<String> = listed_codes(CODES_TS)
         .into_iter()
         .filter(|c| c != SHELL_ONLY && !backend.contains(c))

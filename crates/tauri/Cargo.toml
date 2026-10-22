@@ -1,0 +1,23 @@
+[package]
+name = "sheetsift-tauri"
+# 여기는 판을 기재하는 곳이 아니다. 판은 이 상자를 굽는 곳이 결정한다.
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+publish = false
+
+# **데스크톱 창과 수수하는 껍질.**
+#
+# 알맹이는 `sheetsift-shell` 에 소재하고 이 상자는 그것을 수령한다. 여기 소재
+# 하는 것은 창이 호출하는 명령과, **파일을 판독하고 기록하는 작업**뿐이다 —
+# `sheetsift-core` 가 수행하지 않는 유일한 작업이 그것이다.
+#
+# **`tauri` 를 아직 수령하지 않는다.** 명령이 호출하는 알맹이를 통상 Rust 로
+# 배치하면 `cargo test --workspace` 가 그것을 전부 판정한다. `#[tauri::command]`
+# 는 그 함수에 부착하는 한 겹이고, 창과 대화상자가 실재하는 시점에 도입한다.
+[dependencies]
+sheetsift-shell = { path = "../shell" }
+sheetsift-core = { path = "../core" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

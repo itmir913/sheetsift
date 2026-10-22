@@ -1010,6 +1010,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sheetsift-tauri"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sheetsift-core",
+ "sheetsift-shell",
+]
+
+[[package]]
 name = "sheetsift-wasm"
 version = "0.0.0"
 dependencies = [

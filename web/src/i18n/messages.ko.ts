@@ -41,6 +41,11 @@ export const errors: Record<ErrorCode, string> = {
   VAULT_FILE_DAMAGED: "보관함 파일이 손상되었습니다.",
   VAULT_KEY_DERIVATION_FAILED: "보관함의 열쇠를 생성하지 못했습니다.",
   VAULT_SEAL_FAILED: "보관함을 봉인하지 못했습니다.",
+  // 하기 셋은 데스크톱 껍질만 발생시킨다. 브라우저에는 경로가 부재한다.
+  FILE_READ_FAILED: "'{name}' 을(를) 판독하지 못했습니다. 파일이 존재하는지 확인해 주십시오.",
+  FILE_WRITE_FAILED: "'{name}' 에 기록하지 못했습니다. 위치의 권한과 잔여 용량을 확인해 주십시오.",
+  NO_WORKBOOK_OPEN: "개방한 양식이 부재합니다. 파일을 먼저 선택해 주십시오.",
+
   VAULT_WRITE_FAILED: "보관함을 기록하지 못했습니다.",
   SIFT_FORMAT_INVALID: "`.sift` 파일의 형식이 일치하지 않습니다.",
   SIFT_SCHEMA_UNEXPECTED: "`.sift` 파일의 내용이 우리가 생성한 구조가 아닙니다.",
