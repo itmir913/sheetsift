@@ -62,7 +62,17 @@ const el = { file: $("file"), drop: $("drop"), status: $("status"), sheets: $("s
  * "전부 빼라" 로 읽으면 체크를 다 풀었을 때 화면이 통째로 비고, 사람은 자료가
  * 없는 줄 안다.
  */
-const state = { book: null, columns: [], sorts: [], picked: new Map(), offset: 0, total: 0 };
+// `screenId` 는 보고 있는 시트 이름이다. **요청마다 들고 간다** — 겹 쪽이
+// 기억하게 두면, 시트를 바꾼 뒤 늦게 온 앞 요청의 답이 새 표의 것처럼 그려진다.
+const state = {
+  book: null,
+  screenId: "",
+  columns: [],
+  sorts: [],
+  picked: new Map(),
+  offset: 0,
+  total: 0,
+};
 
 function tell(text, kind = "") {
   el.status.textContent = text;
@@ -128,6 +138,9 @@ async function openSheet(at) {
   }
   try {
     const view = JSON.parse(state.book.openSheet(at));
+    // 머리글을 못 찾아 표가 없는 시트여도 보고 있는 것은 이 시트다. 앞 시트
+    // 이름이 남아 있으면 그 표가 조회된다.
+    state.screenId = view.sheet;
     if (!view.headerFound) {
       show(false);
       el.sheets.hidden = false;
@@ -313,7 +326,14 @@ async function refill(column, needle) {
     // **그 열 자신의 선택은 빼고** 묻는다. 그래야 체크를 풀었다 걸었다 해도
     // 후보가 사라지지 않는다 — 바탕이 그렇게 해 준다.
     got = JSON.parse(
-      state.book.values(column.key, JSON.stringify(filters(column.key)), needle),
+      state.book.values(
+        JSON.stringify({
+          screenId: state.screenId,
+          columnKey: column.key,
+          filters: filters(column.key),
+          needle,
+        }),
+      ),
     );
   } catch (thrown) {
     picker.node.textContent = speak(thrown);
@@ -487,7 +507,13 @@ function filters(except) {
 
 async function draw() {
   try {
-    const ask = { sorts: state.sorts, filters: filters(), offset: state.offset, limit: PAGE };
+    const ask = {
+      screenId: state.screenId,
+      sorts: state.sorts,
+      filters: filters(),
+      offset: state.offset,
+      limit: PAGE,
+    };
     const page = JSON.parse(state.book.page(JSON.stringify(ask)));
     state.total = page.total;
 

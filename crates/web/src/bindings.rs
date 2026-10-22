@@ -15,7 +15,7 @@
 
 use wasm_bindgen::prelude::*;
 
-use crate::{Ask, Limits, Viewer};
+use crate::{Ask, Limits, ValuesAsk, Viewer};
 
 /// 화면이 손으로 적으면 안 되는 값들 (JSON). 띄울 때 한 번 받는다.
 #[wasm_bindgen]
@@ -68,29 +68,26 @@ impl Book {
     }
 
     /// 한 쪽을 읽는다. 받는 것도 돌려주는 것도 JSON 글자다.
-    pub fn page(&self, ask: &str) -> std::result::Result<String, JsValue> {
-        let ask: Ask = serde_json::from_str(ask).map_err(|e| {
-            thrown(sheetsift_core::Error::new(sheetsift_core::ErrorCode::DbQueryFailed).detail(e))
-        })?;
+    pub fn page(&mut self, request: &str) -> std::result::Result<String, JsValue> {
+        let ask: Ask = parsed(request)?;
         let page = self.inner.page(&ask).map_err(thrown)?;
         json(&page)
     }
 
-    /// 값 선택 목록. `filters` 는 지금 걸린 필터들(JSON 배열), `needle` 은
-    /// 후보를 좁히는 글자다.
-    pub fn values(
-        &self,
-        key: &str,
-        filters: &str,
-        needle: &str,
-    ) -> std::result::Result<String, JsValue> {
-        let filters: Vec<sheetsift_core::grid::Filter> =
-            serde_json::from_str(filters).map_err(|e| {
-                thrown(
-                    sheetsift_core::Error::new(sheetsift_core::ErrorCode::DbQueryFailed).detail(e),
-                )
-            })?;
-        let values = self.inner.values(key, &filters, needle).map_err(thrown)?;
+    /// 값 선택 목록 (JSON 요청 하나).
+    pub fn values(&mut self, request: &str) -> std::result::Result<String, JsValue> {
+        let ask: ValuesAsk = parsed(request)?;
+        let values = self.inner.values(&ask).map_err(thrown)?;
         json(&values)
     }
+}
+
+/// 화면이 보낸 요청 글자를 모양으로 바꾼다.
+///
+/// **깨진 요청은 선다.** 빠진 칸을 기본값으로 메우면 묻지 않은 표의 첫 쪽이
+/// 그럴듯하게 돌아간다.
+fn parsed<T: serde::de::DeserializeOwned>(request: &str) -> std::result::Result<T, JsValue> {
+    serde_json::from_str(request).map_err(|e| {
+        thrown(sheetsift_core::Error::new(sheetsift_core::ErrorCode::DbQueryFailed).detail(e))
+    })
 }

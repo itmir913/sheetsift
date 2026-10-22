@@ -32,6 +32,10 @@ pub const BLANK: &str = "-";
 /* ── 화면에 넘기는 모양 ─────────────────────────────────────────── */
 
 /// 열 하나를 화면이 아는 모양으로.
+///
+/// 칸 이름과 뜻은 이 표를 그릴 화면이 쓰는 것과 **같은 벌**이다. 머리글을
+/// 누를 수 있는지·값 선택을 띄울 수 있는지를 화면이 열마다 보는데, 그것이
+/// 없으면 화면은 "다 된다" 고 짐작하게 되고 그 짐작은 표마다 다르다.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ColumnView {
@@ -39,6 +43,10 @@ pub struct ColumnView {
     pub label: String,
     /// `"number"` 또는 `"text"`.
     pub kind: String,
+    /// 머리글을 눌러 줄을 세울 수 있는가.
+    pub sortable: bool,
+    /// 값 선택 목록을 띄울 수 있는가.
+    pub filterable: bool,
     /// **알아보지 못한 열인가.** 화면이 그것을 말해 줄 수 있어야 한다 —
     /// 짐작해서 숫자로 정렬해 놓고 가만히 있으면 틀린 차례를 참으로 본다.
     pub guessed: bool,
@@ -88,9 +96,15 @@ pub struct SheetView {
 }
 
 /// 화면이 보내는 조회 요청. [`grid::Query`] 와 같은 모양이되 글자로 온다.
+///
+/// **무슨 표를 보는지를 요청이 들고 온다.** 열어 둔 것이 무엇인지 겹 쪽에서
+/// 기억하고 요청은 그것을 묻지 않으면, 화면이 표를 바꾼 뒤에 늦게 도착한
+/// 앞 요청의 답이 **새 표의 것처럼** 그려진다. 오류는 나지 않는다.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Ask {
+    /// 볼 표. 여기서는 시트 이름이다.
+    pub screen_id: String,
     #[serde(default)]
     pub sorts: Vec<grid::Sort>,
     #[serde(default)]
@@ -99,6 +113,24 @@ pub struct Ask {
     pub offset: u32,
     #[serde(default)]
     pub limit: u32,
+}
+
+/// 값 선택 목록 요청.
+///
+/// 조회 요청과 **같은 길로** 온다 — 칸 하나짜리 요청이라도 자리마다 다른
+/// 방법으로 넘기면, 어느 쪽이 어떻게 넘어가는지가 부르는 자리마다 갈린다.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValuesAsk {
+    /// 볼 표. 여기서는 시트 이름이다.
+    pub screen_id: String,
+    pub column_key: String,
+    /// 지금 걸린 필터들. 이 열 자신의 것은 바탕이 빼고 센다.
+    #[serde(default)]
+    pub filters: Vec<grid::Filter>,
+    /// 후보를 좁히는 글자.
+    #[serde(default)]
+    pub needle: String,
 }
 
 /* ── 들고 있는 것 ───────────────────────────────────────────────── */
@@ -213,6 +245,8 @@ impl Viewer {
                 key: db.clone(),
                 label,
                 kind: if number { "number" } else { "text" }.to_string(),
+                sortable: true,
+                filterable: true,
                 guessed: guess.kind == infer::Kind::Unknown,
             });
         }
@@ -223,15 +257,32 @@ impl Viewer {
         Ok(SheetView { sheet: name, rows, columns: view, header_found })
     }
 
-    fn table(&self) -> Result<&Open> {
-        self.open.as_ref().ok_or_else(|| {
-            Error::new(ErrorCode::SheetUnreadable).detail("no sheet is open yet")
-        })
+    /// 요청이 가리키는 표를 열어 둔 상태로 만든다.
+    ///
+    /// 이미 그 시트가 열려 있으면 그대로 쓰고, 아니면 바꾼다. **없는 이름은
+    /// 선다** — 열려 있던 표로 답하면 화면은 바꾼 표를 보고 있다고 믿는다.
+    fn ready(&mut self, screen_id: &str) -> Result<&Open> {
+        let mine = self.open.as_ref().map(|o| o.name.as_str()) == Some(screen_id);
+        if !mine {
+            let at = self
+                .sheets
+                .iter()
+                .position(|(n, _)| n == screen_id)
+                .ok_or_else(|| {
+                    Error::new(ErrorCode::SheetUnreadable).with("sheet", screen_id)
+                })?;
+            self.open_sheet(at)?;
+        }
+        // 머리글을 못 찾은 시트는 표가 없다. 빈 쪽을 돌려주면 화면이
+        // "자료가 없다" 로 읽는다.
+        self.open
+            .as_ref()
+            .ok_or_else(|| Error::new(ErrorCode::SheetEmpty).with("sheet", screen_id))
     }
 
     /// 한 쪽을 읽는다.
-    pub fn page(&self, ask: &Ask) -> Result<grid::Page> {
-        let open = self.table()?;
+    pub fn page(&mut self, ask: &Ask) -> Result<grid::Page> {
+        let open = self.ready(&ask.screen_id)?;
         let q = grid::Query {
             sorts: ask.sorts.clone(),
             filters: ask.filters.clone(),
@@ -246,14 +297,16 @@ impl Viewer {
     /// `needle` 은 후보를 좁히는 글자다. **받은 목록을 화면이 걸러 보여 주는
     /// 것으로는 안 된다** — 값이 많으면 바탕이 앞에서 잘라 보내므로, 찾는 값이
     /// 그 뒤에 있으면 "없습니다" 가 뜬다.
-    pub fn values(
-        &self,
-        key: &str,
-        filters: &[grid::Filter],
-        needle: &str,
-    ) -> Result<grid::ColumnValues> {
-        let open = self.table()?;
-        grid::column_values(&open.conn, open, BLANK, key, filters, needle)
+    pub fn values(&mut self, ask: &ValuesAsk) -> Result<grid::ColumnValues> {
+        let open = self.ready(&ask.screen_id)?;
+        grid::column_values(
+            &open.conn,
+            open,
+            BLANK,
+            &ask.column_key,
+            &ask.filters,
+            &ask.needle,
+        )
     }
 
     /// 열어 둔 표의 줄 수. 필터를 걸기 전의 값이다.
@@ -298,8 +351,18 @@ mod tests {
     /// 바탕의 시험이 쓰는 그 작은 양식이다. 여기서도 같은 것을 쓴다.
     const TINY_XLSX: &[u8] = include_bytes!("../../core/tests/fixtures/tiny.xlsx");
 
-    fn ask(limit: u32) -> Ask {
-        Ask { limit, ..Ask::default() }
+    /// 조회 요청 하나. **무슨 표를 보는지는 요청이 들고 온다.**
+    fn ask(sheet: &str, limit: u32) -> Ask {
+        Ask { screen_id: sheet.to_string(), limit, ..Ask::default() }
+    }
+
+    /// 값 선택 요청 하나.
+    fn values_ask(sheet: &str, key: &str) -> ValuesAsk {
+        ValuesAsk {
+            screen_id: sheet.to_string(),
+            column_key: key.to_string(),
+            ..ValuesAsk::default()
+        }
     }
 
     #[test]
@@ -342,7 +405,7 @@ mod tests {
                     "key": name, "dir": "asc"
                 }))
                 .unwrap()],
-                ..ask(10)
+                ..ask(&view.sheet, 10)
             })
             .unwrap();
         assert_eq!(page.total, 3);
@@ -361,14 +424,14 @@ mod tests {
         assert_eq!(view.columns[0].kind, "number");
         let key = view.columns[0].key.clone();
 
-        let sorted = |dir: &str| {
+        let mut sorted = |dir: &str| {
             let page = v
                 .page(&Ask {
                     sorts: vec![serde_json::from_value(serde_json::json!({
                         "key": key, "dir": dir
                     }))
                     .unwrap()],
-                    ..ask(10)
+                    ..ask("점수", 10)
                 })
                 .unwrap();
             page.rows
@@ -389,12 +452,14 @@ mod tests {
             "key": region, "values": ["서울"]
         }))
         .unwrap()];
-        let page = v.page(&Ask { filters: filters.clone(), ..ask(10) }).unwrap();
+        let page = v.page(&Ask { filters: filters.clone(), ..ask(&view.sheet, 10) }).unwrap();
         assert_eq!(page.total, 2);
 
         // 값 목록은 **그 열 자신의 필터를 빼고** 센다. 그래야 체크를 풀었다
         // 걸었다 해도 후보가 사라지지 않는다.
-        let values = v.values(&region, &filters, "").unwrap();
+        let values = v
+            .values(&ValuesAsk { filters, ..values_ask(&view.sheet, &region) })
+            .unwrap();
         let got: Vec<&str> = values.values.iter().map(|v| v.value.as_str()).collect();
         assert!(got.contains(&"부산"), "제 필터 때문에 후보가 사라졌다");
     }
@@ -417,12 +482,32 @@ mod tests {
         assert_eq!(v.open_sheet(9).unwrap_err().code, ErrorCode::SheetUnreadable);
     }
 
-    /// 시트를 열기 전에 조회하면 선다. 빈 쪽을 돌려주면 화면이 "자료가 없다"
-    /// 로 읽는다.
+    /// 요청이 가리킨 표를 **열지 않아도 조회가 된다.** 시트를 먼저 열어 두는
+    /// 일을 화면이 기억해야 하면, 그 기억이 화면마다 달라진다.
     #[test]
-    fn asking_before_opening_a_sheet_stops() {
-        let v = Viewer::open(TINY_XLSX, "tiny.xlsx").unwrap();
-        assert!(v.page(&ask(10)).is_err());
+    fn asking_opens_the_sheet_the_request_names() {
+        let mut v = Viewer::open(TINY_XLSX, "tiny.xlsx").unwrap();
+        assert_eq!(v.page(&ask("사람", 10)).unwrap().total, 3);
+    }
+
+    /// **없는 표를 물으면 선다.** 열려 있던 표로 답하면 화면은 바꾼 표를 보고
+    /// 있다고 믿는다 — 줄 수도 열 이름도 그럴듯하다.
+    #[test]
+    fn asking_for_a_sheet_that_is_not_there_stops() {
+        let mut v = Viewer::open(TINY_XLSX, "tiny.xlsx").unwrap();
+        v.open_sheet(0).unwrap();
+        let e = v.page(&ask("없는시트", 10)).unwrap_err();
+        assert_eq!(e.code, ErrorCode::SheetUnreadable);
+        assert_eq!(e.params.get("sheet").map(String::as_str), Some("없는시트"));
+    }
+
+    /// 머리글을 못 찾은 시트를 물으면 **빈 쪽이 아니라 오류**다. 빈 쪽은
+    /// 화면이 "자료가 없다" 로 읽는다.
+    #[test]
+    fn asking_for_a_sheet_without_a_header_stops() {
+        let csv = "1,2\n3,4\n".as_bytes();
+        let mut v = Viewer::open(csv, "숫자.csv").unwrap();
+        assert_eq!(v.page(&ask("숫자", 10)).unwrap_err().code, ErrorCode::SheetEmpty);
     }
 
     /* ── 값 선택 목록 ───────────────────────────────────────────── */
@@ -435,7 +520,7 @@ mod tests {
         let mut v = Viewer::open(csv, "지역.csv").unwrap();
         let view = v.open_sheet(0).unwrap();
         let key = view.columns[0].key.clone();
-        let got = v.values(&key, &[], "").unwrap();
+        let got = v.values(&values_ask(&view.sheet, &key)).unwrap();
         let pairs: Vec<(&str, u32)> =
             got.values.iter().map(|x| (x.value.as_str(), x.count)).collect();
         assert_eq!(pairs, [("부산", 1), ("서울", 3)]);
@@ -453,14 +538,14 @@ mod tests {
         let key = view.columns[0].key.clone();
 
         let token = Limits::default().blank_token;
-        let got = v.values(&key, &[], "").unwrap();
+        let got = v.values(&values_ask(&view.sheet, &key)).unwrap();
         assert!(got.values.iter().any(|x| x.value == token), "빈칸이 목록에 없다");
 
         let picked: Vec<grid::Filter> = vec![serde_json::from_value(serde_json::json!({
             "key": key, "values": [token]
         }))
         .unwrap()];
-        let page = v.page(&Ask { filters: picked, ..ask(10) }).unwrap();
+        let page = v.page(&Ask { filters: picked, ..ask(&view.sheet, 10) }).unwrap();
         assert_eq!(page.total, 1, "빈칸 표식으로 걸리지 않았다");
     }
 
@@ -483,12 +568,14 @@ mod tests {
         let key = view.columns[0].key.clone();
 
         // 좁히지 않으면 잘린다. 그리고 찾는 값은 그 뒤에 있다.
-        let all = v.values(&key, &[], "").unwrap();
+        let all = v.values(&values_ask(&view.sheet, &key)).unwrap();
         assert!(all.truncated, "상한을 넘기지 못했다 — 시험 자료를 늘리세요");
         assert!(!all.values.iter().any(|x| x.value == "힣찾을값"), "잘린 뒤에 있어야 한다");
 
         // 좁히면 찾아진다.
-        let found = v.values(&key, &[], "찾을값").unwrap();
+        let found = v
+            .values(&ValuesAsk { needle: "찾을값".into(), ..values_ask(&view.sheet, &key) })
+            .unwrap();
         assert_eq!(found.values.len(), 1);
         assert_eq!(found.values[0].value, "힣찾을값");
         assert!(!found.truncated);
@@ -507,11 +594,17 @@ mod tests {
         }))
         .unwrap()];
         // 제 열의 선택은 후보 목록에서 빠진다(엑셀과 같다). 좁히기는 그 위에 건다.
-        let got = v.values(&key, &picked, "부").unwrap();
+        let got = v
+            .values(&ValuesAsk {
+                filters: picked.clone(),
+                needle: "부".into(),
+                ..values_ask(&view.sheet, &key)
+            })
+            .unwrap();
         let names: Vec<&str> = got.values.iter().map(|x| x.value.as_str()).collect();
         assert_eq!(names, ["부산"]);
         // 표에 걸린 것은 그대로 '서울' 이다.
-        assert_eq!(v.page(&Ask { filters: picked, ..ask(10) }).unwrap().total, 1);
+        assert_eq!(v.page(&Ask { filters: picked, ..ask(&view.sheet, 10) }).unwrap().total, 1);
     }
 
     /// 고른 값으로 좁혀진다. 여럿 고르면 OR 다.
@@ -524,8 +617,12 @@ mod tests {
         let pick = |names: &[&str]| -> Vec<grid::Filter> {
             vec![serde_json::from_value(serde_json::json!({ "key": key, "values": names })).unwrap()]
         };
-        assert_eq!(v.page(&Ask { filters: pick(&["서울"]), ..ask(10) }).unwrap().total, 2);
-        assert_eq!(v.page(&Ask { filters: pick(&["서울", "대구"]), ..ask(10) }).unwrap().total, 3);
+        let sheet = view.sheet.clone();
+        assert_eq!(v.page(&Ask { filters: pick(&["서울"]), ..ask(&sheet, 10) }).unwrap().total, 2);
+        assert_eq!(
+            v.page(&Ask { filters: pick(&["서울", "대구"]), ..ask(&sheet, 10) }).unwrap().total,
+            3
+        );
     }
 
     /// **화면이 손으로 적으면 안 되는 값들**이 실제 바탕의 것과 같아야 한다.
