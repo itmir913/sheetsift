@@ -908,10 +908,12 @@ mod tests {
     /// 지점을 여기서 포착한다.
     #[test]
     fn the_key_recipe_is_pinned() {
-        let key = derive_key("학교비밀번호2027", b"goe-navi-salt-16").unwrap();
+        // 솔트는 누구나 인지하는 값이다 — 공개 저장소의 시험이 고정하는 것이고,
+        // 배포되는 파일의 솔트는 매회 난수로 산출한다.
+        let key = derive_key("학교비밀번호2027", b"public-test-salt").unwrap();
         assert_eq!(
             hex(&*key),
-            "dd5dcf8533250488be80b1df35c8df8c4653bec6e14403e20778576549c2993f",
+            "304171278bf55b0ddb38d73456d2a571a9768935fe23f647190614ce064c5f95",
             "\n열쇠 도출 방법이 변경되었습니다. 비용·알고리즘·판 중 무엇이 변경되었는지\n\
              확인하세요. 이미 배포된 파일이 존재하면 그 파일들은 개방되지 않습니다.\n"
         );
