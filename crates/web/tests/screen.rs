@@ -52,6 +52,10 @@ fn backend_codes(src: &str) -> Vec<String> {
 }
 
 /// `codes.ts` 의 `ERROR_CODES` 에 적힌 글자들.
+///
+/// 줄마다 하나씩 적혀 있지만 **줄을 세지 않는다.** 한 줄에 여럿이 적혀도 같게
+/// 읽어야 한다 — 서식을 바꾸는 날 검사가 "목록이 비었다" 로 서면, 고친 사람은
+/// 제가 무엇을 깨뜨렸는지 못 찾는다.
 fn listed_codes(src: &str) -> Vec<String> {
     let from = match src.find("export const ERROR_CODES = [") {
         Some(at) => at,
@@ -59,12 +63,14 @@ fn listed_codes(src: &str) -> Vec<String> {
     };
     let body = &src[from..];
     let to = body.find("] as const;").unwrap_or(body.len());
+    // 따옴표 쌍을 차례로 집는다. 코드 모양(대문자와 밑줄)인 것만 남겨, 주석에
+    // 따옴표가 섞여 들어와도 목록이 불어나지 않는다.
     body[..to]
-        .lines()
-        .filter_map(|l| {
-            let l = l.trim();
-            l.strip_prefix('"').and_then(|r| r.split('"').next()).map(str::to_string)
-        })
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .filter(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_uppercase() || c == '_'))
+        .map(str::to_string)
         .collect()
 }
 
