@@ -65,12 +65,32 @@ emscripten, wasi-sdk, `zig cc`, Visual Studio 의 clang 구성요소). CLion 이
 (`crates/web/tests/boundary.rs`). 돌릴 자리가 하나뿐인 검사는 그 자리가
 없어지는 것으로 조용히 사라진다.
 
-**여기서 돌리고 싶으면** clang 하나를 두면 된다. 전역에 깔지 않고 가는 길이
-가볍다 — `zig` 압축본을 풀고, `clang` 이라는 이름으로 그것을 부르는 배치 파일을
-하나 두고, `CC_wasm32_unknown_unknown` 에 그 파일의 전체 경로를 넣는다
-(`cc-rs` 는 `clang.exe` 를 찾으므로 PATH 에 배치 파일을 두는 것으로는 안 된다).
-되는지는 **확인하지 않았다.** 확실한 쪽은 Visual Studio Installer 의 "C++ Clang
-compiler for Windows" 구성요소다.
+### 아무 clang 이나 되는 것이 아니다
+
+**Visual Studio 의 clang 으로는 안 된다.** Installer 의 "C++ Clang compiler for
+Windows" 를 깔면 `…\VC\Tools\Llvm\x64\bin\clang.exe` 가 생기는데, 그것은
+**WebAssembly 백엔드 없이 구워진 clang** 이다. 깔고 돌려 보면 이렇게 선다:
+
+```
+error: unable to create target:
+  'No available targets are compatible with triple "wasm32-unknown-unknown"'
+```
+
+`clang --print-targets` 가 미리 말해 준다 — 거기 `wasm32` 가 없으면 그 clang
+으로는 못 굽는다. VS 가 담은 것은 AArch64·ARM·X86 뿐이다.
+
+**깔기 전에 그 줄로 먼저 본다.** 깔고 나서야 알면 기가 단위를 헛 받는다.
+
+그러니 받을 것은 **모든 타깃이 들어 있는 clang** 이다. LLVM 공식 배포본
+(`winget install LLVM.LLVM`)이나, 설치 프로그램 없는 압축본 하나로 끝나는
+`zig`(속의 clang 을 `zig cc` 로 부른다)·`wasi-sdk` 가 그런 것이다. zig 쪽은
+`clang` 이라는 이름으로 그것을 부르는 배치 파일을 하나 두고
+`CC_wasm32_unknown_unknown` 에 그 파일의 전체 경로를 넣는다 — `cc-rs` 는
+`clang.exe` 를 찾으므로 PATH 에 배치 파일을 두는 것으로는 안 된다. 되는지는
+아직 확인하지 않았다.
+
+어느 쪽이든 깔았으면 그 타깃이 실제로 들어 있는지 `--print-targets` 로 본 다음
+시험을 돌린다.
 
 **브라우저 없이 된다.** 노드에서 돈다. 브라우저에서 돌리려면
 `wasm_bindgen_test_configure!(run_in_browser)` 와 드라이버가 더 필요한데, 지금
