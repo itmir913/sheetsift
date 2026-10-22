@@ -1,8 +1,8 @@
 # The gate runs here, and it is the same gate you run locally.
 #
 # Locally the whole thing is one command, `npm run ci`. That command is a
-# sequence of parts -- `ci:gate`, `ci:wasm`, `ci:web` -- and the jobs below run
-# those same parts, one per job, so they can go at once. Nothing here spells a
+# sequence of parts -- `ci:gate`, `ci:wasm`, `ci:tauri`, `ci:web` -- and the
+# jobs below run those same parts, one per job, so they can go at once. Nothing here spells a
 # check out again; every job calls a script from `package.json`.
 #
 # That is the point. When a check was written out in both places, one copy got
@@ -21,7 +21,14 @@
 # wasm compiles SQLite's C sources (`rusqlite` is taken with `bundled`), which
 # needs clang, and the runner image has one. See `docs/wasm.md`.
 #
-# `pages` deploys, and only after every gate job passes (`needs`).
+# `tauri` is the desktop shell. That crate is outside the workspace -- it takes
+# the operating system's webview, and inside the workspace the Linux `gate` job
+# would need webkit to build something it never runs. It runs on Windows, which
+# is what the app is built for.
+#
+# `pages` deploys, and only after every gate job passes (`needs`). `bake` builds
+# the desktop app the same way: after the gate, never instead of it. Baking is
+# not a check -- folding the two together hides which one failed.
 #
 # Triggers: what lands on `main`, what asks to be merged, and what you run by
 # hand.
@@ -125,6 +132,23 @@ jobs:
 
       - run: npm run ci:web
 
+  # The desktop shell. Outside the workspace, so the part above never sees it.
+  tauri:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: tauri
+          workspaces: crates/tauri
+
+      - run: npm run ci:tauri
+
   # Only what passed the gates ships.
   #
   # `needs` is what holds that. Written down as a rule it gets deleted one day,
@@ -139,7 +163,7 @@ jobs:
   # The wasm layer is built first, into `web/pkg`. Vite reaches it through the
   # `sheetsift-wasm` alias in `web/vite.config.ts`.
   pages:
-    needs: [gate, wasm, web]
+    needs: [gate, wasm, tauri, web]
     # A branch asking to be merged does not ship. Running it by hand means
     # "ship it", so that does.
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
@@ -245,3 +269,60 @@ jobs:
 
       - id: deploy
         uses: actions/deploy-pages@v5
+
+  # Baking the desktop app. **Not a check.** It waits for the gate the same way
+  # the deploy does, and it runs no test of its own -- when a build and a check
+  # share one command, a red line does not say which of the two broke, and the
+  # same command cannot be carried to a second operating system.
+  #
+  # Only Windows for now. The author has no Mac, and a green "it built" does not
+  # say the thing opens.
+  #
+  # The screen is built in `--mode tauri`, so `web/src/lib/book.tauri.ts` is the
+  # boundary and no wasm is involved. `beforeBuildCommand` in `tauri.conf.json`
+  # does that -- it is not spelled out here.
+  bake:
+    needs: [gate, wasm, tauri, web]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: tauri
+          workspaces: crates/tauri
+          save-if: false
+
+      - name: Install the screen's dependencies
+        working-directory: web
+        run: npm ci
+
+      # The version is pinned. An unpinned tool changes under you on a day you
+      # changed nothing, and then the only thing that moved is invisible here.
+      - name: Bake
+        working-directory: crates/tauri
+        run: npx --yes @tauri-apps/cli@2.9.1 build
+
+      # What came out has to be there. An empty folder uploads fine and looks
+      # like a success.
+      - name: Check what came out
+        shell: bash
+        run: |
+          out=crates/tauri/target/release/bundle
+          if [ ! -d "$out" ] || [ -z "$(ls -A "$out")" ]; then
+            echo "$out is missing or empty" >&2
+            exit 1
+          fi
+          ls -lR "$out"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sheetsift-windows
+          path: crates/tauri/target/release/bundle
