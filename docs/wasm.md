@@ -24,6 +24,54 @@ cargo install wasm-bindgen-cli --locked
 판은 `wasm-bindgen` 크레이트와 **같아야** 한다. 어긋나면 도구가 그렇다고 말하고
 선다 — 조용히 틀리지 않는다.
 
+### C 컴파일러가 하나 더 있어야 한다
+
+위 둘로는 모자란다. `rusqlite` 를 `bundled` 로 받으므로 **SQLite 의 C 소스를
+함께 컴파일한다.** 데스크톱에서는 Visual Studio 의 `cl.exe` 가 그 일을 해서
+보이지 않지만, wasm 에서는 `cc-rs` 가 **`clang` 만** 찾는다. MSVC 가 그 타깃을
+내지 못하기 때문이다. 없으면 이렇게 선다:
+
+```
+Compiling sqlite-wasm-rs
+warning: Compiler family detection failed due to error:
+  ToolNotFound: failed to find tool "clang": program not found
+```
+
+**MinGW gcc 로는 안 된다.** 플래그 문제가 아니다 — 하나의 gcc 는 하나의 타깃을
+내고(`gcc -dumpmachine` 이 말해 준다), GCC 본가에는 WebAssembly 백엔드가 없어
+`--target=` 이라는 플래그조차 모른다. **wasm 을 내는 C 백엔드는 실질적으로
+LLVM 하나**라, wasm 을 굽는 도구는 이름이 뭐든 속이 clang 이다(LLVM 배포본,
+emscripten, wasi-sdk, `zig cc`, Visual Studio 의 clang 구성요소). CLion 이 담아
+둔 것은 `clangd` 와 `clang-tidy` 뿐이고 **둘 다 `.o` 를 못 낸다.**
+
+깔지 않고 가는 길이 있다. 아래 "관문이 둘" 을 본다.
+
+## 관문이 둘
+
+데스크톱 관문(`cargo test --workspace`)은 커밋 전에 이 컴퓨터에서 돈다. 그리고
+**액션이 그 둘을 다 돌린다**(`.github/workflows/ci.yml`) — 데스크톱 줄은 잡
+하나로, wasm 줄은 다른 잡으로. 러너 이미지에는 clang 이 있고 이 컴퓨터에는
+없으니, wasm 관문이 실제로 도는 자리는 지금 거기뿐이다. 액션은 위에 적힌 두
+줄을 그대로 돌리고, 데스크톱 clippy 가 볼 수 없는 껍질(`bindings.rs`)도 그
+타깃으로 한 번 본다.
+
+**관문을 파일 둘로 나누지 않았다.** 나누면 한쪽만 고쳐지고, 나가는 것과 평소
+보는 것이 다른 줄을 지나게 된다.
+
+`wasm-bindgen-cli` 의 판은 거기서도 손으로 적지 않는다 — `Cargo.lock` 에서
+읽는다. 적어 두면 크레이트를 올리는 날 그 파일만 낡는다.
+
+**그 액션이 지워지거나 줄 하나가 빠지면 데스크톱 관문이 선다**
+(`crates/web/tests/boundary.rs`). 돌릴 자리가 하나뿐인 검사는 그 자리가
+없어지는 것으로 조용히 사라진다.
+
+**여기서 돌리고 싶으면** clang 하나를 두면 된다. 전역에 깔지 않고 가는 길이
+가볍다 — `zig` 압축본을 풀고, `clang` 이라는 이름으로 그것을 부르는 배치 파일을
+하나 두고, `CC_wasm32_unknown_unknown` 에 그 파일의 전체 경로를 넣는다
+(`cc-rs` 는 `clang.exe` 를 찾으므로 PATH 에 배치 파일을 두는 것으로는 안 된다).
+되는지는 **확인하지 않았다.** 확실한 쪽은 Visual Studio Installer 의 "C++ Clang
+compiler for Windows" 구성요소다.
+
 **브라우저 없이 된다.** 노드에서 돈다. 브라우저에서 돌리려면
 `wasm_bindgen_test_configure!(run_in_browser)` 와 드라이버가 더 필요한데, 지금
 보려는 것(SQLite 가 열리는가, 조회가 도는가, 봉투가 열리는가)은 브라우저와

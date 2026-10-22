@@ -122,6 +122,48 @@ fn the_check_catches_a_wasm_test_calling_a_gone_name() {
     assert!(!have.contains(&calls[0]), "껍질에 그런 이름이 있습니다");
 }
 
+/* ── 둘째 관문이 거기 있는가 ─────────────────────────────────────── */
+
+/// 액션이 돌리는 관문. 데스크톱 관문과 wasm 관문이 한 파일에 있다.
+const ACTION: &str = include_str!("../../../.github/workflows/ci.yml");
+
+/// 그 관문이 돌려야 하는 줄들. **여기도 그 글자 그대로 적는다** — 두 벌이지만
+/// 어긋나면 이 시험이 선다. 어긋난 채로 조용히 지나가는 쪽이 나쁘다.
+const GATE_COMMANDS: [&str; 4] = [
+    "cargo test --workspace",
+    "cargo clippy --workspace --all-targets -- -D warnings",
+    "cargo test -p sheetsift-core --target wasm32-unknown-unknown",
+    "cargo test -p sheetsift-web --target wasm32-unknown-unknown",
+];
+
+fn not_run(src: &str) -> Vec<&'static str> {
+    GATE_COMMANDS.iter().copied().filter(|c| !src.contains(c)).collect()
+}
+
+/// **관문이 줄어들면 선다.**
+///
+/// wasm 시험은 이 컴퓨터에서 돌지 않는다(SQLite 를 wasm 으로 굽는 데 clang 이
+/// 필요하다). 그래서 그것을 돌리는 자리가 액션뿐인데, 그 파일이 지워지거나
+/// 줄 하나가 빠지면 **아무 것도 서지 않고** 관문이 하나로 줄어든다. 데스크톱
+/// 줄도 같이 본다 — 액션과 손으로 돌리는 것이 다른 줄을 지나면, 갈라진 관문은
+/// 관문이 아니다.
+#[test]
+fn the_action_runs_every_gate_command() {
+    assert!(
+        ACTION.contains("cargo"),
+        "관문 파일에서 돌리는 줄을 찾지 못했습니다 — 검사가 눈먼 것입니다"
+    );
+    let missing = not_run(ACTION);
+    assert!(missing.is_empty(), "액션이 돌리지 않는 줄이 있습니다: {missing:?}");
+}
+
+/// 그 검사가 정말 막는지 본다 — 한 줄만 돌리는 관문을 먹여 본다.
+#[test]
+fn the_check_catches_a_gate_that_runs_only_one_of_them() {
+    let doctored = "- run: cargo test -p sheetsift-core --target wasm32-unknown-unknown\n";
+    assert_eq!(not_run(doctored).len(), GATE_COMMANDS.len() - 1, "{:?}", not_run(doctored));
+}
+
 /// **이 검사가 정말 막는지**를 일부러 어긋낸 소스로 본다. 글자를 읽는 검사는
 /// 제 눈이 멀어도 조용하다.
 #[test]
