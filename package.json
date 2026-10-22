@@ -1,0 +1,10 @@
+{
+  "name": "sheetsift",
+  "private": true,
+  "scripts": {
+    "ci": "npm run ci:gate && npm run ci:wasm && npm run ci:web",
+    "ci:gate": "cargo test --workspace && cargo clippy --workspace --all-targets -- -D warnings",
+    "ci:wasm": "cargo clippy -p sheetsift-web --all-targets --target wasm32-unknown-unknown -- -D warnings && cargo test -p sheetsift-core --target wasm32-unknown-unknown && cargo test -p sheetsift-web --target wasm32-unknown-unknown",
+    "ci:web": "npm --prefix web ci && npm --prefix web run check"
+  }
+}

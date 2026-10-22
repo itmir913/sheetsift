@@ -1,22 +1,30 @@
-# Both gates live in this one file.
+# The gate runs here, and it is the same gate you run locally.
 #
-# `gate` runs the same lines you run locally before committing. `wasm` is the
-# second gate, the one that cannot run on the author's machine: building for
+# Locally the whole thing is one command, `npm run ci`. That command is a
+# sequence of parts -- `ci:gate`, `ci:wasm`, `ci:web` -- and the jobs below run
+# those same parts, one per job, so they can go at once. Nothing here spells a
+# check out again; every job calls a script from `package.json`.
+#
+# That is the point. When a check was written out in both places, one copy got
+# edited and the other did not, and from then on what shipped and what you
+# looked at every day went through different lines. So the parts live in
+# `package.json` and this file only says which part runs where.
+#
+# `crates/web/tests/gate.rs` holds the two together: every part must run here,
+# and `npm run ci` must be all of the parts. Add a part and forget this file,
+# or add a job here that runs something no part contains, and the gate stops.
+#
+# Why jobs at all, rather than one job running `npm run ci`: they go in
+# parallel, and a failure says which part failed without opening the log.
+#
+# `wasm` is the part that cannot run on the author's machine -- building for
 # wasm compiles SQLite's C sources (`rusqlite` is taken with `bundled`), which
-# needs clang, and the runner image has one. See `docs/wasm.md` for why, and
-# for how to get it locally.
+# needs clang, and the runner image has one. See `docs/wasm.md`.
 #
-# `pages` deploys, and only after both gates pass (`needs`).
-#
-# Why one file: split the gates across two and one of them gets edited alone,
-# so what ships and what you look at every day stop going through the same
-# lines. What is checked -- and what must pass before anything ships -- should
-# be readable in one place. The jobs are separate only so that a failure says
-# which part failed.
+# `pages` deploys, and only after every gate job passes (`needs`).
 #
 # Triggers: what lands on `main`, what asks to be merged, and what you run by
-# hand. The real gate is `cargo test --workspace` before the commit; what runs
-# here is that plus the thing this machine cannot answer (wasm).
+# hand.
 name: ci
 
 on:
@@ -32,33 +40,37 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # The desktop gate -- the two lines `CLAUDE.md` names.
+  # The desktop part. What the author runs before every commit.
   gate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - uses: Swatinem/rust-cache@v2
         with:
           key: gate
 
-      - name: Tests
-        run: cargo test --workspace
+      - run: npm run ci:gate
 
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
-  # What the desktop gate cannot see.
+  # What the desktop part cannot see.
   #
   # The `tests/wasm.rs` files start with `#![cfg(target_arch = "wasm32")]`, so
   # `cargo test --workspace` on a desktop reads them as empty files. Change the
-  # shape of a public function, leave those call sites alone, and the first gate
+  # shape of a public function, leave those call sites alone, and `ci:gate`
   # still goes green. The layer that talks to the browser (`bindings.rs`) is
   # compiled only for that target too, so the same holds for it.
   wasm:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
       # SQLite is C. Without this line we would be leaning on whatever clang the
       # runner image happens to carry, and the day the image changes it breaks
@@ -93,16 +105,25 @@ jobs:
         with:
           tool: wasm-bindgen-cli@${{ steps.bindgen.outputs.version }}
 
-      # The shell compiles only for this target, so desktop clippy never sees it.
-      - name: Clippy (the browser shell)
-        run: cargo clippy -p sheetsift-web --all-targets --target wasm32-unknown-unknown -- -D warnings
+      # Clippy on the shell is in here too: it compiles only for this target,
+      # so the desktop part never sees it.
+      - run: npm run ci:wasm
 
-      # The two lines written in `docs/wasm.md` and `CLAUDE.md`. No new commands.
-      - name: Tests (core, wasm)
-        run: cargo test -p sheetsift-core --target wasm32-unknown-unknown
+  # The screen. `vue-tsc` is the only thing that reads it against the shape
+  # written in `web/src/pkg.d.ts`, and it needs no wasm and no clang -- so it
+  # is its own part and runs beside the others.
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
 
-      - name: Tests (web, wasm)
-        run: cargo test -p sheetsift-web --target wasm32-unknown-unknown
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm run ci:web
 
   # Only what passed the gates ships.
   #
@@ -118,7 +139,7 @@ jobs:
   # The wasm layer is built first, into `web/pkg`. Vite reaches it through the
   # `sheetsift-wasm` alias in `web/vite.config.ts`.
   pages:
-    needs: [gate, wasm]
+    needs: [gate, wasm, web]
     # A branch asking to be merged does not ship. Running it by hand means
     # "ship it", so that does.
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
