@@ -158,6 +158,17 @@
     color: var(--c-fg);
   }
 
+  /* 개폐하는 단추는 **지금 어느 쪽인지를 표시한다.** 조작할 때마다 형태가
+     동일하면 그것이 여는 단추인지 닫는 단추인지 판별할 수 없고, 목록이 접힌
+     것을 인지하지 못한 채 시트를 탐색하게 된다. `aria-expanded` 가 이미 그
+     상태를 보유하므로 그것을 그대로 참조한다 — 상태를 두 벌로 보유하면
+     일방만 갱신된다. */
+  .app-head-btn[aria-expanded="true"] {
+    border-color: var(--c-accent);
+    background-color: var(--c-accent-surface);
+    color: var(--c-fg);
+  }
+
   /* 투입이 이 단추 위에 도달한 상태. 수령 가능하다는 것을 표시한다. */
   .app-head-btn-over {
     border-color: var(--c-accent);
