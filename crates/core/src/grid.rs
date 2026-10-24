@@ -36,13 +36,14 @@ pub const MAX_LIMIT: u32 = 500;
 ///
 /// **이 수는 묘사하는 쪽이 결정한다.** 목록을 산출하는 비용은 고유값 수가
 /// 아니라 자료 전 행의 집약이 지배하므로 상한을 상향해도 바탕은 변동하지 않는다.
-/// 반면 화면은 항목마다 확인란을 묘사하므로, 가상 스크롤이 부재한 상태에서
-/// 5,000 을 초과하면 개방과 폐쇄가 체감되고 수만에서는 정지한다(실측).
+/// 반면 화면은 항목마다 확인란을 묘사하므로, 그 수가 상한을 결정한다 —
+/// 묘사하는 범위만 생성하게 한 이후(`ColumnFilter.vue`) 1만이 성립한다.
+/// 엑셀의 필터 목록 상한도 1만이다.
 ///
-/// 상향하려면 **화면이 선행 변경되어야 한다.** 그리고 32,766 을 초과할 수
-/// 없다 — 값 하나를 해제하면 화면이 전체 목록을 조건으로 송신하는데, 그것이
-/// SQLite 의 바인딩 상한이다.
-pub const MAX_VALUES: u32 = 5000;
+/// **32,766 을 초과할 수 없다.** 선택한 것을 열거하는 조건이 그 수만큼의 값을
+/// 조건에 기재하는데, 그것이 SQLite 의 바인딩 상한이다. 전체에서 해제하는 쪽은
+/// 제외 목록으로 기재하므로 그 상한과 무관하다.
+pub const MAX_VALUES: u32 = 10_000;
 /// 화면에서 공백 값을 표현하는 표식. 실제 자료의 공백 셀/NULL 에 대응한다.
 pub const BLANK_TOKEN: &str = "(비어 있음)";
 
@@ -177,6 +178,17 @@ pub struct Filter {
     /// 값 선택. None = 전체 허용.
     #[serde(default)]
     pub values: Option<Vec<String>>,
+    /// **제외할 값들.** 전체에서 몇 개를 해제한 상태를 그대로 기재한다.
+    ///
+    /// 선택한 것을 열거하는 쪽([`values`](Self::values))만 존재하면, 목록이
+    /// 상한에 걸려 절단된 열에서 "하나만 제외" 를 기재할 수 없다 — 노출되지
+    /// 않은 값까지 함께 제외된다. 제외를 그대로 기재하면 목록의 분량과 무관
+    /// 하게 정확하고, 조건에 기재하는 값도 해제한 수만큼이다.
+    ///
+    /// 양자를 동시에 기재하면 **중단한다.** 우선순위를 묵시적으로 부여하면
+    /// 어느 쪽이 적용되었는지 사람도 코드도 판별할 수 없다.
+    #[serde(default)]
+    pub excluded: Option<Vec<String>>,
     /// 이 열이 **공백이 아닌 행만** 선택한다.
     ///
     /// 도형을 묘사하는 화면이 사용한다. 값이 부재하는 행은 막대를 묘사할 수 없는데,
@@ -187,7 +199,10 @@ pub struct Filter {
 
 impl Filter {
     pub fn is_empty(&self) -> bool {
-        self.contains.trim().is_empty() && self.values.is_none() && !self.not_blank
+        self.contains.trim().is_empty()
+            && self.values.is_none()
+            && self.excluded.is_none()
+            && !self.not_blank
     }
 }
 
@@ -344,7 +359,38 @@ fn filter_clause(col: &Column, f: &Filter, blank: &str, binds: &mut Vec<String>)
         parts.push(format!("({})", alt.join(" OR ")));
     }
 
-    // ③ 공백이 아닌 행만
+    // ③ 제외 목록 (전체에서 해제한 것들)
+    if let Some(excluded) = &f.excluded {
+        if !excluded.is_empty() {
+            let has_blank = excluded.iter().any(|v| v == BLANK_TOKEN);
+            let concrete: Vec<&String> = excluded.iter().filter(|v| *v != BLANK_TOKEN).collect();
+
+            let mut all: Vec<String> = Vec::new();
+            if !concrete.is_empty() {
+                let holes = vec!["?"; concrete.len()].join(", ");
+                for v in &concrete {
+                    binds.push((*v).clone());
+                }
+                /* **값이 부재하는 셀이 함께 탈락하지 않게 한다.** `NOT IN` 은
+                   NULL 과의 비교가 NULL 이라 그 행이 통과하지 못한다 — 공백을
+                   제외하지 않았는데 공백 행이 소멸한다. */
+                all.push(if col.dict {
+                    format!("({base} IS NULL OR {base} NOT IN (SELECT id FROM dict WHERE s IN ({holes})))")
+                } else {
+                    format!("({base} IS NULL OR {base} NOT IN ({holes}))")
+                });
+            }
+            if has_blank {
+                all.push(format!(
+                    "NOT {}",
+                    if col.dict { format!("({base} IS NULL)") } else { is_blank_sql(&base, blank) }
+                ));
+            }
+            parts.push(format!("({})", all.join(" AND ")));
+        }
+    }
+
+    // ④ 공백이 아닌 행만
     if f.not_blank {
         parts.push(if col.dict {
             format!("{base} IS NOT NULL")
@@ -375,6 +421,11 @@ fn build_where(
         let names_this = skip_key.is_some_and(|k| k == f.key || f.keys.iter().any(|x| x == k));
         if f.is_empty() || names_this {
             continue;
+        }
+        /* **선택과 제외를 동시에 기재하면 중단한다.** 우선순위를 묵시적으로
+           부여하면 어느 쪽이 적용되었는지 사람도 코드도 판별할 수 없다. */
+        if f.values.is_some() && f.excluded.is_some() {
+            return Err(unknown_column(table, &f.key, "both values and excluded were given"));
         }
         let wanted: Vec<&str> = if f.keys.is_empty() {
             vec![f.key.as_str()]
@@ -816,6 +867,73 @@ mod tests {
         let got = column_values(&conn, &t, BLANK, "v", &[], "").unwrap();
         let shown: Vec<&str> = got.values.iter().map(|v| v.value.as_str()).collect();
         assert_eq!(shown, [BLANK_TOKEN, "-5", "9", "20", "100", "1,200"]);
+    }
+
+    /// **제외 목록은 해제한 값만 탈락시킨다.**
+    ///
+    /// 목록이 상한에 걸려 절단된 열에서 "하나만 제외" 를 기재할 수 있어야 한다.
+    /// 선택한 것을 열거하는 방식으로는 노출되지 않은 값까지 함께 제외된다.
+    #[test]
+    fn an_exclusion_drops_only_what_it_names() {
+        let (conn, t) = fixture();
+        let f = Filter {
+            key: "city".into(),
+            excluded: Some(vec!["서울".into()]),
+            ..Filter::default()
+        };
+        let page = run(&conn, &t, BLANK, &query(vec![], vec![f])).unwrap();
+        // 서울(가·다)만 탈락하고, **값이 부재하는 행(마)은 탈락하지 않는다.**
+        assert_eq!(names(&page), ["나", "라", "마", "100%"]);
+    }
+
+    /// 공백을 제외하면 공백 행만 탈락한다.
+    #[test]
+    fn excluding_the_blank_drops_only_the_blank_rows() {
+        let (conn, t) = fixture();
+        let f = Filter {
+            key: "city".into(),
+            excluded: Some(vec![BLANK_TOKEN.into()]),
+            ..Filter::default()
+        };
+        let page = run(&conn, &t, BLANK, &query(vec![], vec![f])).unwrap();
+        assert_eq!(names(&page), ["가", "나", "다", "라", "100%"]);
+    }
+
+    /// **선택과 제외를 동시에 기재하면 중단한다.** 우선순위를 묵시적으로
+    /// 부여하면 어느 쪽이 적용되었는지 판별할 수 없다.
+    #[test]
+    fn naming_both_a_pick_and_an_exclusion_stops() {
+        let (conn, t) = fixture();
+        let f = Filter {
+            key: "city".into(),
+            values: Some(vec!["서울".into()]),
+            excluded: Some(vec!["부산".into()]),
+            ..Filter::default()
+        };
+        assert!(run(&conn, &t, BLANK, &query(vec![], vec![f])).is_err());
+    }
+
+    /// **열 검색은 ASCII 의 대소문자를 구별하지 않는다.**
+    ///
+    /// SQLite 의 `LIKE` 가 그렇고, 엑셀의 "포함" 필터도 그렇다. 그러나 그 외의
+    /// 문자(악센트가 부착된 라틴·한글)는 구별한다 — 전부 무시하려면 별도의
+    /// 조합 규칙이 필요하다. **우연에 의존하는 거동이라 여기 고정해 둔다.**
+    #[test]
+    fn a_column_search_ignores_ascii_case_and_nothing_else() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE people(name TEXT);
+             INSERT INTO people VALUES ('abc'), ('ABC'), ('Àbc'), ('àbc');",
+        )
+        .unwrap();
+        let mut t = T { columns: vec![col("name", ColumnKind::Text, false)] };
+        assign_aliases(t.columns.iter_mut());
+
+        let page = run(&conn, &t, BLANK, &query(vec![], vec![contains("name", "ABC")])).unwrap();
+        assert_eq!(names(&page), ["abc", "ABC"]);
+
+        let page = run(&conn, &t, BLANK, &query(vec![], vec![contains("name", "Àbc")])).unwrap();
+        assert_eq!(names(&page), ["Àbc"], "비ASCII 는 구별한다");
     }
 
     /// 값이 부재하는 셀을 식별하는 문자가 **자료에서 유래한다**는 것을 고정한다.

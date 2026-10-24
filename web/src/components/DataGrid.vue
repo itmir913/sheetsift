@@ -20,6 +20,7 @@ import {
   type Row,
   type ScreenDef,
   type Sort,
+  type ValuePick,
 } from "@/lib/grid";
 import { useColumnLayout } from "@/composables/useColumnLayout";
 import { formatNumber, t, tn } from "@/i18n";
@@ -38,7 +39,7 @@ const elapsedMs = ref(0);
 const page = ref(0);
 const sorts = ref<Sort[]>([]);
 const filterText = ref<Record<string, string>>({});
-const filterValues = ref<Record<string, string[] | null>>({});
+const filterValues = ref<Record<string, ValuePick | null>>({});
 const errorMessage = ref<string | null>(null);
 const busy = ref(false);
 
@@ -51,12 +52,16 @@ const gridRoot = ref<HTMLElement | null>(null);
 
 const activeFilters = computed<Filter[]>(() =>
   props.screen.columns
-    .map((c) => ({
-      key: c.key,
-      contains: (filterText.value[c.key] ?? "").trim(),
-      values: filterValues.value[c.key] ?? null,
-    }))
-    .filter((f) => f.contains !== "" || f.values !== null),
+    .map((c) => {
+      const pick = filterValues.value[c.key] ?? null;
+      return {
+        key: c.key,
+        contains: (filterText.value[c.key] ?? "").trim(),
+        values: pick?.mode === "include" ? pick.values : null,
+        excluded: pick?.mode === "exclude" ? pick.values : null,
+      };
+    })
+    .filter((f) => f.contains !== "" || f.values !== null || f.excluded !== null),
 );
 
 let token = 0;
@@ -144,7 +149,7 @@ function onFilterText(next: Record<string, string>) {
   reload();
 }
 
-function onFilterValues(next: Record<string, string[] | null>) {
+function onFilterValues(next: Record<string, ValuePick | null>) {
   filterValues.value = next;
   reload();
 }

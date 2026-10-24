@@ -58,6 +58,19 @@ const filterSummary = computed(() =>
   props.filters.map((f) => {
     const parts: string[] = [];
     if (f.contains) parts.push(t("print.contains", { text: f.contains }));
+    if (f.excluded?.length) {
+      parts.push(
+        t("print.excluded", {
+          list:
+            f.excluded.length <= 4
+              ? f.excluded.map(valueOf).join(", ")
+              : t("print.more", {
+                  list: f.excluded.slice(0, 3).map(valueOf).join(", "),
+                  n: f.excluded.length - 3,
+                }),
+        }),
+      );
+    }
     if (f.values) {
       parts.push(
         f.values.length === 0

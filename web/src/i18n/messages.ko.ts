@@ -162,6 +162,8 @@ export const ui = {
   "filter.all": "전체",
   "filter.selected_one": "{n}개 선택",
   "filter.selected_other": "{n}개 선택",
+  "filter.excluded_one": "{n}개 제외",
+  "filter.excluded_other": "{n}개 제외",
   "filter.search": "값 검색",
   "filter.loading": "불러오는 중…",
   "filter.checkall.shown": "검색 결과 모두 선택",
@@ -189,6 +191,7 @@ export const ui = {
   "print.asc": "오름차순",
   "print.desc": "내림차순",
   "print.contains": '"{text}" 포함',
+  "print.excluded": "{list} 제외",
   "print.selected.none": "선택 없음",
   "print.more": "{list} 외 {n}개",
 } as const;

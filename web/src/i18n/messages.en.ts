@@ -135,6 +135,8 @@ export const ui: Record<UiKey, string> = {
   "filter.all": "All",
   "filter.selected_one": "{n} selected",
   "filter.selected_other": "{n} selected",
+  "filter.excluded_one": "{n} excluded",
+  "filter.excluded_other": "{n} excluded",
   "filter.search": "Search values",
   "filter.loading": "Loading…",
   "filter.checkall.shown": "Select all results",
@@ -160,6 +162,7 @@ export const ui: Record<UiKey, string> = {
   "print.asc": "ascending",
   "print.desc": "descending",
   "print.contains": 'contains "{text}"',
+  "print.excluded": "except {list}",
   "print.selected.none": "nothing selected",
   "print.more": "{list} and {n} more",
 };

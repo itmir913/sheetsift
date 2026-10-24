@@ -15,7 +15,7 @@ import { computed, ref } from "vue";
 import ColumnFilter from "@/components/ColumnFilter.vue";
 import { cellText, isBlank } from "@/lib/grid";
 import { t } from "@/i18n";
-import type { ColumnValuesResult, Row, Sort } from "@/lib/grid";
+import type { ColumnValuesResult, Row, Sort, ValuePick } from "@/lib/grid";
 import type { LaidOutColumn } from "@/composables/useColumnLayout";
 
 const props = withDefaults(
@@ -26,7 +26,7 @@ const props = withDefaults(
     /** 열 검색어. 열쇠가 부재하면 공백 문자열로 판정한다. */
     filterText: Record<string, string>;
     /** 엑셀식 값 선택. 열쇠가 부재하거나 null 이면 그 열은 전체 허용. */
-    filterValues: Record<string, string[] | null>;
+    filterValues: Record<string, ValuePick | null>;
     /** 좌측에 고정할 열 수. */
     pinned: number;
     /**
@@ -58,7 +58,7 @@ const emit = defineEmits<{
   /** 헤더를 조작했다(정렬). 쓰는 곳이 cycleSort 로 처리한다. */
   sort: [key: string];
   "update:filterText": [value: Record<string, string>];
-  "update:filterValues": [value: Record<string, string[] | null>];
+  "update:filterValues": [value: Record<string, ValuePick | null>];
   /** 열을 조작해 이전했다. */
   move: [from: number, to: number];
   /** 열 폭을 조작하는 중. */
@@ -193,10 +193,10 @@ function openFilter(col: LaidOutColumn, ev: MouseEvent) {
   openFilterKey.value = col.key;
 }
 
-function applyFilterValues(values: string[] | null) {
+function applyFilterValues(pick: ValuePick | null) {
   const key = openFilterKey.value;
   if (!key) return;
-  emit("update:filterValues", { ...props.filterValues, [key]: values });
+  emit("update:filterValues", { ...props.filterValues, [key]: pick });
   openFilterKey.value = null;
 }
 

@@ -88,7 +88,25 @@ export interface Filter {
   contains: string;
   /** 엑셀식 값 선택. null 이면 전체 허용, 공백 배열이면 아무것도 통과하지 않는다. */
   values: string[] | null;
+  /**
+   * **제외할 값들.** 전체에서 몇 개를 해제한 상태를 그대로 기재한다.
+   *
+   * 목록이 상한에 걸려 절단된 열에서도 "하나만 제외" 가 정확해진다 — 선택한
+   * 것을 열거하는 방식으로는 노출되지 않은 값까지 함께 제외된다. 양자를 동시에
+   * 기재하면 바탕이 중단한다.
+   */
+  excluded?: string[] | null;
 }
+
+/**
+ * 한 열의 값 선택 상태.
+ *
+ * `include` 는 열거한 것만 통과시키고, `exclude` 는 열거한 것만 탈락시킨다.
+ * null 은 전체 허용이다.
+ */
+export type ValuePick =
+  | { mode: "include"; values: string[] }
+  | { mode: "exclude"; values: string[] };
 
 /** 값 선택 목록의 한 항목. */
 export interface ColumnValue {

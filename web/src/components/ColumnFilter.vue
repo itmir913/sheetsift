@@ -7,18 +7,25 @@
  * 이후에 소재할 때 "없습니다" 가 표시된다. 자료는 정상인데 화면만 그렇게
  * 진술한다.
  *
- * 그래서 목록을 **두 벌** 보유한다. 축소 문자로 수령한 것(표시할 것)과, 축소
- * 없이 수령한 것(전체). 둘이어야 하는 사유는 [`leaveAll`] 에 기재했다.
+ * 선택 상태는 **제외 목록으로도 기재한다.** 전체에서 몇 개를 해제한 것을
+ * 그대로 기재하면, 목록이 절단되었거나 축소된 상태에서도 "이것만 제외" 가
+ * 정확하다 — 선택한 것을 열거하는 방식은 노출되지 않은 값까지 탈락시킨다.
  */
 import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
-import { type ColumnDef, type ColumnValue, type ColumnValuesResult } from "@/lib/grid";
+import {
+  type ColumnDef,
+  type ColumnValue,
+  type ColumnValuesResult,
+  type ValuePick,
+} from "@/lib/grid";
 import { AppError, limits } from "sheetsift-book";
 import { formatNumber, t, tn } from "@/i18n";
+import { fontEpoch } from "@/lib/colWidth";
 
 const props = defineProps<{
   column: ColumnDef;
   /** 현 선택 상태. null 이면 전체 선택. */
-  selected: string[] | null;
+  selected: ValuePick | null;
   /** 후보 목록을 수령하는 방법. `needle` 로 축소한 것을 반환한다. */
   load: (needle: string) => Promise<ColumnValuesResult>;
   /** 그리드 기준 위치(px). */
@@ -29,7 +36,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  apply: [values: string[] | null];
+  apply: [pick: ValuePick | null];
   close: [];
 }>();
 
@@ -56,12 +63,7 @@ const searchEl = ref<HTMLInputElement | null>(null);
 /** 현재 표시하는 후보. 축소 문자가 존재하면 그것으로 수령한 것이다. */
 const shown = ref<ColumnValue[]>([]);
 
-/**
- * 축소 없이 수령한 후보 전체. **화면에 묘사하지 않는다** — [`leaveAll`] 이 사용한다.
- */
-const everyValue = ref<ColumnValue[]>([]);
-
-/** 그 전체가 상한에 포착되어 절단되었는가. */
+/** 전체 목록이 상한에 포착되어 절단되었는가. */
 const truncated = ref(false);
 
 const loading = ref(true);
@@ -69,20 +71,70 @@ const errorMessage = ref<string | null>(null);
 const search = ref("");
 
 /**
- * 선택한 값들. **후보를 축소해도 그대로 존치된다** — 축소 문자를 소거했을 때
- * 선행 선택한 것이 소멸해 있으면, 사람은 자신의 선택이 무시되었다고 판독한다.
- */
-const checked = ref<Set<string>>(new Set());
-
-/**
- * 여과하지 않는 상태인가.
+ * 무엇을 기재해 둔 상태인가.
  *
- * **"전부 선택됨" 과 구분하는 사유가 존재한다.** 후보가 절단되었거나 문자로
- * 축소되어 있으면 노출되는 것이 전체가 아니라, 화면에 선택이 전부 충전되어
- * 있어도 그것은 "전체" 가 아니다. 그 양자를 동일하게 판정하면 선택하지 않은
- * 값들이 묵시적으로 통과한다.
+ * - `all` — 여과하지 않는다.
+ * - `include` — 기재한 것만 통과시킨다.
+ * - `exclude` — 기재한 것만 탈락시킨다.
+ *
+ * **전체에서 하나를 해제하면 `exclude` 가 된다.** 선택한 것을 열거하는 방식만
+ * 존재하면, 목록이 절단되었거나 문자로 축소된 상태에서 하나를 해제했을 때
+ * **노출되지 않은 값들까지 함께 탈락한다** — 실제로 그렇게 발생했다. 제외를
+ * 그대로 기재하면 목록의 분량과 무관하게 정확하다.
  */
-const all = ref(true);
+const mode = ref<"all" | "include" | "exclude">("all");
+
+/** `mode` 가 지시하는 값들. 후보를 축소해도 그대로 존치된다. */
+const named = ref<Set<string>>(new Set());
+
+/** 그 값이 통과하는가. 확인란의 상태다. */
+function picked(value: string): boolean {
+  if (mode.value === "all") return true;
+  return mode.value === "include" ? named.value.has(value) : !named.value.has(value);
+}
+
+/* ── 묘사하는 범위 ─────────────────────────────────────────────
+   목록이 상한까지 도달하면 수천 항목이다. 전부 생성하면 개방·폐쇄에 수 초가
+   소요되고 수만에서는 탭이 정지한다(실측). 그래서 보이는 범위와 그 전후만
+   생성한다. 행 높이는 양식이 고정한다(`--dg-pop-row-h`). */
+
+const listEl = ref<HTMLElement | null>(null);
+const scrollTop = ref(0);
+const viewHeight = ref(320);
+/** 전후로 추가 생성하는 행 수. 스크롤 도중에 공백이 노출되지 않게 한다. */
+const OVERSCAN = 8;
+
+const rowHeight = computed(() => {
+  void fontEpoch.value; // 서체가 적재되면 rem 의 실측값이 변동할 수 있다
+  const el = listEl.value;
+  if (!el) return 30;
+  const rem = parseFloat(getComputedStyle(el).getPropertyValue("--dg-pop-row-h"));
+  const base = parseFloat(getComputedStyle(document.documentElement).fontSize);
+  const px = rem * (Number.isFinite(base) && base > 0 ? base : 16);
+  return Number.isFinite(px) && px > 0 ? px : 30;
+});
+
+const view = computed(() => {
+  const h = rowHeight.value;
+  const total = shown.value.length;
+  const first = Math.max(0, Math.floor(scrollTop.value / h) - OVERSCAN);
+  const count = Math.ceil(viewHeight.value / h) + OVERSCAN * 2;
+  const end = Math.min(total, first + count);
+  return { start: first, end, rows: shown.value.slice(first, end) };
+});
+
+function onScroll() {
+  const el = listEl.value;
+  if (!el) return;
+  scrollTop.value = el.scrollTop;
+  viewHeight.value = el.clientHeight;
+}
+
+/** 후보가 교체되면 상단부터 묘사한다. 스크롤 위치를 존치하면 공백이 노출된다. */
+watch(shown, () => {
+  scrollTop.value = 0;
+  listEl.value?.scrollTo({ top: 0 });
+});
 
 const popVars = computed(() => ({
   "--pop-x": `${props.x}px`,
@@ -91,7 +143,7 @@ const popVars = computed(() => ({
 }));
 
 const allShownChecked = computed(
-  () => shown.value.length > 0 && shown.value.every((c) => all.value || checked.value.has(c.value)),
+  () => shown.value.length > 0 && shown.value.every((c) => picked(c.value)),
 );
 
 /** 축소 문자로 재수령한다. 지연 도달한 응답이 신규 응답을 피복하지 않게 번호를 산정한다. */
@@ -106,7 +158,6 @@ async function fetchShown() {
     shown.value = res.values;
     // 축소 없이 수령한 것이면 그것이 곧 전체다.
     if (!search.value.trim()) {
-      everyValue.value = res.values;
       truncated.value = res.truncated;
     }
   } catch (e) {
@@ -118,45 +169,60 @@ async function fetchShown() {
 }
 
 /**
- * 전체 상태를 이탈한다. 선택 상태를 **현재 통과하고 있는 값 전체**로 충전한다.
+ * 값 하나의 통과 여부를 전환한다.
  *
- * **축소되어 노출되는 것으로 충전하면 안 된다.** 「대」로 축소해 대구·대전만
- * 노출된 상태에서 대전 하나를 해제하면, 사람이 의도한 것은 "대전만 제외하라"
- * 인데 조작하지도 않은 광주·부산·서울·인천까지 함께 제외된다. 표는 정상적으로
- * 묘사되고 어디에서도 오류가 발생하지 않는다 — 실제로 그렇게 발생했다.
- *
- * 그래서 축소 없이 수령한 목록에서 충전한다. 그 목록이 상한에 포착되어
- * 절단되었으면 어떠한 목록으로도 "하나만 제외하라" 를 기재할 수 없는데, 그
- * 시점에는 팝오버가 절단되었다고 제시하고 있다.
+ * **전체 상태에서 하나를 해제하면 제외 목록이 된다.** 선택한 것을 열거하는
+ * 방식으로 전환하면, 목록이 절단되었거나 문자로 축소된 상태에서 노출되지 않은
+ * 값들까지 함께 탈락한다 — 「대」로 축소해 대전 하나를 해제했는데 광주·부산·
+ * 서울·인천이 함께 탈락하던 것이 그것이다.
  */
-function leaveAll() {
-  if (!all.value) return;
-  all.value = false;
-  checked.value = new Set(everyValue.value.map((c) => c.value));
-}
-
 function toggle(value: string) {
-  leaveAll();
-  const next = new Set(checked.value);
-  if (next.has(value)) next.delete(value);
-  else next.add(value);
-  checked.value = next;
+  const next = new Set(named.value);
+  if (mode.value === "all") {
+    mode.value = "exclude";
+    next.clear();
+    next.add(value);
+  } else if (mode.value === "exclude") {
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+    if (next.size === 0) mode.value = "all";
+  } else {
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+  }
+  named.value = next;
 }
 
 /** 현재 축소되어 노출되는 것만 일괄 설정·해제한다(엑셀과 동일하다). */
 function toggleAllShown() {
-  const on = allShownChecked.value;
-  leaveAll();
-  const next = new Set(checked.value);
-  for (const c of shown.value) {
-    if (on) next.delete(c.value);
-    else next.add(c.value);
+  const off = allShownChecked.value; // 전부 통과 중이면 해제한다
+  const next = new Set(named.value);
+  if (mode.value === "all") {
+    if (!off) return; // 전체 통과 중인데 설정할 것이 부재하다
+    mode.value = "exclude";
+    next.clear();
+    for (const c of shown.value) next.add(c.value);
+  } else if (mode.value === "exclude") {
+    for (const c of shown.value) {
+      if (off) next.add(c.value);
+      else next.delete(c.value);
+    }
+    if (next.size === 0) mode.value = "all";
+  } else {
+    for (const c of shown.value) {
+      if (off) next.delete(c.value);
+      else next.add(c.value);
+    }
   }
-  checked.value = next;
+  named.value = next;
 }
 
 function apply() {
-  emit("apply", all.value ? null : [...checked.value]);
+  if (mode.value === "all") {
+    emit("apply", null);
+    return;
+  }
+  emit("apply", { mode: mode.value, values: [...named.value] });
 }
 
 /**
@@ -164,7 +230,7 @@ function apply() {
  *
  * 문자를 입력한 상태면 **현재 축소되어 노출되는 값들만 선택한다.** 선택한 것만
  * 적용하면, 문자만 입력하고 엔터를 조작한 사람 앞에서 표가 공백이 된다. 입력해
- * 축소했으면 그것이 선택이라는 의미다 — 상기 [`leaveAll`] 과 달리 여기서는
+ * 축소했으면 그것이 선택이라는 의미다 — 조작으로 해제한 것과 달리 여기서는
  * 축소가 사람이 **직접 진술한 의도**라 그대로 수용한다.
  *
  * 부합하는 값이 하나도 부재하면 **아무 작용도 하지 않는다.** 그 시점에 적용하면
@@ -176,8 +242,8 @@ function applyTyped() {
     return;
   }
   if (!shown.value.length) return;
-  all.value = false;
-  checked.value = new Set(shown.value.map((c) => c.value));
+  mode.value = "include";
+  named.value = new Set(shown.value.map((c) => c.value));
   apply();
 }
 
@@ -210,10 +276,11 @@ watch(search, () => {
 });
 
 onMounted(() => {
-  all.value = props.selected === null;
-  checked.value = new Set(props.selected ?? []);
+  mode.value = props.selected?.mode ?? "all";
+  named.value = new Set(props.selected?.values ?? []);
   void fetchShown();
   searchEl.value?.focus();
+  viewHeight.value = listEl.value?.clientHeight ?? viewHeight.value;
   window.addEventListener("keydown", onKeydown);
   // 팝오버 개방 직후의 클릭까지 포착하지 않도록 차기 틱에 등록한다.
   window.setTimeout(() => window.addEventListener("pointerdown", onPointerDown), 0);
@@ -238,7 +305,9 @@ onBeforeUnmount(() => {
     <div class="dg-pop-head">
       <span class="font-semibold">{{ column.label }}</span>
       <span class="text-fg-subtle">
-        {{ all ? t("filter.all") : tn("filter.selected", checked.size) }}
+        <template v-if="mode === 'all'">{{ t("filter.all") }}</template>
+        <template v-else-if="mode === 'include'">{{ tn("filter.selected", named.size) }}</template>
+        <template v-else>{{ tn("filter.excluded", named.size) }}</template>
       </span>
     </div>
 
@@ -262,18 +331,19 @@ onBeforeUnmount(() => {
         </span>
       </label>
 
-      <div class="dg-pop-list">
-        <label v-for="c in shown" :key="c.value" class="dg-pop-row">
-          <input
-            type="checkbox"
-            :checked="all || checked.has(c.value)"
-            @change="toggle(c.value)"
-          />
+      <!-- **묘사하는 범위만 생성한다.** 목록이 수천 항목이라 전부 생성하면
+           개방과 폐쇄에 수 초가 소요되고, 수만에서는 탭이 정지한다. 상하의
+           여백이 스크롤 범위를 확보한다. -->
+      <div ref="listEl" class="dg-pop-list" @scroll.passive="onScroll">
+        <div :style="{ height: `${view.start * rowHeight}px` }"></div>
+        <label v-for="c in view.rows" :key="c.value" class="dg-pop-row">
+          <input type="checkbox" :checked="picked(c.value)" @change="toggle(c.value)" />
           <span class="dg-pop-val" :data-blank="c.value === blankToken">
             {{ c.value === blankToken ? t("filter.blank") : c.value }}
           </span>
           <span class="dg-pop-count">{{ formatNumber(c.count) }}</span>
         </label>
+        <div :style="{ height: `${(shown.length - view.end) * rowHeight}px` }"></div>
         <p v-if="!shown.length" class="dg-pop-note">{{ t("filter.none") }}</p>
       </div>
 
