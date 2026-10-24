@@ -546,7 +546,12 @@ pub fn column_values(
     let mut stmt = conn.prepare_cached(&sql)?;
     let mut rows = stmt.query(params.as_slice())?;
     let mut values = Vec::new();
+    /* **수령한 행 수로 절단을 판정한다.** 병합 이후의 길이로 판정하면, 공백
+       표기가 둘 이상인 열에서 병합이 발생해 길이가 상한과 동일해지고 **값 하나가
+       누락된 목록이 "전부" 로 보고된다.** 그러면 화면은 축소를 유도하지 않는다. */
+    let mut fetched = 0u32;
     while let Some(r) = rows.next()? {
+        fetched += 1;
         let raw = value_to_json(r.get_ref(0)?);
         let count: i64 = r.get(1)?;
         let text = match raw {
@@ -566,7 +571,7 @@ pub fn column_values(
         values.push(ColumnValue { value: text, count: count.max(0) as u32 });
     }
 
-    let truncated = values.len() > MAX_VALUES as usize;
+    let truncated = fetched > MAX_VALUES;
     values.truncate(MAX_VALUES as usize);
 
     Ok(ColumnValues { values, truncated, elapsed_ms: started.elapsed().as_secs_f64() * 1000.0 })
@@ -696,6 +701,27 @@ mod tests {
 
         let page = run(&conn, &t, BLANK, &query(vec![s("score", SortDir::Asc)], vec![])).unwrap();
         assert_eq!(names(&page), ["오십", "구백팔십", "천이백"]);
+    }
+
+    /// **절단 여부는 수령한 행 수로 판정한다.**
+    ///
+    /// 병합 이후의 길이로 판정하면, 공백 표기가 둘 이상인 열에서 병합이 발생해
+    /// 길이가 상한과 동일해지고 **값 하나가 누락된 목록이 "전부" 로 보고된다.**
+    #[test]
+    fn a_merged_blank_does_not_hide_that_the_list_was_cut() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE people(v TEXT);").unwrap();
+        // 공백 표기 둘(`''` 과 `-`)과 고유값 MAX_VALUES 개.
+        let mut sql = String::from("INSERT INTO people VALUES (''), ('-')");
+        for i in 0..MAX_VALUES {
+            sql.push_str(&format!(", ('가{i:05}')"));
+        }
+        conn.execute_batch(&sql).unwrap();
+        let mut t = T { columns: vec![col("v", ColumnKind::Text, false)] };
+        assign_aliases(t.columns.iter_mut());
+
+        let got = column_values(&conn, &t, BLANK, "v", &[], "").unwrap();
+        assert!(got.truncated, "값이 누락되었는데 전부라고 보고했습니다");
     }
 
     /// 값이 부재하는 셀을 식별하는 문자가 **자료에서 유래한다**는 것을 고정한다.
