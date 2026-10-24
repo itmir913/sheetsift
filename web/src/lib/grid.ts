@@ -275,6 +275,35 @@ function makeFormat(on: boolean): Intl.NumberFormat {
 
 const formats = { on: makeFormat(true), off: makeFormat(false) };
 
+/**
+ * 언어가 사용하는 천 단위 구분 기호.
+ *
+ * 수를 **해석하지 않고** 구분을 삽입하려면 기호만 필요하다. 언어마다 상이하다
+ * (`1,000` · `1.000` · `1 000`).
+ */
+function groupMark(): string {
+  const parts = formats.on.formatToParts(11111);
+  return parts.find((p) => p.type === "group")?.value ?? ",";
+}
+
+/** 부호·정수부·소수부로만 구성된 수인가. 지수 표기는 해당하지 않는다. */
+const PLAIN_NUMBER = /^([+-]?)(\d+)(\.\d+)?$/;
+
+/**
+ * 수를 **해석하지 않고** 천 단위 구분만 삽입한다.
+ *
+ * `Number()` 를 경유하면 양식의 값이 훼손된다 — `007` 이 `7` 이 되고,
+ * `9007199254740993` 이 `...992` 가 되고, `1e308` 이 309 자리로 전개된다.
+ * 셀의 문자는 바탕이 양식에서 판독한 그대로이고, **열람기는 그것을 변경할
+ * 권한이 부재하다.** 해석하지 못하는 형태는 그대로 묘사한다.
+ */
+function grouped(raw: string): string {
+  const m = PLAIN_NUMBER.exec(raw);
+  if (!m) return raw;
+  const [, sign, int, frac] = m;
+  return sign + int.replace(/\B(?=(\d{3})+(?!\d))/g, groupMark()) + (frac ?? "");
+}
+
 /** 문자를 생성하는 데 필요한 만큼의 열 정보. */
 export interface CellShape {
   kind: ColumnKind;
@@ -290,13 +319,17 @@ export interface CellShape {
 export function cellText(col: CellShape, value: unknown): string {
   if (isBlank(value)) return "–";
   if (col.kind === "number") {
-    const n = typeof value === "number" ? value : Number(value);
-    if (Number.isNaN(n)) return String(value);
-    // 자릿수를 인지하는 앱만 반올림한다. 인지하지 못하면 양식의 값 그대로다.
-    const cellFormat = grouping.value ? formats.on : formats.off;
-    if (decimals === null) return cellFormat.format(n);
-    const p = 10 ** decimals;
-    return cellFormat.format(Math.round(n * p) / p);
+    const raw = String(value).trim();
+    /* 자릿수를 인지하는 앱만 반올림한다 — 그 앱은 양식의 값을 변경할 권한을
+       보유한다고 진술한 것이다. 인지하지 못하면 **해석하지 않는다.** */
+    if (decimals !== null) {
+      const n = Number(raw);
+      if (Number.isNaN(n)) return raw;
+      const p = 10 ** decimals;
+      const cellFormat = grouping.value ? formats.on : formats.off;
+      return cellFormat.format(Math.round(n * p) / p);
+    }
+    return grouping.value ? grouped(raw) : raw;
   }
   return String(value);
 }
