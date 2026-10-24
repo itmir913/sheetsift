@@ -191,6 +191,34 @@ fn variants(src: &str) -> Vec<String> {
         .collect()
 }
 
+/// **과대한 파일은 판독하지 않고 사유를 진술한다.**
+///
+/// 상한이 부재하면 할당이 실패하는 시점에 창이 사유 없이 폐쇄된다 — Rust 의
+/// 할당 실패는 중단이라 포착할 수단이 부재하다.
+#[test]
+fn a_file_past_the_limit_says_so_instead_of_dying() {
+    let dir = scratch("too_large");
+    let path = dir.join("거대.csv");
+    // 상한을 1바이트 초과하는 파일. 내용은 판독되지 않으므로 공백으로 충전한다.
+    let file = std::fs::File::create(&path).unwrap();
+    file.set_len(file::MAX_BYTES + 1).unwrap();
+    drop(file);
+
+    let mut desk = Desk::default();
+    let err = desk.open_workbook(&path).expect_err("상한을 초과했는데 판독했습니다");
+    let json = serde_json::to_value(&err).unwrap();
+    assert_eq!(json["code"], "FILE_TOO_LARGE");
+    assert_eq!(json["params"]["name"], "거대.csv", "치환 값에 전체 경로가 기재되었습니다");
+    assert!(json["params"]["limit"].is_string());
+
+    // 투입한 바이트도 동일한 상한을 경유한다.
+    let big = vec![b' '; (file::MAX_BYTES + 1) as usize];
+    let err = desk.open_bytes(&big, "투입.csv").expect_err("투입한 바이트에 상한이 부재합니다");
+    assert_eq!(serde_json::to_value(&err).unwrap()["code"], "FILE_TOO_LARGE");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// 그 검사가 실제로 차단하는지 판정한다.
 #[test]
 fn the_collision_check_catches_a_repeated_code() {

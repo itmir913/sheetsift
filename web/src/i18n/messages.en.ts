@@ -39,6 +39,8 @@ export const errors: Record<ErrorCode, string> = {
   FILE_READ_FAILED: "Could not read '{name}'. Check that the file is still there.",
   FILE_WRITE_FAILED:
     "Could not write '{name}'. Check the permissions and free space of that location.",
+  FILE_TOO_LARGE:
+    "'{name}' is larger than this app can open at once ({limit}MB). Split it into smaller files and try again.",
   NO_WORKBOOK_OPEN: "No file is open. Choose a file first.",
 
   VAULT_WRITE_FAILED: "Could not save the vault.",

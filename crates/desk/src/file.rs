@@ -15,19 +15,46 @@ use std::path::Path;
 
 use crate::error::{ErrorCode, Result, ShellError};
 
+/// 개방을 수용하는 파일의 최대 바이트.
+///
+/// **판독한 바이트보다 현저히 많은 메모리를 점유한다.** 셀마다 문자 그릇이
+/// 생성되고, 그것이 표 생성 이후에도 존치되며(헤더 지정이 변경되면 재구축한다),
+/// 그 위에 SQLite 표가 1벌 더 생성된다. csv 에서 측정한 비율이 약 14배다 —
+/// 150MB 면 2GiB 를 초과한다. xlsx 는 압축되어 있어 비율이 더 크다.
+///
+/// 상한이 부재하면 할당이 실패하는 시점에 **창이 사유 없이 폐쇄된다.** Rust 의
+/// 할당 실패는 중단이라 포착할 수단이 부재하다. 수용하지 못하는 것은 수용하지
+/// 못한다고 진술하는 편이 양호하다.
+pub const MAX_BYTES: u64 = 150 * 1024 * 1024;
+
 /// 경로가 지시하는 파일의 명칭. 경로가 디렉터리로 종단되면 공백이다.
 pub fn name_of(path: &Path) -> String {
     path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
-/// 파일 전체를 수령한다.
+/// 파일 전체를 수령한다. **[`MAX_BYTES`] 를 초과하면 판독하지 않는다.**
 ///
-/// **용량을 사전에 판정하지 않는다.** 판정해도 판독하는 시점에 상이할 수 있고,
-/// 무엇이 과대한지는 이 겹이 아니라 부르는 곳이 인지한다.
+/// 용량은 판독하는 시점에 상이할 수 있으나, 그 오차보다 중대한 것은 상한이
+/// 부재할 때 창이 사유 없이 폐쇄된다는 점이다.
 pub fn read(path: &Path) -> Result<Vec<u8>> {
-    std::fs::read(path).map_err(|e| {
+    let failed = |e: std::io::Error| -> crate::error::Fault {
         ShellError::new(ErrorCode::FileReadFailed).with("name", name_of(path)).detail(e).into()
-    })
+    };
+    let size = std::fs::metadata(path).map_err(failed)?.len();
+    if size > MAX_BYTES {
+        return Err(too_large(path, size));
+    }
+    std::fs::read(path).map_err(failed)
+}
+
+/// 바이트가 상한을 초과했다. **치환 값에 전체 경로를 기재하지 않는다.**
+pub fn too_large(path: &Path, size: u64) -> crate::error::Fault {
+    let mb = |b: u64| (b as f64 / (1024.0 * 1024.0)).round() as u64;
+    ShellError::new(ErrorCode::FileTooLarge)
+        .with("name", name_of(path))
+        .with("limit", mb(MAX_BYTES))
+        .detail(format!("{} bytes exceeds the limit of {}", size, MAX_BYTES))
+        .into()
 }
 
 /// 바이트를 경로에 기록한다. **부분적으로 기록된 파일을 존치하지 않는다.**

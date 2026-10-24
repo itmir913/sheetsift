@@ -46,6 +46,8 @@ export const errors: Record<ErrorCode, string> = {
   FILE_READ_FAILED: "'{name}' 파일을 읽지 못했습니다. 파일이 있는지 확인해 주십시오.",
   FILE_WRITE_FAILED:
     "'{name}' 파일에 쓰지 못했습니다. 저장 위치의 권한과 남은 공간을 확인해 주십시오.",
+  FILE_TOO_LARGE:
+    "'{name}' 은 이 앱이 한 번에 열 수 있는 크기({limit}MB)를 넘습니다. 시트를 나누어 저장한 뒤 열어 주십시오.",
   NO_WORKBOOK_OPEN: "열어 둔 파일이 없습니다. 파일을 먼저 선택해 주십시오.",
 
   VAULT_WRITE_FAILED: "보관함을 저장하지 못했습니다.",
