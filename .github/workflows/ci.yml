@@ -216,15 +216,6 @@ jobs:
         with:
           tool: wasm-bindgen-cli@${{ steps.bindgen.outputs.version }}
 
-      # The two lines from `docs/wasm.md`. The built output (`web/pkg`) is not
-      # kept in the repository, so it is made here -- keeping it would let the
-      # source and the build drift apart.
-      - name: Build the wasm layer
-        run: |
-          cargo build -p sheetsift-wasm --target wasm32-unknown-unknown --release
-          wasm-bindgen --target web --no-typescript --out-dir web/pkg \
-            target/wasm32-unknown-unknown/release/sheetsift_wasm.wasm
-
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -234,6 +225,13 @@ jobs:
       - name: Install the screen's dependencies
         working-directory: web
         run: npm ci
+
+      # `npm run pkg` is the one command that builds the wasm layer; it lives
+      # in `package.json` so this file and `docs/wasm.md` cannot drift apart.
+      # The built output (`web/pkg`) is not kept in the repository -- keeping
+      # it would let the source and the build drift apart.
+      - name: Build the wasm layer
+        run: npm run pkg
 
       # `npm run build` type-checks (`vue-tsc`) and then bundles. That type
       # check is the only thing that reads the screen against the shape written

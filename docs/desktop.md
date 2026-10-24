@@ -23,9 +23,10 @@
 ## 창을 기동하는 법
 
 ```bash
-cd crates/tauri && npx @tauri-apps/cli@2 dev
+npm run dev:tauri
 ```
 
+그 명령이 `crates/tauri` 로 이동해 tauri 의 CLI 를 호출하고,
 `beforeDevCommand` 가 화면을 `--mode tauri` 로 기동한다. 그 모드가 경계의 두 벌
 중 창 벌을 선택한다(하기).
 
@@ -100,7 +101,7 @@ tauri 가 제공하는 모의 실행기(`tauri::test`)를 시험에 결속하면
 ## 굽기
 
 ```bash
-cd crates/tauri && npx @tauri-apps/cli@2 build
+npm run build:tauri
 ```
 
 액션의 `bake` 잡이 관문을 대기한 뒤 동일한 작업을 수행하고 산출물을 보관한다.

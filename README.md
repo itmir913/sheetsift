@@ -55,9 +55,9 @@ sheetsift-core = { git = "…", rev = "…", default-features = false }
 npm run ci
 ```
 
-관문은 이 명령 하나다. 내부가 세 조각이다 — 데스크톱 시험과 clippy(`ci:gate`),
-wasm 타깃의 시험과 clippy(`ci:wasm`), 화면의 타입 검사(`ci:web`). 조각은
-`package.json` 에 존재하고, 액션은 잡마다 그 조각을 호출할 뿐 검사를 별도
+관문은 이 명령 하나다. 내부는 조각으로 분할되어 있고 **조각의 목록은
+`package.json` 에만 존재한다** — 여기 전재하면 두 벌이 되고, 조각을 하나
+증가시킨 시점에 한쪽만 수정된다. 액션도 잡마다 그 조각을 호출할 뿐 검사를 별도
 기재하지 않는다. **명령을 신규 생성하지 않는다** — 외부에 배치하면 어디선가만
 실행되고 어디선가는 실행되지 않게 된다.
 
@@ -83,24 +83,25 @@ wasm 타깃의 시험과 clippy(`ci:wasm`), 화면의 타입 검사(`ci:web`). �
 ## 창에서 개방하기
 
 ```bash
-cd crates/tauri && npx @tauri-apps/cli@2 dev
+npm run dev:tauri
 ```
 
 화면은 동일한 것이다. 상이한 것은 **개방하는 위치 하나** — 창은 운영체제의
 선택 대화상자가 반환한 경로를 수령해 직접 판독하고, 바이트를 화면으로
 경유시키지 않는다. 투입(drag-drop)은 양측 모두 바이트다.
 
-굽는 것은 `npx @tauri-apps/cli@2 build` 이고, 액션의 `bake` 잡이 관문을 대기한
-뒤 동일한 작업을 수행한다.
+굽는 것은 `npm run build:tauri` 이고, 액션의 `bake` 잡이 관문을 대기한 뒤
+동일한 작업을 수행한다. 그 명령이 요구하는 것은 `docs/desktop.md` 에 존재한다.
 
 ## 브라우저에서 개방하기
 
 ```bash
-cargo build -p sheetsift-wasm --target wasm32-unknown-unknown --release
-wasm-bindgen --target web --no-typescript --out-dir web/pkg \
-  target/wasm32-unknown-unknown/release/sheetsift_wasm.wasm
-cd web && npm install && npm run dev
+npm run dev:web
 ```
+
+알맹이를 wasm 으로 컴파일한 뒤 화면을 기동한다. **컴파일에는 clang 과
+`wasm-bindgen-cli` 가 필요하다** — 설치 경로는 `docs/wasm.md` 에 존재한다.
+배포되는 것을 산출하는 것은 `npm run build:web` 이다.
 
 파일을 선택하면 그 위치에서 SQLite 로 변환되고, 정렬·값 선택·검색으로 조회한다.
 머리글이 몇 행인지는 조작부에서 사람이 지정한다.

@@ -6,6 +6,11 @@
     "ci:gate": "cargo test --workspace && cargo clippy --workspace --all-targets -- -D warnings",
     "ci:wasm": "cargo clippy -p sheetsift-wasm --all-targets --target wasm32-unknown-unknown -- -D warnings && cargo test -p sheetsift-core --target wasm32-unknown-unknown && cargo test -p sheetsift-wasm --target wasm32-unknown-unknown",
     "ci:web": "npm --prefix web ci && npm --prefix web run check",
-    "ci:tauri": "cargo clippy --manifest-path crates/tauri/Cargo.toml --all-targets -- -D warnings && cargo test --manifest-path crates/tauri/Cargo.toml"
+    "ci:tauri": "cargo clippy --manifest-path crates/tauri/Cargo.toml --all-targets -- -D warnings && cargo test --manifest-path crates/tauri/Cargo.toml",
+    "dev:web": "npm run pkg && npm --prefix web install && npm --prefix web run dev",
+    "dev:tauri": "cd crates/tauri && npx @tauri-apps/cli@2 dev",
+    "build:web": "npm run pkg && npm --prefix web install && npm --prefix web run build",
+    "build:tauri": "cd crates/tauri && npx @tauri-apps/cli@2 build",
+    "pkg": "cargo build -p sheetsift-wasm --target wasm32-unknown-unknown --release && wasm-bindgen --target web --no-typescript --out-dir web/pkg target/wasm32-unknown-unknown/release/sheetsift_wasm.wasm"
   }
 }

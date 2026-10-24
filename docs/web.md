@@ -20,9 +20,7 @@
 rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --locked
 
-cargo build -p sheetsift-wasm --target wasm32-unknown-unknown --release
-wasm-bindgen --target web --no-typescript --out-dir web/pkg \
-  target/wasm32-unknown-unknown/release/sheetsift_wasm.wasm
+npm run pkg
 ```
 
 `wasm-bindgen-cli` 의 판은 `wasm-bindgen` 크레이트와 **동일해야** 한다. 불일치
@@ -39,12 +37,13 @@ wasm-bindgen --target web --no-typescript --out-dir web/pkg \
 `sheetsift-wasm` 별칭이 인지한다.
 
 ```bash
-cd web && npm install && npm run dev
+npm run dev:web
 ```
 
 **wasm 을 컴파일하려면 clang 이 필요하다**(`docs/wasm.md`). 그것이 존재하는
-환경에서는 거기 수록된 2행으로 `web/pkg` 를 생성하고 화면을 로컬에서 조작한다 —
-알맹이를 수정할 때만 그 2행을 재실행하고, 화면 파일은 Vite 가 즉시 반영한다.
+환경에서는 상기 명령이 `web/pkg` 를 생성하고 화면을 로컬에서 조작한다 —
+알맹이를 수정할 때만 `npm run pkg` 를 재실행하고, 화면 파일은 Vite 가 즉시
+반영한다.
 
 clang 이 부재하는 환경에서는 화면을 수정한 뒤 푸시해 **배포된 것을 조작한다.**
 번잡하지만, 컴파일하지 못한 상태로 추측해 수정하는 것보다 양호하다.
