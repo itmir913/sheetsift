@@ -44,8 +44,16 @@ pub const MAX_LIMIT: u32 = 500;
 /// 조건에 기재하는데, 그것이 SQLite 의 바인딩 상한이다. 전체에서 해제하는 쪽은
 /// 제외 목록으로 기재하므로 그 상한과 무관하다.
 pub const MAX_VALUES: u32 = 10_000;
-/// 화면에서 공백 값을 표현하는 표식. 실제 자료의 공백 셀/NULL 에 대응한다.
-pub const BLANK_TOKEN: &str = "(비어 있음)";
+/// 값이 부재하는 셀을 지시하는 표식. 실제 자료의 공백 셀·NULL 에 대응한다.
+///
+/// **자료에서 유래할 수 없는 문자다.** 사람이 판독할 문구를 기재했더니 동일한
+/// 문구가 셀에 기재된 양식에서 양자가 병합되어, 목록에 한 항목으로 출현하고
+/// 선택하면 상이한 행들이 함께 통과했다. 유니코드가 문자로 배정하지 않는
+/// 위치(noncharacter)는 양식이 산출하지 않는다.
+///
+/// 이것은 **수수하는 값이지 묘사하는 문구가 아니다.** 화면은 자체 사전의
+/// 문구로 치환해 묘사한다(`i18n` 의 `filter.blank`).
+pub const BLANK_TOKEN: &str = "\u{FFFF}";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -822,6 +830,37 @@ mod tests {
 
         let got = column_values(&conn, &t, BLANK, "v", &[], "").unwrap();
         assert!(got.truncated, "값이 누락되었는데 전부라고 보고했습니다");
+    }
+
+    /// **자료에 기재된 문자가 공백 표식과 병합되지 않는다.**
+    ///
+    /// 표식이 사람이 판독할 문구였을 때는 동일한 문구가 셀에 기재된 양식에서
+    /// 양자가 한 항목으로 병합되고, 선택하면 상이한 행들이 함께 통과했다.
+    #[test]
+    fn a_cell_can_never_impersonate_the_blank_mark() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE people(name TEXT, v TEXT);
+             INSERT INTO people VALUES ('가', ''), ('나', '(비어 있음)'), ('다', 'x');",
+        )
+        .unwrap();
+        let mut t = T {
+            columns: vec![col("name", ColumnKind::Text, false), col("v", ColumnKind::Text, false)],
+        };
+        assign_aliases(t.columns.iter_mut());
+
+        let got = column_values(&conn, &t, BLANK, "v", &[], "").unwrap();
+        let shown: Vec<&str> = got.values.iter().map(|v| v.value.as_str()).collect();
+        assert_eq!(shown, [BLANK_TOKEN, "(비어 있음)", "x"], "자료의 문자가 표식과 병합되었습니다");
+
+        // 표식을 선택하면 공백 행만 통과한다.
+        let f = Filter {
+            key: "v".into(),
+            values: Some(vec![BLANK_TOKEN.into()]),
+            ..Filter::default()
+        };
+        let page = run(&conn, &t, BLANK, &query(vec![], vec![f])).unwrap();
+        assert_eq!(names(&page), ["가"]);
     }
 
     /// **공백 표기가 몇 벌이든 목록에는 하나로 출현한다.**
