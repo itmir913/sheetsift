@@ -9,6 +9,7 @@
  */
 import { ref, watch } from "vue";
 import { t, tn } from "@/i18n";
+import { grouping, setGrouping } from "@/composables/useGrouping";
 import type { HeaderSpec, Sort } from "@/lib/grid";
 import type { LaidOutColumn } from "@/composables/useColumnLayout";
 
@@ -308,6 +309,13 @@ function labelOf(key: string): string {
         >
           {{ t("tools.filters.clear") }}
         </button>
+
+        <!-- 천 단위 구분. **사람이 선택한다** — 어느 열이 식별자인지 이 앱은
+             판정하지 않는다. -->
+        <label class="gx-tool-btn gx-tool-check" :data-tip="t('tools.grouping.tip')">
+          <input type="checkbox" :checked="grouping" @change="setGrouping(!grouping)" />
+          {{ t("tools.grouping") }}
+        </label>
       </span>
     </div>
 

@@ -816,6 +816,18 @@ select.ss-text:disabled {
   color: var(--c-fg);
 }
 
+/* 확인란을 보유한 단추. 단추들과 동일한 열에 배열되므로 형태도 동일하다. */
+.gx-tool-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  cursor: pointer;
+}
+
+.gx-tool-check input {
+  accent-color: var(--c-accent);
+}
+
 .gx-pin-btn:disabled,
 .gx-tool-btn:disabled {
   opacity: 0.4;

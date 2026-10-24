@@ -5,7 +5,7 @@
  * 호출했고 여기서는 개방한 `Book` 을 호출하는데, 요청의 항목 명칭이 동일한
  * 벌이라 **변경된 것은 그 한 행뿐**이다.
  */
-import { shallowRef } from "vue";
+import { ref, shallowRef } from "vue";
 import { Book, limits } from "sheetsift-book";
 
 export type ColumnKind = "text" | "number";
@@ -218,7 +218,32 @@ export function setCellDecimals(n: number | null): void {
   decimals = n;
 }
 
-const cellFormat = new Intl.NumberFormat("ko-KR");
+/**
+ * 숫자 칸에 천 단위 구분을 넣는가. **사람이 선택한다**(`useGrouping`).
+ *
+ * 어느 열이 식별자인지 이 앱은 판정하지 않는다 — 열 명칭이나 값의 생김새를
+ * 참조해 분기하면 특정 양식 전용 규칙이 코드에 적재된다.
+ *
+ * **반응형이어야 한다.** 평범한 변수로 보유하면 선택을 변경해도 이미 묘사된
+ * 표가 그대로 잔류한다 — 조작했는데 아무 일도 발생하지 않는 것처럼 보이고,
+ * 오류는 어디에서도 발생하지 않는다.
+ */
+const grouping = ref(true);
+
+export function setCellGrouping(on: boolean): void {
+  grouping.value = on;
+}
+
+/* 구분 기호의 **형태**는 언어가 결정하고(1,000 · 1.000), 넣을지는 사람이
+   결정한다. 양자를 혼동하지 않는다.
+
+   자릿수를 절단하지 않는다. 기본값(3)으로 두면 양식의 소수가 묵시적으로
+   반올림된다. */
+function makeFormat(on: boolean): Intl.NumberFormat {
+  return new Intl.NumberFormat(undefined, { useGrouping: on, maximumFractionDigits: 20 });
+}
+
+const formats = { on: makeFormat(true), off: makeFormat(false) };
 
 /** 문자를 생성하는 데 필요한 만큼의 열 정보. */
 export interface CellShape {
@@ -238,6 +263,7 @@ export function cellText(col: CellShape, value: unknown): string {
     const n = typeof value === "number" ? value : Number(value);
     if (Number.isNaN(n)) return String(value);
     // 자릿수를 인지하는 앱만 반올림한다. 인지하지 못하면 양식의 값 그대로다.
+    const cellFormat = grouping.value ? formats.on : formats.off;
     if (decimals === null) return cellFormat.format(n);
     const p = 10 ** decimals;
     return cellFormat.format(Math.round(n * p) / p);
