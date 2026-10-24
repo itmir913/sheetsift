@@ -126,6 +126,12 @@ pub struct ScreenView {
     pub header_guessed: bool,
     /// 시트의 총 행 수. 조작부가 지정 가능한 범위의 상한이다.
     pub sheet_rows: usize,
+    /// 이 시트가 양식에서 개시되는 **행**(0부터).
+    ///
+    /// 조작부는 머리글 위치를 **엑셀의 행 번호로** 표시해야 한다. 1~5행이
+    /// 공백인 양식은 6행이 내부의 0번이라, 이 값을 가산하지 않으면 `6–7행` 을
+    /// `1–2행` 으로 표시하고 사람이 원본을 참조할 수 없다.
+    pub row_origin: usize,
 }
 
 /// 양식 개방 직후 화면이 인지해야 하는 것 전부.
@@ -260,7 +266,7 @@ impl Shape {
     /// 하단 행이 일부 열에서 공백이라(`학년` 은 상단에만 존재), 원문으로 열쇠를
     /// 구성하면 다수의 열이 `_`·`_2`·`_3` 이 된다. 유일하기는 하나 조회 오류가
     /// 발생했을 때 어느 열인지 판독할 수 없다. 표시 명칭은 이미 합성되어 유일하다.
-    fn derive(layout: infer::Layout, guessed: bool) -> Self {
+    fn derive(layout: infer::Layout, guessed: bool, at_col: usize) -> Self {
         let infer::Header::Found { at, rows } = layout.header else {
             return Self::empty();
         };
@@ -280,14 +286,14 @@ impl Shape {
                 // 셀이 포함되면 발생한다. **엑셀의 열 기호를 부여한다** — 공백으로
                 // 배치하면 머리글이 공백이라 열을 지시할 수 없고, 열쇠도 `_`·`_2`
                 // 가 되어 조회 오류에서 어느 열인지 판독할 수 없다.
-                _ if c.label.is_empty() => format!("{}열", column_ref(i)),
+                _ if c.label.is_empty() => format!("{}열", column_ref(i + at_col)),
                 _ => c.label.clone(),
             })
             .collect();
 
         // 열쇠는 **바탕이 구성한다.** 여기서 동일한 규칙을 한 벌 더 기재하면,
         // 바탕이 명명 규칙을 변경하는 시점에 양자가 묵시적으로 상이해진다.
-        let head = Sheet { rows: vec![labels.clone()] };
+        let head = Sheet { rows: vec![labels.clone()], ..Sheet::default() };
         let keys = sheet::column_names(&head);
 
         let mut columns = Vec::with_capacity(keys.len());
@@ -338,7 +344,7 @@ struct Tab {
 
 impl Tab {
     fn read(name: String, data: Sheet) -> Self {
-        let guess = Shape::derive(infer::layout(&data, BLANK), true);
+        let guess = Shape::derive(infer::layout(&data, BLANK), true, data.origin.1);
         Self { name, data, guess }
     }
 
@@ -347,7 +353,11 @@ impl Tab {
         match spec {
             None => Cow::Borrowed(&self.guess),
             Some(s) if self.guess.spec == Some(s) && self.guess.guessed => Cow::Borrowed(&self.guess),
-            Some(s) => Cow::Owned(Shape::derive(infer::layout_at(&self.data, BLANK, s.at, s.rows), false)),
+            Some(s) => Cow::Owned(Shape::derive(
+                infer::layout_at(&self.data, BLANK, s.at, s.rows),
+                false,
+                self.data.origin.1,
+            )),
         }
     }
 
@@ -410,6 +420,7 @@ impl Viewer {
                         header: shape.spec,
                         header_guessed: shape.guessed,
                         sheet_rows: t.height(),
+                        row_origin: t.data.origin.0,
                     }
                 })
                 .collect(),
@@ -437,7 +448,7 @@ impl Viewer {
         let mut rows = Vec::with_capacity(1 + tab.data.rows.len());
         rows.push(shape.labels.clone());
         rows.extend(trimmed(&tab.data, applied.at + applied.rows, width));
-        let body = Sheet { rows };
+        let body = Sheet { rows, ..Sheet::default() };
 
         let conn = Connection::open_in_memory()
             .map_err(|e| Error::new(ErrorCode::SheetTableFailed).detail(e))?;
@@ -583,6 +594,9 @@ mod tests {
 
     /// 바탕의 시험이 사용하는 그 소규모 양식이다. 여기서도 동일한 것을 사용한다.
     const TINY_XLSX: &[u8] = include_bytes!("../../core/tests/fixtures/tiny.xlsx");
+    /// 1~5행이 공백이고 A·B열이 공백이며, 머리글이 6~7행이고 자료가 8행부터인
+    /// 양식. **실재하는 형태다** — 상단에 제목과 여백을 배치한 양식이 흔하다.
+    const OFFSET_XLSX: &[u8] = include_bytes!("../../core/tests/fixtures/offset.xlsx");
 
     /// 깊이가 열마다 상이한 머리글. 좌측 둘은 1단, 우측 넷은 2단이다.
     /// **실재하는 진학결과 양식의 형태**이고, 추정은 여기서 실패한다.
@@ -629,6 +643,37 @@ mod tests {
             column_key: key.to_string(),
             ..ValuesAsk::default()
         }
+    }
+
+    /// **조작부가 표시하는 행 번호는 엑셀의 행 번호다.**
+    ///
+    /// calamine 은 선두의 공백 행을 소거한 범위를 반환하므로, 그 소거량을
+    /// 운반하지 않으면 6~7행의 머리글이 `1–2행` 으로 표시된다. 그 표시를 보고
+    /// 원본을 참조하는 사람은 전혀 상이한 행을 판독한다 — 화면은 정상으로
+    /// 보이고, 어디에서도 오류가 발생하지 않는다.
+    #[test]
+    fn the_toolbar_can_name_the_row_the_header_sits_on_in_the_workbook() {
+        let v = Viewer::open(OFFSET_XLSX, "offset.xlsx").unwrap();
+        let s = screen(&v, 0);
+        assert!(s.header_found, "1~5행이 공백인 양식의 머리글을 탐색하지 못했습니다");
+        assert_eq!(s.row_origin, 5, "소거된 선두 공백 행이 운반되지 않았습니다");
+
+        // 내부의 0번 행이 양식의 6행이다. 조작부는 양자를 가산해 표시한다.
+        let h = s.header.unwrap();
+        assert_eq!((h.at, h.rows), (0, 2), "6~7행 2단 머리글을 그렇게 판정하지 않았습니다");
+        assert_eq!(s.row_origin + h.at + 1, 6);
+        assert_eq!(s.row_origin + h.at + h.rows, 7);
+
+        // 2단 머리글이 합성되었는가. 선두 공백 **열**도 소거된 상태다.
+        let labels: Vec<&str> = s.columns.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels, ["기본정보 · 학번", "기본정보 · 성명", "국어 · 점수"]);
+    }
+
+    /// 선두 자료 행이 머리글로 소비되지 않았는가. 6행이 아니라 8행부터가 자료다.
+    #[test]
+    fn the_first_body_row_of_an_offset_sheet_survives() {
+        let mut v = Viewer::open(OFFSET_XLSX, "offset.xlsx").unwrap();
+        assert_eq!(total(&mut v, "성적"), 6);
     }
 
     #[test]

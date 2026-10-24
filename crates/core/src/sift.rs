@@ -325,6 +325,7 @@ mod tests {
                 vec!["하늘".into(), "서울".into()],
                 vec!["가람".into(), "부산".into()],
             ],
+            ..sheet::Sheet::default()
         };
         let plan = sheet::TablePlan {
             table: "people".into(),

@@ -40,6 +40,14 @@ fn failed(code: ErrorCode, e: impl ToString) -> Error {
 pub struct Sheet {
     /// 첫 행이 머리글이고 나머지가 알맹이다.
     pub rows: Vec<Vec<String>>,
+    /// 이 시트가 양식에서 **개시되는 위치**(0부터). 행과 열 양측이다.
+    ///
+    /// calamine 은 선두의 공백 행·열을 소거한 범위를 반환한다. 1~5행이 공백인
+    /// 양식은 6행이 `rows[0]` 이 되므로, 그 소거량을 보유하지 않으면 조작부가
+    /// 머리글을 `1행` 으로 표시하고 **사람이 원본의 행 번호를 참조해 지정할 수
+    /// 없다.** 공백 열도 동일해, 명칭이 부재하는 열에 부여하는 열 기호가
+    /// 어긋난다. csv 에는 그러한 소거가 부재해 양자 모두 0이다.
+    pub origin: (usize, usize),
 }
 
 impl Sheet {
@@ -124,7 +132,9 @@ pub fn from_xlsx(bytes: &[u8]) -> Result<Vec<(String, Sheet)>> {
             .worksheet_range(&name)
             .map_err(|e| failed(ErrorCode::SheetUnreadable, e).with("sheet", &name))?;
         let rows = range.rows().map(|r| r.iter().map(cell).collect()).collect();
-        out.push((name, Sheet { rows }));
+        // 소거된 선두의 공백 행·열. 부재하면 범위가 공백이라는 의미다.
+        let (row, col) = range.start().unwrap_or((0, 0));
+        out.push((name, Sheet { rows, origin: (row as usize, col as usize) }));
     }
     Ok(out)
 }
@@ -147,7 +157,7 @@ pub fn from_csv(bytes: &[u8]) -> Result<Sheet> {
         let record = record.map_err(|e| failed(ErrorCode::SheetUnreadable, e))?;
         rows.push(record.iter().map(|c| c.trim().to_string()).collect());
     }
-    Ok(Sheet { rows })
+    Ok(Sheet { rows, origin: (0, 0) })
 }
 
 /// UTF-8 이면 그대로, 아니면 CP949. 양자 모두 아니면 중단한다.
@@ -473,7 +483,10 @@ mod tests {
     use super::*;
 
     fn sheet(rows: &[&[&str]]) -> Sheet {
-        Sheet { rows: rows.iter().map(|r| r.iter().map(|c| c.to_string()).collect()).collect() }
+        Sheet {
+            rows: rows.iter().map(|r| r.iter().map(|c| c.to_string()).collect()).collect(),
+            ..Sheet::default()
+        }
     }
 
     fn mem() -> Connection {

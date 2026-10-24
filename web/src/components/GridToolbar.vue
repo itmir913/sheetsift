@@ -45,6 +45,11 @@ const props = withDefaults(
     header?: HeaderSpec | null;
     /** 시트의 총 행 수. 지정 가능한 범위의 상한이다. */
     sheetRows?: number;
+    /**
+     * 시트가 양식에서 개시되는 행(0부터). **표시에만 가산한다** — 바탕과
+     * 수수하는 지정은 소거된 범위를 기준으로 산정한 값 그대로다.
+     */
+    rowOrigin?: number;
     /** 현 페이지(0부터). 페이지 이동이 부재하는 화면은 전달하지 않는다. */
     page?: number;
     /** 전체 페이지 수. 전달하지 않으면 페이지 이동을 묘사하지 않는다. */
@@ -59,6 +64,7 @@ const props = withDefaults(
     pinLimit: 0,
     header: null,
     sheetRows: 0,
+    rowOrigin: 0,
     columnsCustomized: false,
     hasFilters: false,
     canPrint: true,
@@ -82,7 +88,8 @@ const emit = defineEmits<{
 
 /* ── 머리글 범위 ───────────────────────────────────────────────
    사람이 참조하는 수치는 **1부터**다. 엑셀의 행 번호와 일치해야 원본을 참조하며
-   지정할 수 있다. 바탕은 0부터 산정하므로 수수 시 환산한다. */
+   지정할 수 있다. 바탕은 0부터 산정하므로 수수 시 환산하고, 선두의 공백 행이
+   소거된 양식은 그 소거량(`rowOrigin`)까지 가산해야 엑셀과 일치한다. */
 
 function moveStart(by: number) {
   const h = props.header;
@@ -221,7 +228,10 @@ function labelOf(key: string): string {
             ↑
           </button>
           <span class="whitespace-nowrap tabular-nums text-fg">
-            {{ header.at + 1 }}–{{ header.at + header.rows }}행
+            <template v-if="header.rows === 1">{{ rowOrigin + header.at + 1 }}행</template>
+            <template v-else>
+              {{ rowOrigin + header.at + 1 }}–{{ rowOrigin + header.at + header.rows }}행
+            </template>
           </span>
           <button
             type="button"

@@ -68,6 +68,13 @@ export interface ScreenDef {
   headerGuessed: boolean;
   /** 시트의 총 행 수. 조작부가 지정 가능한 범위의 상한이다. */
   sheetRows: number;
+  /**
+   * 이 시트가 양식에서 개시되는 **행**(0부터).
+   *
+   * 선두의 공백 행은 소거된 상태로 도달한다. 조작부가 머리글 위치를 **엑셀의
+   * 행 번호로** 표시하려면 이것을 가산해야 한다.
+   */
+  rowOrigin: number;
 }
 
 export interface Sort {

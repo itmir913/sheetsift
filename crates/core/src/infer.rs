@@ -353,7 +353,10 @@ mod tests {
     use super::*;
 
     fn sheet(rows: &[&[&str]]) -> Sheet {
-        Sheet { rows: rows.iter().map(|r| r.iter().map(|c| c.to_string()).collect()).collect() }
+        Sheet {
+            rows: rows.iter().map(|r| r.iter().map(|c| c.to_string()).collect()).collect(),
+            ..Sheet::default()
+        }
     }
 
     fn kinds(l: &Layout) -> Vec<Kind> {

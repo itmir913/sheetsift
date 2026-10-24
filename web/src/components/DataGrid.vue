@@ -217,6 +217,7 @@ watch(sorts, reload, { deep: true });
     <GridToolbar
       :sorts="sorts"
       :header="screen.header"
+      :row-origin="screen.rowOrigin"
       :sheet-rows="screen.sheetRows"
       :columns="columns"
       :pinned="layout.pinned.value"
