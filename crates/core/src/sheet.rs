@@ -38,25 +38,25 @@ fn failed(code: ErrorCode, e: impl ToString) -> Error {
 /// [`TablePlan`] 이 기재해 전달한다.
 #[derive(Debug, Clone, Default)]
 pub struct Sheet {
-    /// 첫 행이 머리글이고 나머지가 알맹이다.
+    /// 첫 행이 헤더가고 나머지가 알맹이다.
     pub rows: Vec<Vec<String>>,
     /// 이 시트가 양식에서 **개시되는 위치**(0부터). 행과 열 양측이다.
     ///
     /// calamine 은 선두의 공백 행·열을 소거한 범위를 반환한다. 1~5행이 공백인
     /// 양식은 6행이 `rows[0]` 이 되므로, 그 소거량을 보유하지 않으면 조작부가
-    /// 머리글을 `1행` 으로 표시하고 **사람이 원본의 행 번호를 참조해 지정할 수
+    /// 헤더를 `1행` 으로 표시하고 **사람이 원본의 행 번호를 참조해 지정할 수
     /// 없다.** 공백 열도 동일해, 명칭이 부재하는 열에 부여하는 열 기호가
     /// 어긋난다. csv 에는 그러한 소거가 부재해 양자 모두 0이다.
     pub origin: (usize, usize),
 }
 
 impl Sheet {
-    /// 머리글 행. 공백이면 공백 조각이다.
+    /// 헤더 행. 공백이면 공백 조각이다.
     pub fn header(&self) -> &[String] {
         self.rows.first().map(Vec::as_slice).unwrap_or_default()
     }
 
-    /// 머리글을 제외한 알맹이 행들.
+    /// 헤더를 제외한 알맹이 행들.
     pub fn body(&self) -> &[Vec<String>] {
         self.rows.get(1..).unwrap_or_default()
     }
@@ -163,7 +163,7 @@ pub fn from_csv(bytes: &[u8]) -> Result<Sheet> {
 /// UTF-8 이면 그대로, 아니면 CP949. 양자 모두 아니면 중단한다.
 ///
 /// BOM 은 제거한다. 엑셀이 저장한 csv 는 BOM 을 부착하는데, 그것을 존치하면 첫
-/// 열의 머리글 명칭 앞에 비가시 문자가 부착되어 **그 열만 탐색하지 못한다.**
+/// 열의 헤더 명칭 앞에 비가시 문자가 부착되어 **그 열만 탐색하지 못한다.**
 fn decode(bytes: &[u8]) -> Result<String> {
     let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
     if let Ok(text) = std::str::from_utf8(bytes) {
@@ -199,7 +199,7 @@ impl ValueType {
 /// 시트의 열 하나를 DB 의 열 하나로.
 #[derive(Debug, Clone)]
 pub struct ColumnMap {
-    /// 시트 머리글에 기재된 명칭. 이것으로 열을 탐색한다.
+    /// 시트 헤더에 기재된 명칭. 이것으로 열을 탐색한다.
     pub sheet: String,
     /// DB 열 명칭.
     pub column: String,
@@ -210,7 +210,7 @@ pub struct ColumnMap {
 #[derive(Debug, Clone)]
 pub struct TablePlan {
     pub table: String,
-    /// 사전으로 압축할 열들. 공백이면 머리글을 그대로 열 명칭으로 사용하고
+    /// 사전으로 압축할 열들. 공백이면 헤더를 그대로 열 명칭으로 사용하고
     /// 값은 전부 문자로 수용한다.
     pub map: Vec<ColumnMap>,
     /// 생성할 색인. 한 행이 한 색인이고, 내부의 문자가 DB 열 명칭이다.
@@ -231,7 +231,7 @@ pub fn is_blank(s: &str, blank: &str) -> bool {
     t.is_empty() || t == blank
 }
 
-/// 머리글을 SQLite 열 명칭으로. 문자·숫자·밑줄만 존치하고, 숫자로 개시되면 앞에
+/// 헤더를 SQLite 열 명칭으로. 문자·숫자·밑줄만 존치하고, 숫자로 개시되면 앞에
 /// 밑줄을 부착한다. 동일한 명칭이 재차 출현하면 `_2`, `_3` 을 부착한다.
 pub fn sanitize(header: &str, seen: &mut HashMap<String, usize>) -> String {
     let mut out = String::with_capacity(header.len());
@@ -256,7 +256,7 @@ pub fn sanitize(header: &str, seen: &mut HashMap<String, usize>) -> String {
     out
 }
 
-/// 머리글 행을 (원본 문자, DB 열 명칭) 쌍으로.
+/// 헤더 행을 (원본 문자, DB 열 명칭) 쌍으로.
 pub fn column_names(sheet: &Sheet) -> Vec<(String, String)> {
     let mut seen = HashMap::new();
     sheet
@@ -269,7 +269,7 @@ pub fn column_names(sheet: &Sheet) -> Vec<(String, String)> {
         .collect()
 }
 
-/// 머리글에서 열의 위치를 탐색한다. **하나라도 부재하면 중단한다.**
+/// 헤더에서 열의 위치를 탐색한다. **하나라도 부재하면 중단한다.**
 pub fn locate(sheet: &Sheet, wanted: &[&str]) -> Result<Vec<usize>> {
     let header = sheet.header();
     if header.is_empty() {
@@ -346,7 +346,7 @@ pub fn build_dict(
     Ok(ids)
 }
 
-/// 머리글을 그대로 열 명칭으로 사용하는 표. 값은 전부 문자로 수용한다.
+/// 헤더를 그대로 열 명칭으로 사용하는 표. 값은 전부 문자로 수용한다.
 pub fn build_plain(
     conn: &Connection,
     sheet: &Sheet,
@@ -430,7 +430,7 @@ pub fn build_dict_table(
     drop(stmt);
     make_indexes(conn, table, &plan.indexes)?;
 
-    // 사전 표는 DB 열 명칭이 머리글과 상이하다. 화면이 사용하는 것은 DB 열 명칭이다.
+    // 사전 표는 DB 열 명칭이 헤더와 상이하다. 화면이 사용하는 것은 DB 열 명칭이다.
     let header = plan.map.iter().map(|m| (m.sheet.clone(), m.column.clone())).collect();
     Ok((n, header))
 }
@@ -439,7 +439,7 @@ pub fn build_dict_table(
 #[derive(Debug, Clone)]
 pub struct Made {
     pub rows: usize,
-    /// (시트 머리글, DB 열 명칭) 쌍. 부르는 곳이 화면 정의를 작성할 때 사용한다.
+    /// (시트 헤더, DB 열 명칭) 쌍. 부르는 곳이 화면 정의를 작성할 때 사용한다.
     pub columns: Vec<(String, String)>,
 }
 

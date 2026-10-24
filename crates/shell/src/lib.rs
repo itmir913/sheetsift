@@ -34,7 +34,7 @@ pub const BLANK: &str = "-";
 
 /* ── 화면에 전달하는 구조 ───────────────────────────────────────── */
 
-/// 머리글이 어디서 몇 줄인가. **사용자가 조작부에서 지정한다.**
+/// 헤더가 어디서 몇 줄인가. **사용자가 조작부에서 지정한다.**
 ///
 /// 추정으로 전부 적중시킬 수 없다 — 열마다 단수가 상이하거나(`학년` 은 1단,
 /// `국어 등급` 은 2단) 상단에 제목 줄이 부착된 양식이 실재한다. 적중시킬 수
@@ -45,16 +45,16 @@ pub const BLANK: &str = "-";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HeaderSpec {
-    /// 머리글이 개시되는 행. 0부터 산정한다.
+    /// 헤더가 개시되는 행. 0부터 산정한다.
     pub at: usize,
-    /// 머리글 행 수. 1 이상이어야 한다.
+    /// 헤더 행 수. 1 이상이어야 한다.
     pub rows: usize,
 }
 
 /// 열 하나를 화면이 인지하는 구조로.
 ///
 /// 항목 명칭과 의미는 이 표를 묘사할 화면이 사용하는 것과 **동일한 벌**이다.
-/// 머리글을 조작 가능한지·값 선택을 표시 가능한지를 화면이 열마다 판정하는데,
+/// 헤더를 조작 가능한지·값 선택을 표시 가능한지를 화면이 열마다 판정하는데,
 /// 그것이 부재하면 화면은 "전부 가능하다" 고 추정하게 되고 그 추정은 표마다
 /// 상이하다.
 #[derive(Debug, Clone, Serialize)]
@@ -64,7 +64,7 @@ pub struct ColumnView {
     pub label: String,
     /// `"number"` 또는 `"text"`.
     pub kind: String,
-    /// 머리글을 조작해 정렬할 수 있는가.
+    /// 헤더를 조작해 정렬할 수 있는가.
     pub sortable: bool,
     /// 값 선택 목록을 표시할 수 있는가.
     pub filterable: bool,
@@ -114,10 +114,10 @@ pub struct ScreenView {
     /// 좌측 목록에서 결속되는 위치.
     pub group: String,
     pub columns: Vec<ColumnView>,
-    /// 머리글을 탐색하지 못했으면 열이 부재한다. **열이 부재하는 것과 아직
+    /// 헤더를 탐색하지 못했으면 열이 부재한다. **열이 부재하는 것과 아직
     /// 판정하지 않은 것은 상이하다** — 화면이 그 사유를 제시할 수 있어야 한다.
     pub header_found: bool,
-    /// 적용된 머리글 지정. 조작부가 이 값을 표시하고 변경한다.
+    /// 적용된 헤더 지정. 조작부가 이 값을 표시하고 변경한다.
     pub header: Option<HeaderSpec>,
     /// 그 지정이 **추정**인가. 참이면 사용자가 확인하지 않은 값이다.
     ///
@@ -128,7 +128,7 @@ pub struct ScreenView {
     pub sheet_rows: usize,
     /// 이 시트가 양식에서 개시되는 **행**(0부터).
     ///
-    /// 조작부는 머리글 위치를 **엑셀의 행 번호로** 표시해야 한다. 1~5행이
+    /// 조작부는 헤더 위치를 **엑셀의 행 번호로** 표시해야 한다. 1~5행이
     /// 공백인 양식은 6행이 내부의 0번이라, 이 값을 가산하지 않으면 `6–7행` 을
     /// `1–2행` 으로 표시하고 사람이 원본을 참조할 수 없다.
     pub row_origin: usize,
@@ -167,7 +167,7 @@ pub struct ScreenCatalog {
 pub struct Ask {
     /// 열람할 표. 여기서는 시트 명칭이다.
     pub screen_id: String,
-    /// 적용할 머리글 지정. 없으면 추정한 것을 사용한다.
+    /// 적용할 헤더 지정. 없으면 추정한 것을 사용한다.
     #[serde(default)]
     pub header: Option<HeaderSpec>,
     #[serde(default)]
@@ -189,7 +189,7 @@ pub struct Ask {
 pub struct ValuesAsk {
     /// 볼 표. 여기서는 시트 이름이다.
     pub screen_id: String,
-    /// 적용할 머리글 지정. 조회와 동일한 값이어야 한다.
+    /// 적용할 헤더 지정. 조회와 동일한 값이어야 한다.
     #[serde(default)]
     pub header: Option<HeaderSpec>,
     pub column_key: String,
@@ -203,7 +203,7 @@ pub struct ValuesAsk {
 
 /// 화면 목록 요청.
 ///
-/// 시트별 머리글 지정을 지참한다. 기재하지 않은 시트는 추정한 것을 적용한다.
+/// 시트별 헤더 지정을 지참한다. 기재하지 않은 시트는 추정한 것을 적용한다.
 /// 사용자가 한 시트의 지정을 변경하면 그 시트만 기재해 재요청한다.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -218,7 +218,7 @@ pub struct CatalogAsk {
 struct Open {
     conn: Connection,
     name: String,
-    /// 이 표를 구축할 때 적용한 머리글 지정. 요청의 것과 대조한다.
+    /// 이 표를 구축할 때 적용한 헤더 지정. 요청의 것과 대조한다.
     header: HeaderSpec,
     columns: Vec<Column>,
     rows: u32,
@@ -237,13 +237,13 @@ impl Table for Open {
 }
 
 #[derive(Clone)]
-/// 시트 하나와, 지정된 머리글로 산출한 구조.
+/// 시트 하나와, 지정된 헤더로 산출한 구조.
 ///
-/// 구조는 **머리글 지정마다 상이하다.** 사용자가 조작부에서 행 수를 변경하면
+/// 구조는 **헤더 지정마다 상이하다.** 사용자가 조작부에서 행 수를 변경하면
 /// 열의 명칭도 개수도 종류도 전부 변경된다. 그래서 하나로 고정하지 않고,
 /// 요청이 지참한 지정으로 그 시점에 산출한다.
 struct Shape {
-    /// 적용된 머리글 지정. 없으면 판별에 실패한 것이다.
+    /// 적용된 헤더 지정. 없으면 판별에 실패한 것이다.
     spec: Option<HeaderSpec>,
     /// 추정으로 결정한 것인가. 사용자가 지정한 것이면 거짓이다.
     guessed: bool,
@@ -260,9 +260,9 @@ impl Shape {
         Self { spec: None, guessed: true, labels: Vec::new(), columns: Vec::new(), view: Vec::new() }
     }
 
-    /// 지정된 머리글로 구조를 산출한다.
+    /// 지정된 헤더로 구조를 산출한다.
     ///
-    /// **SQL 열쇠를 머리글 원문이 아니라 표시 명칭에서 파생한다.** 2단 머리글은
+    /// **SQL 열쇠를 헤더 원문이 아니라 표시 명칭에서 파생한다.** 2단 헤더는
     /// 하단 행이 일부 열에서 공백이라(`학년` 은 상단에만 존재), 원문으로 열쇠를
     /// 구성하면 다수의 열이 `_`·`_2`·`_3` 이 된다. 유일하기는 하나 조회 오류가
     /// 발생했을 때 어느 열인지 판독할 수 없다. 표시 명칭은 이미 합성되어 유일하다.
@@ -279,12 +279,12 @@ impl Shape {
             .iter()
             .enumerate()
             .map(|(i, c)| match &c.group {
-                // 2단 이상은 `묶음 · 명칭` 으로 단일 행에 수용한다. 표의 머리글이
+                // 2단 이상은 `묶음 · 명칭` 으로 단일 행에 수용한다. 표의 헤더가
                 // 1행이라 그렇다. 합성하지 않으면 `등급` 이 6개 열에 중복된다.
                 Some(g) if !g.is_empty() && g != &c.label => format!("{g} · {}", c.label),
                 // 명칭이 부재하는 열. 사용자가 지정한 범위에 병합으로 공백이던
                 // 셀이 포함되면 발생한다. **엑셀의 열 기호를 부여한다** — 공백으로
-                // 배치하면 머리글이 공백이라 열을 지시할 수 없고, 열쇠도 `_`·`_2`
+                // 배치하면 헤더가 공백이라 열을 지시할 수 없고, 열쇠도 `_`·`_2`
                 // 가 되어 조회 오류에서 어느 열인지 판독할 수 없다.
                 _ if c.label.is_empty() => format!("{}열", column_ref(i + at_col)),
                 _ => c.label.clone(),
@@ -348,7 +348,7 @@ impl Tab {
         Self { name, data, guess }
     }
 
-    /// 지정된 머리글의 구조. 지정이 부재하거나 추정과 동일하면 산출을 생략한다.
+    /// 지정된 헤더의 구조. 지정이 부재하거나 추정과 동일하면 산출을 생략한다.
     fn shape(&self, spec: Option<HeaderSpec>) -> Cow<'_, Shape> {
         match spec {
             None => Cow::Borrowed(&self.guess),
@@ -396,7 +396,7 @@ impl Viewer {
     /// **탭 순서대로** 반환한다. 열 정의가 함께 도달하므로 화면은 표를 하나씩
     /// 개방하며 열을 수집하지 않는다.
     ///
-    /// 요청이 시트별 머리글 지정을 지참한다. 기재하지 않은 시트는 추정값을
+    /// 요청이 시트별 헤더 지정을 지참한다. 기재하지 않은 시트는 추정값을
     /// 적용한다.
     pub fn list_screens(&self, ask: &CatalogAsk) -> ScreenCatalog {
         ScreenCatalog {
@@ -429,8 +429,8 @@ impl Viewer {
 
     /// 시트 하나를 SQLite 표로 변환해 보유한다.
     ///
-    /// 머리글 줄을 **합성해서** 본문 앞에 부착한다. 양식의 머리글 원문을 그대로
-    /// 사용하지 않는 이유는 2단 머리글이다 — 하단 줄이 일부 열에서 공백이라
+    /// 헤더 줄을 **합성해서** 본문 앞에 부착한다. 양식의 헤더 원문을 그대로
+    /// 사용하지 않는 이유는 2단 헤더가다 — 하단 줄이 일부 열에서 공백이라
     /// 원문으로는 열쇠가 `_`·`_2` 가 된다. 표시 명칭은 이미 합성되어 유일하고,
     /// 목록이 내준 열쇠도 그것에서 파생했으므로 양자가 일치한다.
     fn open_sheet(&mut self, at: usize, spec: Option<HeaderSpec>) -> Result<()> {
@@ -479,7 +479,7 @@ impl Viewer {
 
     /// 요청이 지시하는 표를 개방된 상태로 만든다.
     ///
-    /// 동일한 시트가 **동일한 머리글 지정으로** 개방되어 있으면 재사용하고,
+    /// 동일한 시트가 **동일한 헤더 지정으로** 개방되어 있으면 재사용하고,
     /// 아니면 재구축한다. 시트만 대조하면 지정을 변경해도 구 표로 응답하여,
     /// 화면은 신규 열 구성을 보고 있다고 오인한다 — 오류는 발생하지 않는다.
     ///
@@ -499,7 +499,7 @@ impl Viewer {
         if !same {
             self.open_sheet(at, spec)?;
         }
-        // 머리글을 판별하지 못한 시트는 표가 부재한다. 공백 페이지를 반환하면
+        // 헤더를 판별하지 못한 시트는 표가 부재한다. 공백 페이지를 반환하면
         // 화면이 "자료 없음" 으로 판독한다.
         self.open
             .as_ref()
@@ -576,9 +576,9 @@ fn sheet_name_of(name: &str) -> String {
     }
 }
 
-/// 머리글 행과 그 하단만, **열 수만큼만** 존치한다.
+/// 헤더 행과 그 하단만, **열 수만큼만** 존치한다.
 ///
-/// 열 수를 정합하는 사유가 존재한다. 본문에 머리글보다 우측으로 돌출한 셀이
+/// 열 수를 정합하는 사유가 존재한다. 본문에 헤더보다 우측으로 돌출한 셀이
 /// 존재하는 양식이 빈번한데, 그대로 유지하면 명칭 없는 열이 하나 발생한다.
 fn trimmed(sheet: &Sheet, from: usize, width: usize) -> Vec<Vec<String>> {
     sheet.rows[from..]
@@ -594,11 +594,11 @@ mod tests {
 
     /// 바탕의 시험이 사용하는 그 소규모 양식이다. 여기서도 동일한 것을 사용한다.
     const TINY_XLSX: &[u8] = include_bytes!("../../core/tests/fixtures/tiny.xlsx");
-    /// 1~5행이 공백이고 A·B열이 공백이며, 머리글이 6~7행이고 자료가 8행부터인
+    /// 1~5행이 공백이고 A·B열이 공백이며, 헤더가 6~7행이고 자료가 8행부터인
     /// 양식. **실재하는 형태다** — 상단에 제목과 여백을 배치한 양식이 흔하다.
     const OFFSET_XLSX: &[u8] = include_bytes!("../../core/tests/fixtures/offset.xlsx");
 
-    /// 깊이가 열마다 상이한 머리글. 좌측 둘은 1단, 우측 넷은 2단이다.
+    /// 깊이가 열마다 상이한 헤더. 좌측 둘은 1단, 우측 넷은 2단이다.
     /// **실재하는 진학결과 양식의 형태**이고, 추정은 여기서 실패한다.
     const MIXED_CSV: &[u8] = "학년,반,국어,,,영어
         ,,선택과목,표준점수,등급,등급
@@ -645,9 +645,9 @@ mod tests {
         }
     }
 
-    /// **머리글보다 넓은 본문의 열이 화면에 도달한다.**
+    /// **헤더보다 넓은 본문의 열이 화면에 도달한다.**
     ///
-    /// 바탕이 그 열을 산출해도 부르는 곳이 머리글 폭으로 절단하면 동일하게
+    /// 바탕이 그 열을 산출해도 부르는 곳이 헤더 폭으로 절단하면 동일하게
     /// 소거된다. 명칭이 부재하는 열이므로 엑셀의 열 기호를 부여한다.
     #[test]
     fn a_column_the_header_does_not_name_still_reaches_the_screen() {
@@ -671,28 +671,28 @@ mod tests {
     /// **조작부가 표시하는 행 번호는 엑셀의 행 번호다.**
     ///
     /// calamine 은 선두의 공백 행을 소거한 범위를 반환하므로, 그 소거량을
-    /// 운반하지 않으면 6~7행의 머리글이 `1–2행` 으로 표시된다. 그 표시를 보고
+    /// 운반하지 않으면 6~7행의 헤더가 `1–2행` 으로 표시된다. 그 표시를 보고
     /// 원본을 참조하는 사람은 전혀 상이한 행을 판독한다 — 화면은 정상으로
     /// 보이고, 어디에서도 오류가 발생하지 않는다.
     #[test]
     fn the_toolbar_can_name_the_row_the_header_sits_on_in_the_workbook() {
         let v = Viewer::open(OFFSET_XLSX, "offset.xlsx").unwrap();
         let s = screen(&v, 0);
-        assert!(s.header_found, "1~5행이 공백인 양식의 머리글을 탐색하지 못했습니다");
+        assert!(s.header_found, "1~5행이 공백인 양식의 헤더를 탐색하지 못했습니다");
         assert_eq!(s.row_origin, 5, "소거된 선두 공백 행이 운반되지 않았습니다");
 
         // 내부의 0번 행이 양식의 6행이다. 조작부는 양자를 가산해 표시한다.
         let h = s.header.unwrap();
-        assert_eq!((h.at, h.rows), (0, 2), "6~7행 2단 머리글을 그렇게 판정하지 않았습니다");
+        assert_eq!((h.at, h.rows), (0, 2), "6~7행 2단 헤더를 그렇게 판정하지 않았습니다");
         assert_eq!(s.row_origin + h.at + 1, 6);
         assert_eq!(s.row_origin + h.at + h.rows, 7);
 
-        // 2단 머리글이 합성되었는가. 선두 공백 **열**도 소거된 상태다.
+        // 2단 헤더가 합성되었는가. 선두 공백 **열**도 소거된 상태다.
         let labels: Vec<&str> = s.columns.iter().map(|c| c.label.as_str()).collect();
         assert_eq!(labels, ["기본정보 · 학번", "기본정보 · 성명", "국어 · 점수"]);
     }
 
-    /// 선두 자료 행이 머리글로 소비되지 않았는가. 6행이 아니라 8행부터가 자료다.
+    /// 선두 자료 행이 헤더로 소비되지 않았는가. 6행이 아니라 8행부터가 자료다.
     #[test]
     fn the_first_body_row_of_an_offset_sheet_survives() {
         let mut v = Viewer::open(OFFSET_XLSX, "offset.xlsx").unwrap();
@@ -872,7 +872,7 @@ mod tests {
         let mut v = Viewer::open(TINY_XLSX, "tiny.xlsx").unwrap();
         assert_eq!(total(&mut v, "사람"), 3);
         assert_eq!(v.rows(), 3);
-        // '안내' 는 표가 아니다 — 머리글이 부재한다.
+        // '안내' 는 표가 아니다 — 헤더가 부재한다.
         assert_eq!(v.query_rows(&ask("안내", 10)).unwrap_err().code, ErrorCode::SheetEmpty);
         assert_eq!(v.rows(), 0, "선행 시트의 표가 잔존한다");
     }
@@ -905,7 +905,7 @@ mod tests {
         assert_eq!(e.params.get("sheet").map(String::as_str), Some("없는시트"));
     }
 
-    /// 머리글을 탐색하지 못한 시트를 질의하면 **공백 페이지가 아니라 오류**다.
+    /// 헤더를 탐색하지 못한 시트를 질의하면 **공백 페이지가 아니라 오류**다.
     /// 공백 페이지는 화면이 "자료 없음" 으로 판독한다.
     #[test]
     fn asking_for_a_sheet_without_a_header_stops() {
@@ -1063,7 +1063,7 @@ mod tests {
 
     /* ── 조용히 틀리느니 선다 ───────────────────────────────────── */
 
-    /// 머리글을 탐색하지 못하면 **최초 행을 열 명칭으로 사용하지 않는다.**
+    /// 헤더를 탐색하지 못하면 **최초 행을 열 명칭으로 사용하지 않는다.**
     /// 화면이 그 사유를 진술할 수 있게 공백으로 반환한다.
     #[test]
     fn a_sheet_without_a_header_opens_empty_and_says_so() {
@@ -1071,10 +1071,10 @@ mod tests {
         let v = Viewer::open(csv, "숫자.csv").unwrap();
         let view = screen(&v, 0);
         assert!(!view.header_found);
-        assert!(view.columns.is_empty(), "머리글을 탐색하지 못했는데 열을 반환했다");
+        assert!(view.columns.is_empty(), "헤더를 탐색하지 못했는데 열을 반환했다");
     }
 
-    /// 2행 머리글은 1행으로 합성해 제시한다. 화면이 1행이라 그렇다.
+    /// 2행 헤더는 1행으로 합성해 제시한다. 화면이 1행이라 그렇다.
     #[test]
     fn a_two_row_header_becomes_one_label() {
         let csv = "전형개요,,모집\n지역,대학,인원\n서울,가대,30\n부산,나대,20\n".as_bytes();
@@ -1082,10 +1082,10 @@ mod tests {
         let view = screen(&v, 0);
         let labels: Vec<&str> = view.columns.iter().map(|c| c.label.as_str()).collect();
         assert_eq!(labels, ["전형개요 · 지역", "전형개요 · 대학", "모집 · 인원"]);
-        assert_eq!(total(&mut v, &view.id), 2, "머리글 2행이 자료로 유입되었다");
+        assert_eq!(total(&mut v, &view.id), 2, "헤더 2행이 자료로 유입되었다");
     }
 
-    /// 머리글 위의 안내 줄은 자료가 아니다. 그것까지 담으면 줄 수가 틀린다.
+    /// 헤더 위의 안내 줄은 자료가 아니다. 그것까지 담으면 줄 수가 틀린다.
     #[test]
     fn notes_above_the_header_do_not_become_rows() {
         let csv = "이 표는 보기용입니다\n\n이름,점수\n가람,90\n하늘,75\n".as_bytes();
@@ -1104,7 +1104,7 @@ mod tests {
         assert_eq!(view.columns.len(), 2);
         assert!(view.columns.iter().all(|c| !c.label.is_empty()));
     }
-    /* ── 사용자가 지정하는 머리글 ──────────────────────────────── */
+    /* ── 사용자가 지정하는 헤더 ──────────────────────────────── */
 
     /// 추정은 **거부한다.** 상단 줄 중간에 이름 없는 열이 존재해서다.
     /// 화면은 그 사실을 전달받아야 조작부로 물을 수 있다.
@@ -1137,7 +1137,7 @@ mod tests {
         assert!(keys.iter().all(|k| !k.is_empty() && *k != "_"), "열쇠가 비었습니다: {keys:?}");
     }
 
-    /// 지정한 머리글로 **조회까지 도달한다.** 열 정의만 바뀌고 자료가 따라오지
+    /// 지정한 헤더로 **조회까지 도달한다.** 열 정의만 바뀌고 자료가 따라오지
     /// 않으면 표는 비어 보인다.
     #[test]
     fn rows_come_back_under_the_header_the_user_chose() {
@@ -1150,7 +1150,7 @@ mod tests {
             ..Default::default()
         };
         let page = v.query_rows(&ask).expect("조회하지 못했습니다");
-        assert_eq!(page.total, 2, "머리글 2행이 자료로 혼입되었습니다");
+        assert_eq!(page.total, 2, "헤더 2행이 자료로 혼입되었습니다");
         assert_eq!(page.rows.len(), 2);
     }
 
@@ -1188,7 +1188,7 @@ mod tests {
         assert!(v.query_rows(&ask).is_err(), "범위를 벗어난 지정이 통과했습니다");
     }
 
-    /// 명칭이 없는 열에는 **엑셀의 열 기호**를 부여한다. 공백으로 두면 머리글이
+    /// 명칭이 없는 열에는 **엑셀의 열 기호**를 부여한다. 공백으로 두면 헤더가
     /// 비어 사람이 그 열을 지시할 수 없다.
     #[test]
     fn a_nameless_column_gets_its_spreadsheet_letter() {

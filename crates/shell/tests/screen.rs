@@ -192,7 +192,7 @@ fn the_check_catches_a_code_with_no_words_for_it() {
 
 #[test]
 fn the_check_reads_a_dictionary_line() {
-    let doctored = "  SHEET_EMPTY: \"머리글 행이 부재합니다.\",\n  notACode: \"x\",\n";
+    let doctored = "  SHEET_EMPTY: \"헤더 행이 부재합니다.\",\n  notACode: \"x\",\n";
     assert_eq!(spoken_codes(doctored), ["SHEET_EMPTY"]);
 }
 

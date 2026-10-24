@@ -6,7 +6,7 @@ import type { ColumnDef, Row, ScreenDef } from "@/lib/grid";
 /** 화면에 실제로 묘사되는 열. `srcIndex` 는 바탕이 전송한 행 배열에서의 원위치다. */
 export interface LaidOutColumn extends ColumnDef {
   srcIndex: number;
-  /** 열 폭(rem). 머리글을 측정해 결정하고, 사용자가 조작하면 그 값으로 피복한다. */
+  /** 열 폭(rem). 헤더를 측정해 결정하고, 사용자가 조작하면 그 값으로 피복한다. */
   width: number;
   /**
    * 잔여 공간을 **몇 배분** 수령할 열인가. `width` 는 그때 최소 폭이 된다.
@@ -60,7 +60,7 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
   const widths = ref<Record<string, number>>({});
   const pinned = ref(DEFAULT_PIN);
 
-  /* 머리글 지정이 열쇠에 포함된다. 지정이 변경되면 열의 개수도 명칭도 상이해져
+  /* 헤더 지정이 열쇠에 포함된다. 지정이 변경되면 열의 개수도 명칭도 상이해져
      **상이한 표**가 되는데, 동일한 열쇠로 보관하면 선행 지정에서 조절한 폭과
      순서가 무관한 열에 적용된다. */
   const key = computed(() => {
@@ -142,7 +142,7 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
   /**
    * 조회 결과로 폭을 산정한다. **자료를 1회 참조한 이후에는 재산정하지 않는다.**
    *
-   * 결과가 공백이거나 조회가 실패했을 때도 호출해야 한다 — 머리글만으로 산정해
+   * 결과가 공백이거나 조회가 실패했을 때도 호출해야 한다 — 헤더만으로 산정해
    * 표를 묘사한다. 그렇게 산정한 것은 잠정이라, 이후 자료가 수반된 결과가
    * 도달하면 그 시점에 1회 재산정한다.
    */
@@ -156,7 +156,7 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
     settled.value = rows.length > 0;
   }
 
-  /** 측정 이전에 사용하는 폭. 머리글이 전부 노출되는 만큼. */
+  /** 측정 이전에 사용하는 폭. 헤더가 전부 노출되는 만큼. */
   const byHeader = computed<Map<string, number>>(() => {
     void fontEpoch.value;
     const out = new Map<string, number>();

@@ -9,7 +9,7 @@
  * 개방된다.
  *
  * **개방하면 표가 출현한다.** 사람이 파일을 선택한 행위가 곧 열람 요청이라,
- * 그 사이에 단추를 1회 더 배치할 사유가 부재하다. 머리글 추정이 실패한 시트는
+ * 그 사이에 단추를 1회 더 배치할 사유가 부재하다. 헤더 추정이 실패한 시트는
  * 1행을 적용해 묘사하고, 상이하면 사람이 조작부에서 이동시킨다. **그 경우에만
  * 1회 통지한다** — 판별에 실패한 시트는 선두 자료 행이 열 명칭으로 소비되므로,
  * 아무 진술도 하지 않으면 그 소비를 인지할 경로가 전무하다. 통지는 소멸하는
@@ -44,7 +44,7 @@ const screens = ref<ScreenDef[]>([]);
 const current = ref<ScreenDef | null>(null);
 
 /**
- * 사용자가 지정한 시트별 머리글. **기재된 것만 보관한다** — 기재하지 않은
+ * 사용자가 지정한 시트별 헤더. **기재된 것만 보관한다** — 기재하지 않은
  * 시트는 바탕이 추정한 것을 적용하고, 그 추정은 바탕이 담당한다.
  */
 const headers = ref<Record<string, HeaderSpec>>({});
@@ -261,7 +261,7 @@ async function opened(name: string, open: () => Promise<ScreenCatalog>) {
  *
  * 추정이 실패한 시트는 1행을 적용한다. 그 지정이 적중한다는 의미가 아니라,
  * 사람이 조작부에서 원본과 대조해 이동시킬 **기준점**을 제시하는 것이다 —
- * 공백 화면과 단추만 배치하면 어느 행이 머리글인지 판별할 근거 자체가 부재하다.
+ * 공백 화면과 단추만 배치하면 어느 행이 헤더인지 판별할 근거 자체가 부재하다.
  */
 async function shown() {
   const s = current.value;
@@ -269,7 +269,7 @@ async function shown() {
   await setHeader(s.id, FIRST_GUESS);
   // **열이 생성된 경우에만 통지한다.** 공백 시트는 첫 행을 적용해도 표가
   // 부재해, 본문이 "열을 찾지 못했습니다" 를 기재한다. 거기에 "첫 행을
-  // 머리글로 가정했습니다" 를 병기하면 두 문구가 서로를 부정한다.
+  // 헤더로 가정했습니다" 를 병기하면 두 문구가 서로를 부정한다.
   if (current.value?.headerFound) notify(t("app.header.assumed", { sheet: s.title }));
 }
 
@@ -280,11 +280,11 @@ function select(item: ScreenDef) {
   void shown();
 }
 
-/** 머리글을 판별하지 못한 시트는 표가 부재한다. **공백 표로 묘사하지 않는다.** */
+/** 헤더를 판별하지 못한 시트는 표가 부재한다. **공백 표로 묘사하지 않는다.** */
 const headless = computed(() => current.value !== null && !current.value.headerFound);
 
 /**
- * 머리글 지정을 변경한다. 목록 전체를 재요청해 **열 정의를 교체한다.**
+ * 헤더 지정을 변경한다. 목록 전체를 재요청해 **열 정의를 교체한다.**
  *
  * 열의 개수도 명칭도 종류도 함께 변경되므로, 현재 화면이 보유한 열 정의를
  * 부분적으로 수정할 수 없다. 바탕이 재산출한 것으로 전체 교체한다.
@@ -306,7 +306,7 @@ async function setHeader(id: string, spec: HeaderSpec) {
 }
 
 /**
- * 머리글을 판별하지 못한 시트에 적용하는 최초 지정. 사람이 조작부에서
+ * 헤더를 판별하지 못한 시트에 적용하는 최초 지정. 사람이 조작부에서
  * 이동시킬 기준점이다.
  */
 const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
@@ -348,8 +348,8 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
       </p>
       <span v-else class="flex-1"></span>
 
-      <!-- **협소한 폭에서는 설정을 머리글에 배열하지 않는다.** 분절 선택기
-           둘과 단추 하나가 상주하면 머리글이 세 행이 되고 파일 명칭이 2~3자만
+      <!-- **협소한 폭에서는 설정을 헤더에 배열하지 않는다.** 분절 선택기
+           둘과 단추 하나가 상주하면 헤더가 세 행이 되고 파일 명칭이 2~3자만
            노출된다. 그것들은 목록 하단으로 이양한다(하기). -->
       <template v-if="!narrow">
         <!-- 개방 이후의 교체 경로. 투입(drag-drop)도 여기서 수령한다. -->
@@ -412,7 +412,7 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
             </template>
           </div>
 
-          <!-- 협소한 폭에서만 출현한다. 머리글에서 이양된 것들이다. -->
+          <!-- 협소한 폭에서만 출현한다. 헤더에서 이양된 것들이다. -->
           <div v-if="narrow" class="app-side-foot">
             <FilePick
               v-if="fileName"
@@ -434,7 +434,7 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
         @click="sideCollapsed = true"
       ></div>
 
-      <!-- 수직 스크롤이 발생하는 유일한 위치. 표의 열 머리글만 상단에 고정된다. -->
+      <!-- 수직 스크롤이 발생하는 유일한 위치. 표의 열 헤더만 상단에 고정된다. -->
       <main ref="mainEl" class="app-main" :style="mainVars">
         <p v-if="starting" class="app-fixed pt-5 text-fg-muted">{{ t("app.starting") }}</p>
 

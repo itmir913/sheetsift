@@ -254,7 +254,7 @@ watch(sorts, reload, { deep: true });
 
     <p v-if="errorMessage" class="app-fixed shrink-0 text-danger">{{ errorMessage }}</p>
 
-    <!-- 폭을 전부 측정하기 이전에는 묘사하지 않는다. 머리글만으로 1회 묘사한
+    <!-- 폭을 전부 측정하기 이전에는 묘사하지 않는다. 헤더만으로 1회 묘사한
          뒤 자료를 참조해 재산정하면, 화면을 개방할 때마다 표가 1회 변동한다. -->
     <GridTable
       v-if="layout.ready.value"

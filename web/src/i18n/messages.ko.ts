@@ -4,7 +4,7 @@ import type { ErrorCode } from "./codes";
  * 오류 코드를 사람이 판독할 문구로.
  *
  * **동일한 그릇이 앱마다 상이한 문구로 안내된다.** 바탕은 `SHEET_EMPTY` 만
- * 반환하고, 그것을 "머리글 행이 없습니다" 로 기재할지 "빈 시트입니다" 로
+ * 반환하고, 그것을 "헤더 행이 없습니다" 로 기재할지 "빈 시트입니다" 로
  * 기재할지는 쓰는 곳의 소관이다. 여기는 **표를 열어 보는 화면**의 어조다.
  *
  * 열람 겹이 영구히 발생시키지 않을 코드에도 한 행을 기재한다 — 그릇의 코드가
@@ -20,7 +20,7 @@ export const errors: Record<ErrorCode, string> = {
   SHEET_WORKBOOK_UNREADABLE:
     "파일을 열지 못했습니다. xlsx·xls·csv 파일이 맞는지 확인해 주십시오.",
   SHEET_UNREADABLE: "'{sheet}' 시트를 읽지 못했습니다.",
-  SHEET_EMPTY: "'{sheet}' 시트에서 머리글 행을 찾지 못했습니다.",
+  SHEET_EMPTY: "'{sheet}' 시트에서 헤더 행을 찾지 못했습니다.",
   SHEET_COLUMN_MISSING: "'{sheet}' 시트의 열을 맞추지 못했습니다.",
   SHEET_TABLE_FAILED: "읽어 온 자료를 표로 바꾸지 못했습니다.",
   SHEET_ENCODING_UNKNOWN:
@@ -76,14 +76,14 @@ export const ui = {
   "app.sheets": "시트 목록",
   "app.sheets.show.tip": "시트 목록 보기 (Ctrl+B)",
   "app.sheets.hide.tip": "시트 목록 숨기기 (Ctrl+B)",
-  "app.sheet.noheader.tip": "{title} — 머리글 행을 찾지 못했습니다",
+  "app.sheet.noheader.tip": "{title} — 헤더 행을 찾지 못했습니다",
   "app.group.none": "묶음 없음",
   "app.group.missing.tip": "'{group}' 묶음이 목록에 없습니다",
   "app.file.nosheets": "이 파일에서 열어 볼 수 있는 표를 찾지 못했습니다.",
   "app.sheet.nocolumns":
     "이 시트에서 열을 찾지 못했습니다. 빈 시트이거나, 표가 아닌 내용만 있습니다.",
   "app.header.assumed":
-    "'{sheet}' 의 머리글을 찾지 못해 첫 행을 머리글로 가정했습니다. 위 도구 모음에서 지정해 주십시오.",
+    "'{sheet}' 의 헤더를 찾지 못해 첫 행을 헤더로 가정했습니다. 위 도구 모음에서 지정해 주십시오.",
 
   /* 파일 수령 */
   "pick.drop": "xlsx·xls·csv 파일을 선택하거나 여기에 끌어다 놓으십시오",
@@ -117,17 +117,17 @@ export const ui = {
   "tools.pin": "왼쪽 고정",
   "tools.pin.less.aria": "고정할 열 줄이기",
   "tools.pin.more.aria": "고정할 열 늘리기",
-  "tools.header": "머리글",
+  "tools.header": "헤더",
   "tools.header.single": "{a}행",
   "tools.header.range": "{a}–{b}행",
-  "tools.header.up.aria": "머리글 시작 행 위로",
-  "tools.header.up.tip": "머리글이 시작되는 행을 위로",
-  "tools.header.down.aria": "머리글 시작 행 아래로",
-  "tools.header.down.tip": "머리글이 시작되는 행을 아래로",
-  "tools.header.less.aria": "머리글 행 수 줄이기",
-  "tools.header.less.tip": "머리글로 쓸 행 수를 줄입니다",
-  "tools.header.more.aria": "머리글 행 수 늘리기",
-  "tools.header.more.tip": "머리글로 쓸 행 수를 늘립니다",
+  "tools.header.up.aria": "헤더 시작 행 위로",
+  "tools.header.up.tip": "헤더가 시작되는 행을 위로",
+  "tools.header.down.aria": "헤더 시작 행 아래로",
+  "tools.header.down.tip": "헤더가 시작되는 행을 아래로",
+  "tools.header.less.aria": "헤더 행 수 줄이기",
+  "tools.header.less.tip": "헤더로 쓸 행 수를 줄입니다",
+  "tools.header.more.aria": "헤더 행 수 늘리기",
+  "tools.header.more.tip": "헤더로 쓸 행 수를 늘립니다",
   "tools.print": "인쇄",
   "tools.print.busy": "준비하는 중…",
   "tools.print.tip": "지금 적용된 정렬·필터로 걸러진 전체를 인쇄합니다",

@@ -142,7 +142,7 @@ export async function pickFile(): Promise<{ path: string; name: string } | null>
   if (typeof chosen !== "string") return null;
   /* 경로의 최종 조각이 파일 명칭이다. **구분자 양자를 전부 분리한다** —
      윈도의 대화상자는 `C:\…\a.xlsx` 를 반환하므로 슬래시만 분리하면 명칭이
-     전체 경로가 되고, 그것이 머리글에 묘사된다. 거기에는 사용자 명칭이
+     전체 경로가 되고, 그것이 헤더에 묘사된다. 거기에는 사용자 명칭이
      포함되고, 그 화면은 갈무리되어 외부로 반출된다. */
   const name = chosen.split(/[\\/]/).pop() || chosen;
   return { path: chosen, name };

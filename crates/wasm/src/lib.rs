@@ -64,7 +64,7 @@ impl Book {
 
     /// 열람 가능한 표 전부와 그 열 정의 (JSON).
     ///
-    /// 요청이 시트별 머리글 지정을 지참한다. 빈 요청(`{}`)이면 전부 추정값이다.
+    /// 요청이 시트별 헤더 지정을 지참한다. 빈 요청(`{}`)이면 전부 추정값이다.
     #[wasm_bindgen(js_name = listScreens)]
     pub fn list_screens(&self, request: &str) -> std::result::Result<String, JsValue> {
         let ask: CatalogAsk = parsed(request)?;

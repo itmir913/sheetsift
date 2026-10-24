@@ -55,7 +55,7 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{
-  /** 머리글을 조작했다(정렬). 쓰는 곳이 cycleSort 로 처리한다. */
+  /** 헤더를 조작했다(정렬). 쓰는 곳이 cycleSort 로 처리한다. */
   sort: [key: string];
   "update:filterText": [value: Record<string, string>];
   "update:filterValues": [value: Record<string, string[] | null>];
@@ -201,7 +201,7 @@ function applyFilterValues(values: string[] | null) {
 }
 
 /* ── 열 순서 조작 ──────────────────────────────────────────────
-   머리글을 누른 채 수평 이동하면 순서 변경, 단순 조작이면 정렬.
+   헤더를 누른 채 수평 이동하면 순서 변경, 단순 조작이면 정렬.
    DRAG_THRESHOLD 만큼 이동했는지로 양자를 구분한다. */
 
 const dragFrom = ref<number | null>(null);
@@ -291,7 +291,7 @@ defineExpose({ close: () => (openFilterKey.value = null) });
 <template>
   <div ref="root" class="relative">
     <div class="dg gx-table" :data-dragging="dragging" :style="gridVars">
-      <!-- 열 머리글과 열 검색 행. .app-main 기준으로 화면 최상단에 고정된다. -->
+      <!-- 열 헤더와 열 검색 행. .app-main 기준으로 화면 최상단에 고정된다. -->
       <div class="gx-head">
         <div ref="headEl" class="dg-head">
           <div
@@ -315,7 +315,7 @@ defineExpose({ close: () => (openFilterKey.value = null) });
           >
             <span class="dg-hlabel">{{ col.label }}</span>
             <!-- 방향만 노출된다. 몇 번째로 정렬했는지는 상단 정렬 칩이 번호로
-                 제시하므로, 여기서 재차 배지를 부착하면 머리글마다 그 폭을 항상
+                 제시하므로, 여기서 재차 배지를 부착하면 헤더마다 그 폭을 항상
                  확보해 두게 된다(정렬하지 않은 열까지). -->
             <span class="dg-sortmark" :data-visible="!!sortOf(col.key)" aria-hidden="true">
               {{ sortOf(col.key)?.dir === "desc" ? "▼" : "▲" }}
@@ -359,7 +359,7 @@ defineExpose({ close: () => (openFilterKey.value = null) });
                 :data-tip="t('grid.filter.tip', { label: col.label })"
                 @click="openFilter(col, $event)"
               >
-                <!-- 필터를 의미하는 수평선 3개. 여기에 ▼ 를 사용하면 상단 머리글의
+                <!-- 필터를 의미하는 수평선 3개. 여기에 ▼ 를 사용하면 상단 헤더의
                      내림차순 표식과 동일한 문자가 되어, 정렬이 적용된 것처럼 인식된다. -->
                 <svg class="dg-fbtn-icon" viewBox="0 0 16 16" aria-hidden="true">
                   <path
