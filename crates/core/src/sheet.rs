@@ -248,11 +248,18 @@ pub fn sanitize(header: &str, seen: &mut HashMap<String, usize>) -> String {
     if out.starts_with(|c: char| c.is_ascii_digit()) {
         out.insert(0, '_');
     }
-    let n = seen.entry(out.clone()).or_insert(0);
-    *n += 1;
-    if *n > 1 {
-        out = format!("{out}_{n}");
+    /* **생성한 명칭이 유일할 때까지 번호를 증가시킨다.**
+       번호를 1회만 부착하면 `x · x_2 · x` 가 `x · x_2 · x_2` 가 되어 표 생성이
+       정지한다. 그리고 **SQLite 의 열 명칭은 대소문자를 구별하지 않으므로**
+       `a · A` 도 충돌한다 — 영문 헤더에서 더 빈번하다. 양자 모두 정상적인
+       양식인데 개방되지 않았다. */
+    let base = out.clone();
+    let mut n = 1;
+    while seen.contains_key(&out.to_lowercase()) {
+        n += 1;
+        out = format!("{base}_{n}");
     }
+    seen.insert(out.to_lowercase(), n);
     out
 }
 
@@ -512,6 +519,28 @@ mod tests {
         use calamine::{Data, ExcelDateTime, ExcelDateTimeType::*};
         let d = Data::DateTime(ExcelDateTime::new(1.5, TimeDelta, false));
         assert_eq!(cell(&d), "36:00:00");
+    }
+
+    /// **열쇠가 충돌하면 표가 생성되지 않는다.**
+    ///
+    /// 번호를 1회만 부착하면 `x · x_2 · x` 가 `x_2` 를 두 번 산출하고, SQLite 의
+    /// 열 명칭은 대소문자를 구별하지 않으므로 `a · A` 도 충돌한다. 양자 모두
+    /// 정상적인 양식인데 개방되지 않았다.
+    #[test]
+    fn column_names_stay_unique_even_when_they_collide() {
+        let s = sheet(&[&["x", "x_2", "x"]]);
+        let names: Vec<String> = column_names(&s).into_iter().map(|(_, n)| n).collect();
+        assert_eq!(names, ["x", "x_2", "x_3"]);
+
+        let s = sheet(&[&["a", "A", "a"]]);
+        let names: Vec<String> = column_names(&s).into_iter().map(|(_, n)| n).collect();
+        assert_eq!(names, ["a", "A_2", "a_3"]);
+
+        // 그 명칭으로 표가 실제로 생성되어야 한다.
+        let conn = mem();
+        let s = sheet(&[&["x", "x_2", "x"], &["1", "2", "3"]]);
+        let plan = TablePlan { table: "t".into(), map: Vec::new(), indexes: Vec::new() };
+        build(&conn, &[(plan, s)], "-").expect("열쇠가 충돌해 표가 생성되지 않았습니다");
     }
 
     #[test]
