@@ -42,3 +42,18 @@ rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
 # 읽는 쪽은 try/catch 안이라 없으면 그냥 넘어간다.
 [env]
 WASM_BINDGEN_BENCH_RESULT = "target/wbg_benchmark.json"
+
+# **열이 2000 개를 초과하는 표를 개방할 수 있게 한다.**
+#
+# SQLite 의 기본 상한은 열 2000 개다. 그 수를 초과하는 양식은 목록은 산출되고
+# **조회만 실패했다** — 열은 전부 묘사되는데 자료가 도달하지 않는다. 사람이
+# 지참하는 양식이 그 수를 초과하는 것은 우리 사정이 아니다.
+#
+# `libsqlite3-sys` 의 `build.rs` 가 이 환경 변수를 판독해 컴파일 시점에
+# 반영한다. 엑셀의 열 수가 16384(XFD)이고, SQLite 가 수용하는 절대 상한은
+# 32767 이다.
+#
+# **저장소 외부에서 `--manifest-path` 로 호출하면 이 설정이 적용되지 않는다.**
+# cargo 는 작업 디렉터리를 기준으로 설정을 탐색한다. 그 경로로 빌드한 산출물은
+# 2000 개에서 정지한다 — `crates/shell` 의 시험이 그것을 포착한다.
+SQLITE_MAX_COLUMN = "16384"

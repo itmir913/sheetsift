@@ -645,6 +645,26 @@ mod tests {
         }
     }
 
+    /// **열이 2000 개를 초과하는 양식도 조회된다.**
+    ///
+    /// SQLite 의 기본 상한이 2000 이라, 초과하면 목록은 산출되는데 조회만
+    /// 실패했다 — 열은 전부 묘사되고 자료만 도달하지 않는다. 상한은
+    /// `.cargo/config.toml` 이 상승시킨다. **그 설정이 소실되면 이 시험이
+    /// 정지한다** — 설정은 빌드 시점에만 작용해 소스로는 판독되지 않는다.
+    #[test]
+    fn a_sheet_wider_than_sqlites_default_still_answers() {
+        let width = 2100;
+        let head = (0..width).map(|i| format!("열{i}")).collect::<Vec<_>>().join(",");
+        let body = (0..width).map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+        let csv = format!("{head}\n{body}\n");
+
+        let mut v = Viewer::open(csv.as_bytes(), "넓은표.csv").unwrap();
+        assert_eq!(screen(&v, 0).columns.len(), width);
+        let page = v.query_rows(&ask("넓은표", 10)).unwrap();
+        assert_eq!(page.rows.len(), 1);
+        assert_eq!(page.rows[0].len(), width, "열이 전부 도달하지 않았습니다");
+    }
+
     /// **헤더보다 넓은 본문의 열이 화면에 도달한다.**
     ///
     /// 바탕이 그 열을 산출해도 부르는 곳이 헤더 폭으로 절단하면 동일하게
