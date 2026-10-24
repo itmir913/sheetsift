@@ -288,7 +288,9 @@ fn not_a_number_sql(base: &str) -> String {
     let zeroish = ["','", "'0'", "'.'", "'-'", "'+'", "' '"]
         .iter()
         .fold(base.to_string(), |acc, ch| format!("REPLACE({acc}, {ch}, '')"));
-    format!("(CASE WHEN {n} <> 0 OR {zeroish} = '' THEN 0 ELSE 1 END) ASC")
+    /* 0 이 하나는 기재되어 있어야 실제 0 이다. `+` 나 `.` 만 기재된 셀은 제거
+       이후에도 공백이 되는데, 그것은 수치가 아니다. */
+    format!("(CASE WHEN {n} <> 0 OR ({zeroish} = '' AND {base} GLOB '*0*') THEN 0 ELSE 1 END) ASC")
 }
 
 fn unknown_column(table: &dyn Table, key: &str, what: &str) -> Error {
