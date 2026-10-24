@@ -263,7 +263,10 @@ async function shown() {
   const s = current.value;
   if (!s || s.headerFound) return;
   await setHeader(s.id, FIRST_GUESS);
-  notify(t("app.header.assumed", { sheet: s.title }));
+  // **열이 생성된 경우에만 통지한다.** 공백 시트는 첫 행을 적용해도 표가
+  // 부재해, 본문이 "열을 찾지 못했습니다" 를 기재한다. 거기에 "첫 행을
+  // 머리글로 가정했습니다" 를 병기하면 두 문구가 서로를 부정한다.
+  if (current.value?.headerFound) notify(t("app.header.assumed", { sheet: s.title }));
 }
 
 function select(item: ScreenDef) {
