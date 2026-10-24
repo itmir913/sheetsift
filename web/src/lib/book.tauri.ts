@@ -42,8 +42,23 @@ function thrown(raw: unknown): AppError {
   return new AppError({ code: "UNKNOWN", detail: String((raw as Error)?.message ?? raw) });
 }
 
-function call<T>(door: string, body: Record<string, unknown> = {}): Promise<T> {
-  return invoke<T>(door, body).catch((e) => {
+/**
+ * 문 하나를 호출한다.
+ *
+ * `body` 가 바이트면 **원시 본문으로 전송한다.** 숫자 배열로 포장하면 tauri 가
+ * 그것을 JSON 으로 직렬화하고 수령 측이 다시 구조로 해석하므로, 수십 MB 양식
+ * 에서 바이트당 수십 배의 중간 구조가 생성된다. 그 경로로는 명칭을 함께 보낼
+ * 수 없어 머리에 부착한다.
+ *
+ * **`call<…>("문명칭"` 형태를 존치한다** — `crates/tauri/tests/boundary.rs` 가
+ * 그 형태로 호출 위치를 탐색해 실재하는 문인지 대조한다.
+ */
+function call<T>(
+  door: string,
+  body: Record<string, unknown> | Uint8Array = {},
+  headers?: Record<string, string>,
+): Promise<T> {
+  return invoke<T>(door, body, headers ? { headers } : undefined).catch((e) => {
     throw thrown(e);
   });
 }
@@ -93,10 +108,15 @@ export function limits(): Limits {
 export class Book {
   private constructor() {}
 
-  /** 양식 바이트를 수용한다. 창에 투입한 파일이 그 경로다. */
+  /**
+   * 양식 바이트를 수용한다. 창에 투입한 파일이 그 경로다.
+   *
+   * 바이트는 원시 본문으로 전송하고 명칭은 머리에 부착한다. 머리는 ASCII 만
+   * 수용하므로 부호화해 송신하고 수령 측이 복호한다.
+   */
   static async open(bytes: Uint8Array, name: string): Promise<Book> {
     await start();
-    await call<void>("open_bytes", { bytes: Array.from(bytes), name });
+    await call<void>("open_bytes", bytes, { "x-file-name": encodeURIComponent(name) });
     return new Book();
   }
 

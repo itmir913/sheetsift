@@ -32,9 +32,46 @@ pub fn open_workbook(desk: Held, path: PathBuf) -> Result<()> {
 }
 
 /// 창에 투입한 파일을 개방한다. 그 경로는 웹과 동일하게 바이트로 도달한다.
+///
+/// **바이트를 원시 본문으로 수령한다.** 숫자 배열로 수령하면 tauri 가 그것을
+/// JSON 으로 해석하므로, 수십 MB 양식에서 바이트당 수십 배의 중간 구조가
+/// 생성되고 그 시점에 창이 메모리를 고갈시킨다. 파일 명칭은 그 경로로 함께
+/// 전달할 수 없어 머리에 부착된다.
 #[tauri::command]
-pub fn open_bytes(desk: Held, bytes: Vec<u8>, name: String) -> Result<()> {
-    held(&desk).open_bytes(&bytes, &name)
+pub fn open_bytes(desk: Held, request: tauri::ipc::Request<'_>) -> Result<()> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err(sheetsift_desk::ShellError::new(sheetsift_desk::ErrorCode::FileReadFailed)
+            .detail("expected a raw body")
+            .into());
+    };
+    let name = request
+        .headers()
+        .get("x-file-name")
+        .and_then(|v| v.to_str().ok())
+        .and_then(percent_decode)
+        .unwrap_or_default();
+    held(&desk).open_bytes(bytes, &name)
+}
+
+/// 머리에 부호화되어 도달한 파일 명칭을 복호한다.
+///
+/// 머리는 ASCII 만 수용하므로 화면이 `encodeURIComponent` 로 부호화해 송신한다.
+/// **복호하지 못하면 공백으로 충전하지 않는다** — 명칭이 공백이면 시트 묶음이
+/// 명칭을 상실하고, 그 사유를 어디에서도 판별할 수 없다.
+fn percent_decode(raw: &str) -> Option<String> {
+    let mut out: Vec<u8> = Vec::with_capacity(raw.len());
+    let mut rest = raw.as_bytes();
+    while let Some((&b, tail)) = rest.split_first() {
+        if b == b'%' {
+            let hex = tail.get(..2)?;
+            out.push(u8::from_str_radix(std::str::from_utf8(hex).ok()?, 16).ok()?);
+            rest = &tail[2..];
+        } else {
+            out.push(b);
+            rest = tail;
+        }
+    }
+    String::from_utf8(out).ok()
 }
 
 #[tauri::command]
@@ -56,4 +93,27 @@ pub fn column_values(desk: Held, request: ValuesAsk) -> Result<ColumnValues> {
 #[tauri::command]
 pub fn limits(desk: Held) -> Limits {
     held(&desk).limits()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::percent_decode;
+
+    /// 머리에 부호화되어 도달한 명칭을 복호하는가. 한글 명칭이 그 경로를
+    /// 경유한다 — 머리는 ASCII 만 수용한다.
+    #[test]
+    fn a_name_in_the_header_comes_back_whole() {
+        assert_eq!(percent_decode("%ED%91%9C.csv").as_deref(), Some("표.csv"));
+        assert_eq!(percent_decode("plain.xlsx").as_deref(), Some("plain.xlsx"));
+        assert_eq!(percent_decode("a%20b.csv").as_deref(), Some("a b.csv"));
+    }
+
+    /// **복호하지 못한 것을 공백으로 충전하지 않는다.** 명칭이 공백이면 시트
+    /// 묶음이 명칭을 상실하고 그 사유를 판별할 수 없다.
+    #[test]
+    fn a_broken_header_decodes_to_nothing_at_all() {
+        assert_eq!(percent_decode("%ZZ"), None);
+        assert_eq!(percent_decode("%E"), None);
+        assert_eq!(percent_decode("%ED%91"), None, "완결되지 않은 문자");
+    }
 }
