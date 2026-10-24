@@ -98,7 +98,7 @@ const orphans = computed(() => {
  * 할당하면 표가 그만큼 축소되고, 그 시트의 명칭은 표 상단의 제목이 이미
  * 기재한다.
  */
-const hasNav = computed(() => screens.value.length > 1);
+const hasNav = computed(() => (narrow.value ? true : screens.value.length > 1));
 
 /* ── 좌측 목록 개폐 ─────────────────────────────────────────────
    개폐 상태를 기억한다. 열람하는 사람의 작업 방식은 파일마다 변동하지 않는다 —
@@ -118,30 +118,34 @@ function readCollapsed(): boolean {
 const stored = ref(readCollapsed());
 
 /**
- * 폭이 협소한 기기에서는 **보관된 선택과 무관하게 접는다.**
+ * 폭이 협소한 기기에서는 목록이 **본문 위에 포개져** 개폐된다.
  *
- * 240px 짜리 목록이 상주하면 표에 남는 폭이 100px 대가 된다. 조작하면 그 자리에서
- * 개방되고, 보관된 선택은 훼손하지 않는다 — 광폭 기기로 복귀하면 그대로다.
+ * 240px 짜리 목록이 상주하면 표에 남는 폭이 100px 대가 된다. 그렇다고 접은 채
+ * 두면 시트를 선택할 경로가 부재하므로, 조작하면 그 자리에서 본문 위로
+ * 전개하고 선택하면 폐쇄한다.
+ *
+ * **상태를 보관된 선택과 분리해 보유한다.** 양자를 하나로 보유했더니, 협소한
+ * 폭에서 조작해도 보관된 값이 접힘이면 그대로 접힌 채였다 — 목록을 개방할
+ * 경로가 전무했다.
  */
 const NARROW = 768;
 const narrow = ref(typeof window !== "undefined" && window.innerWidth < NARROW);
-const forced = ref(false);
+const openedNarrow = ref(false);
 
 function onResize() {
   const now = window.innerWidth < NARROW;
   if (now === narrow.value) return;
   narrow.value = now;
-  forced.value = false;
+  // 폭이 변경되면 포개진 목록은 폐쇄한다. 광폭으로 복귀했을 때 보관된 선택이
+  // 그대로 적용되어야 한다.
+  openedNarrow.value = false;
 }
 
 const sideCollapsed = computed({
-  get: () => (narrow.value && !forced.value ? true : stored.value),
+  get: () => (narrow.value ? !openedNarrow.value : stored.value),
   set: (v: boolean) => {
-    if (narrow.value) {
-      forced.value = !v;
-      return;
-    }
-    stored.value = v;
+    if (narrow.value) openedNarrow.value = !v;
+    else stored.value = v;
   },
 });
 
@@ -270,6 +274,7 @@ async function shown() {
 }
 
 function select(item: ScreenDef) {
+  if (narrow.value) sideCollapsed.value = true;
   if (current.value?.id === item.id) return;
   current.value = item;
   void shown();
@@ -330,21 +335,28 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
 
       <!-- 개방 이전에만 기재한다. 표를 열람하는 중에 상주시키면 그 폭만큼
            파일 명칭이 절단된다. -->
-      <p v-if="!fileName" class="truncate text-fg-subtle">
+      <p v-if="!fileName && !narrow" class="truncate text-fg-subtle">
         {{ t(native ? "app.tagline.desktop" : "app.tagline.web") }}
       </p>
 
-      <template v-if="fileName">
-        <p class="min-w-0 flex-1 truncate text-right font-medium" :data-tip="fileName">
-          {{ fileName }}
-        </p>
-        <!-- 개방 이후의 교체 경로. 투입(drag-drop)도 여기서 수령한다. -->
-        <FilePick compact :busy="busy" @pick="pick" @pick-at="pickAt" />
-      </template>
+      <p
+        v-if="fileName"
+        class="min-w-0 flex-1 truncate text-right font-medium"
+        :data-tip="fileName"
+      >
+        {{ fileName }}
+      </p>
       <span v-else class="flex-1"></span>
 
-      <LocaleToggle />
-      <ThemeToggle />
+      <!-- **협소한 폭에서는 설정을 머리글에 배열하지 않는다.** 분절 선택기
+           둘과 단추 하나가 상주하면 머리글이 세 행이 되고 파일 명칭이 2~3자만
+           노출된다. 그것들은 목록 하단으로 이양한다(하기). -->
+      <template v-if="!narrow">
+        <!-- 개방 이후의 교체 경로. 투입(drag-drop)도 여기서 수령한다. -->
+        <FilePick v-if="fileName" compact :busy="busy" @pick="pick" @pick-at="pickAt" />
+        <LocaleToggle />
+        <ThemeToggle />
+      </template>
     </header>
 
     <div class="flex min-h-0 flex-1">
@@ -354,6 +366,7 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
         id="app-side"
         class="app-side"
         :data-collapsed="sideCollapsed"
+        :data-overlay="narrow"
         :inert="sideCollapsed || undefined"
         :aria-label="t('app.sheets')"
       >
@@ -398,8 +411,28 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
               </ul>
             </template>
           </div>
+
+          <!-- 협소한 폭에서만 출현한다. 머리글에서 이양된 것들이다. -->
+          <div v-if="narrow" class="app-side-foot">
+            <FilePick
+              v-if="fileName"
+              compact
+              :busy="busy"
+              @pick="pick"
+              @pick-at="pickAt"
+            />
+            <LocaleToggle />
+            <ThemeToggle />
+          </div>
         </div>
       </nav>
+
+      <!-- 포개진 목록의 바깥. 조작하면 폐쇄한다. -->
+      <div
+        v-if="narrow && !sideCollapsed"
+        class="app-scrim"
+        @click="sideCollapsed = true"
+      ></div>
 
       <!-- 수직 스크롤이 발생하는 유일한 위치. 표의 열 머리글만 상단에 고정된다. -->
       <main ref="mainEl" class="app-main" :style="mainVars">

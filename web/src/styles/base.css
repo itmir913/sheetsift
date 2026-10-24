@@ -339,12 +339,27 @@
     letter-spacing: 0.01em;
   }
 
-  /* 최초 묶음 상단에는 선도 여백도 배치하지 않는다(목록이 하향 이동하지 않게). */
+  /* 최초 묶음은 **판의 제목**이다. 상단에는 선도 여백도 배치하지 않고(목록이
+     하향 이동하지 않게), 대신 하단에 선을 배치해 목록과 분리한다.
+
+     선이 부재하면 그것이 제목인지 목록의 첫 항목인지 판별되지 않는다 — 항목과
+     글자 크기가 동일해 더 그렇다. 협소한 폭에서는 목록이 화면 전체를 점유하므로
+     그 모호함이 그대로 노출된다. */
   .app-side-scroll > .app-side-group:first-child,
   .app-side-foot > .app-side-group:first-child {
     margin-top: 0;
     padding-top: 0;
     border-top: 0;
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.625rem;
+    border-bottom: 1px solid var(--c-border);
+    font-size: 1.0625rem;
+    letter-spacing: -0.01em;
+  }
+
+  /* 포개진 목록은 머리글이 부재하므로 상단에 여백을 부여한다. */
+  .app-side[data-overlay="true"] .app-side-scroll {
+    padding-top: 1rem;
   }
 
   /* 목록의 항목. 현재 열람 중인 것은 `data-current` 가 표시한다.
@@ -372,11 +387,67 @@
     font-weight: 500;
   }
 
-  /* 하단 영역 — 항상 노출되는 위치. */
+  /* 하단 영역 — 항상 노출되는 위치. 협소한 폭에서는 머리글에서 이양된
+     설정들이 여기 배열된다. */
   .app-side-foot {
+    display: flex;
     flex: 0 0 auto;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
     border-top: 1px solid var(--c-border);
     padding: 0.75rem;
+  }
+
+  .app-side-foot .app-seg {
+    justify-content: center;
+  }
+
+  .app-side-foot .app-seg-btn {
+    flex: 1 1 0;
+    text-align: center;
+  }
+
+  .app-side-foot .app-head-btn {
+    justify-content: center;
+  }
+
+  /* 협소한 폭: 목록이 본문을 밀어내지 않고 **본문 위에 포개진다.**
+     밀어내면 375px 에서 표에 남는 폭이 100px 대가 된다. */
+  .app-side[data-overlay="true"] {
+    position: fixed;
+    inset-block: 0;
+    left: 0;
+    z-index: 50;
+    width: min(17rem, 85vw);
+    box-shadow: 0 0 40px rgb(0 0 0 / 0.35);
+    transition: transform 160ms ease;
+  }
+
+  .app-side[data-overlay="true"] .app-side-inner {
+    width: 100%;
+  }
+
+  /* 포개진 상태에서는 폭이 아니라 위치로 개폐한다. 폭을 0 으로 축소하면
+     내부가 전부 재배치된 뒤에 전개되어 1회 변형이 노출된다. */
+  .app-side[data-overlay="true"][data-collapsed="true"] {
+    width: min(17rem, 85vw);
+    border-right-width: 1px;
+    transform: translateX(-100%);
+  }
+
+  /* 포개진 목록의 바깥. 조작하면 폐쇄된다. */
+  .app-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background-color: rgb(0 0 0 / 0.45);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .app-side[data-overlay="true"] {
+      transition: none;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
