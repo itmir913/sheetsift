@@ -106,11 +106,30 @@ fn empty(s: &str, blank: &str) -> bool {
 /// 학년을 열 명칭으로 기재한 양식(`학교 · 2023 · 2024`)이 실재하고, 그것을
 /// 기각하면 **하단의 자료 1행이 열 명칭이 된다.**
 fn looks_like_header(row: &[String], body: &[Vec<String>], blank: &str) -> bool {
-    let filled: Vec<&String> = row.iter().filter(|c| !empty(c, blank)).collect();
-    if filled.is_empty() {
+    if !row.iter().any(|c| !empty(c, blank)) {
         return false;
     }
-    filled.iter().all(|c| !is_number(c)) || differs_from_body(row, body, blank)
+    !matches_body(row, body, blank)
+}
+
+/// 행이 **자료와 동일한 종류인가.**
+///
+/// 숫자 열의 상단에 숫자가 기재되어 있으면 그 행은 자료다. 역으로 열 명칭은
+/// 자료와 종류가 상이하다.
+///
+/// 종류를 판정하지 못한 열(혼재)은 **근거로 삼지 않는다.** 거기 기재된 숫자를
+/// 자료의 증거로 간주하면, `이름 · 2023` 같은 헤더가 하단 열의 혼재 하나로
+/// 기각되고 **자료 행이 열 명칭으로 승격된다.**
+///
+/// 반대급부가 존재한다 — 전 열이 혼재이고 첫 자료 행에 숫자가 기재된 무헤더
+/// 표는 그 행을 헤더로 채택한다. 종전에는 판별 실패로 처리되어 화면이 통지했다.
+/// 양자 모두 자료 1행이 열 명칭이 되는 것은 동일하고, **실재하는 빈도는 전자가
+/// 현저히 높다** — 연도·학년·회차를 열 명칭으로 기재한 양식은 흔하다.
+fn matches_body(row: &[String], body: &[Vec<String>], blank: &str) -> bool {
+    (0..row.len()).any(|c| {
+        let cell = Sheet::at(row, c);
+        !empty(cell, blank) && is_number(cell) && kind_of(body, c, blank) == Kind::Number
+    })
 }
 
 /// 행의 구조가 **하단 자료와 상이한가.**
@@ -573,6 +592,23 @@ mod tests {
         let l = layout(&s, "-");
         assert_eq!(l.header, Header::Found { at: 0, rows: 1 });
         assert_eq!(labels(&l), ["학교", "2023", "2024"]);
+    }
+
+    /// **혼재한 열 하나가 헤더를 기각시키지 않는다.**
+    ///
+    /// `이름 · 2023` 에서 `2023` 이 숫자이고 그 하단 열이 혼재(`미정`·`90`)라,
+    /// 종전에는 그 행이 기각되고 자료 행이 열 명칭으로 승격되었다 — 숫자가
+    /// 하단에 소재할수록 더 많은 자료 행이 소멸했다.
+    #[test]
+    fn a_mixed_column_does_not_reject_the_header_above_it() {
+        let s = sheet(&[&["이름", "2023"], &["가", "미정"], &["나", "90"], &["다", "80"]]);
+        let l = layout(&s, "-");
+        assert_eq!(l.header, Header::Found { at: 0, rows: 1 });
+        assert_eq!(labels(&l), ["이름", "2023"]);
+
+        // 숫자가 후단에 소재해도 동일하다.
+        let s = sheet(&[&["이름", "2023"], &["가", "90"], &["나", "미정"], &["다", "80"]]);
+        assert_eq!(layout(&s, "-").header, Header::Found { at: 0, rows: 1 });
     }
 
     /// 제목 1셀 하단의 **자료 행이 2단 헤더로 흡수되지 않는다.**
