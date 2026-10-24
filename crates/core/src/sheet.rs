@@ -74,18 +74,21 @@ fn cell(v: &calamine::Data) -> String {
     match v {
         Data::Empty => String::new(),
         Data::String(s) => s.trim().to_string(),
-        Data::Float(f) => {
-            // 12.0 을 "12" 로 — 엑셀 화면과 동일하게 노출되도록.
-            if f.fract() == 0.0 && f.abs() < 1e15 {
-                format!("{}", *f as i64)
-            } else {
-                format!("{f}")
-            }
-        }
+        Data::Float(f) => number(*f),
         Data::Int(i) => i.to_string(),
         Data::Bool(b) => b.to_string(),
         Data::DateTime(d) => datetime(d),
         other => other.to_string(),
+    }
+}
+
+/// 수 하나를 문자로. **엑셀 화면에 노출되는 형태를 준수한다.**
+fn number(f: f64) -> String {
+    // 12.0 을 "12" 로 — 엑셀 화면과 동일하게 노출되도록.
+    if f.fract() == 0.0 && f.abs() < 1e15 {
+        format!("{}", f as i64)
+    } else {
+        format!("{f}")
     }
 }
 
@@ -106,6 +109,16 @@ fn datetime(d: &calamine::ExcelDateTime) -> String {
         let total = (d.as_f64() * 86_400.0).round() as i64;
         let (h, m, s) = (total / 3_600, (total / 60) % 60, total % 60);
         return format!("{h}:{m:02}:{s:02}");
+    }
+    /* **날짜로 환산할 수 없는 수는 환산하지 않는다.** 엑셀은 날짜 서식을 임의의
+       수에 부여할 수 있고(화면에는 `####` 이 묘사된다), 그 수가 극단이면 환산이
+       **중단된다** — 상자 내부에서 덧셈이 넘쳐 패닉하고, 그것은 창과 브라우저
+       양측에서 포착되지 않는다. 날짜가 아닌 것은 수 그대로 기재한다. */
+    const FIRST: f64 = -693_593.0; // 0001-01-01
+    const LAST: f64 = 2_958_465.0; // 9999-12-31
+    let serial = d.as_f64();
+    if !serial.is_finite() || serial < FIRST || serial > LAST {
+        return number(serial);
     }
     let (y, mon, day, h, min, sec, _) = d.to_ymd_hms_milli();
     if (h, min, sec) == (0, 0, 0) {
@@ -173,13 +186,13 @@ pub fn from_csv(bytes: &[u8]) -> Result<Sheet> {
            그래서 그 위치까지 전진한 뒤 공백 행을 직접 건너뛰며 계수한다. */
         let scan = record.position().map(|p| p.byte() as usize).unwrap_or(at);
         while at < scan {
-            if raw[at] == b'\n' {
+            if is_break(raw, at) {
                 line += 1;
             }
             at += 1;
         }
         while at < raw.len() && (raw[at] == b'\n' || raw[at] == b'\r') {
-            if raw[at] == b'\n' {
+            if is_break(raw, at) {
                 line += 1;
             }
             at += 1;
@@ -207,6 +220,19 @@ pub fn from_csv(bytes: &[u8]) -> Result<Sheet> {
     Ok(Sheet { rows: rows.split_off(lead), origin: (lead, 0) })
 }
 
+/// 그 위치에서 행이 종단되는가.
+///
+/// **`\r` 단독도 개행이다.** 구 맥에서 저장한 csv 가 그렇고, `\n` 만 계수하면
+/// 그런 파일의 선두 공백 행이 계수되지 않아 행 번호가 어긋난다. `\r\n` 은
+/// 1회만 계수한다.
+fn is_break(raw: &[u8], at: usize) -> bool {
+    match raw[at] {
+        b'\n' => true,
+        b'\r' => raw.get(at + 1) != Some(&b'\n'),
+        _ => false,
+    }
+}
+
 /// UTF-8 이면 그대로, 아니면 CP949. 양자 모두 아니면 중단한다.
 ///
 /// BOM 은 제거한다. 엑셀이 저장한 csv 는 BOM 을 부착하는데, 그것을 존치하면 첫
@@ -215,6 +241,13 @@ fn decode(bytes: &[u8]) -> Result<String> {
     let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
     if let Ok(text) = std::str::from_utf8(bytes) {
         return Ok(text.to_string());
+    }
+    /* **NUL 이 기재된 바이트는 문자가 아니다.** 표식이 부재하는 UTF-16 은
+       바이트마다 NUL 이 개재하는데, CP949 는 그 바이트를 유효한 것으로 판독해
+       `n\0a\0m\0e\0` 같은 열 명칭을 산출한다 — 훼손되었다고 진술하지 않고
+       훼손된 문자를 반환하는 것이 이 모듈이 금한 바로 그 거동이다. */
+    if bytes.contains(&0) {
+        return Err(Error::new(ErrorCode::SheetEncodingUnknown));
     }
     let (text, _, broken) = encoding_rs::EUC_KR.decode(bytes);
     if broken {
@@ -300,13 +333,22 @@ pub fn sanitize(header: &str, seen: &mut HashMap<String, usize>) -> String {
        정지한다. 그리고 **SQLite 의 열 명칭은 대소문자를 구별하지 않으므로**
        `a · A` 도 충돌한다 — 영문 헤더에서 더 빈번하다. 양자 모두 정상적인
        양식인데 개방되지 않았다. */
+    /* **직전까지 산출한 번호에서 재개한다.** 매회 1 부터 시도하면 동일한 명칭이
+       k 개일 때 비용이 k² 이 된다 — 16,384 열이 전부 동일한 양식에서 개방에
+       54초가 소요되었다. 번호를 명칭마다 보유하면 그 비용이 소멸한다. */
     let base = out.clone();
-    let mut n = 1;
-    while seen.contains_key(&out.to_lowercase()) {
+    let key = base.to_lowercase();
+    let mut n = seen.get(&key).copied().unwrap_or(1);
+    loop {
+        out = if n == 1 { base.clone() } else { format!("{base}_{n}") };
         n += 1;
-        out = format!("{base}_{n}");
+        if !seen.contains_key(&out.to_lowercase()) {
+            break;
+        }
     }
-    seen.insert(out.to_lowercase(), n);
+    seen.insert(key, n);
+    // 점유한 명칭을 표시한다. 그 명칭이 차회 헤더로 출현하면 1 부터 시도한다.
+    seen.entry(out.to_lowercase()).or_insert(1);
     out
 }
 
@@ -566,6 +608,40 @@ mod tests {
         use calamine::{Data, ExcelDateTime, ExcelDateTimeType::*};
         let d = Data::DateTime(ExcelDateTime::new(1.5, TimeDelta, false));
         assert_eq!(cell(&d), "36:00:00");
+    }
+
+    /// **동일한 명칭이 다수여도 비용이 선형이다.**
+    ///
+    /// 매회 1 부터 번호를 시도하면 k 개의 동일 명칭에서 비용이 k² 이 된다 —
+    /// 16,384 열이 전부 동일한 양식에서 개방에 54초가 소요되었다. 이 시험은
+    /// 그 비용이 재유입되면 정지한다.
+    #[test]
+    fn a_thousand_identical_headers_cost_no_more_than_a_thousand() {
+        let header: Vec<&str> = vec!["같음"; 4000];
+        let s = sheet(&[&header]);
+        let started = std::time::Instant::now();
+        let names: Vec<String> = column_names(&s).into_iter().map(|(_, n)| n).collect();
+        let took = started.elapsed();
+        assert_eq!(names.len(), 4000);
+        assert_eq!(names[3999], "같음_4000");
+        assert!(took.as_secs() < 2, "{took:?} 가 소요되었습니다 — 비용이 선형이 아닙니다");
+    }
+
+    /// **날짜로 환산할 수 없는 수에서 중단하지 않는다.**
+    ///
+    /// 엑셀은 날짜 서식을 임의의 수에 부여할 수 있다. 그 수가 극단이면 환산이
+    /// 패닉하고, 그것은 창과 브라우저 양측에서 포착되지 않는다.
+    #[test]
+    fn a_date_cell_that_is_not_a_date_does_not_stop_everything() {
+        use calamine::{Data, ExcelDateTime, ExcelDateTimeType::*};
+        // 환산하지 않고 수 그대로 기재한다. 중단하지 않는 것이 요점이다.
+        let huge = Data::DateTime(ExcelDateTime::new(1e300, DateTime, false));
+        assert!(cell(&huge).starts_with('1'), "{}", cell(&huge));
+        assert!(!cell(&huge).contains('-'), "날짜로 환산했습니다");
+        let negative = Data::DateTime(ExcelDateTime::new(-1e9, DateTime, false));
+        assert!(!cell(&negative).is_empty());
+        let infinite = Data::DateTime(ExcelDateTime::new(f64::INFINITY, DateTime, false));
+        assert_eq!(cell(&infinite), "inf");
     }
 
     /// **열쇠가 충돌하면 표가 생성되지 않는다.**
