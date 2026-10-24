@@ -22,6 +22,7 @@ import {
   type Sort,
 } from "@/lib/grid";
 import { useColumnLayout } from "@/composables/useColumnLayout";
+import { formatNumber, t, tn } from "@/i18n";
 import { AppError } from "sheetsift-book";
 
 const props = defineProps<{ screen: ScreenDef }>();
@@ -45,7 +46,6 @@ const layout = useColumnLayout(toRef(props, "screen"));
 const columns = layout.columns;
 
 const gridRoot = ref<HTMLElement | null>(null);
-const numberFormat = new Intl.NumberFormat("ko-KR");
 
 /* ── 조회 ──────────────────────────────────────────────────── */
 
@@ -240,8 +240,13 @@ watch(sorts, reload, { deep: true });
     >
       <template #status>
         <span class="shrink-0 whitespace-nowrap text-right tabular-nums text-fg-muted">
-          {{ numberFormat.format(firstRowNo) }}–{{ numberFormat.format(lastRowNo) }} /
-          {{ numberFormat.format(total) }}행
+          {{
+            t("grid.status", {
+              from: formatNumber(firstRowNo),
+              to: formatNumber(lastRowNo),
+              total: tn("grid.rows", total),
+            })
+          }}
           <span class="text-fg-subtle">· {{ busy ? "…" : `${elapsedMs.toFixed(1)}ms` }}</span>
         </span>
       </template>

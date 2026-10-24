@@ -14,6 +14,7 @@
 import { computed, ref } from "vue";
 import ColumnFilter from "@/components/ColumnFilter.vue";
 import { cellText, isBlank } from "@/lib/grid";
+import { t } from "@/i18n";
 import type { ColumnValuesResult, Row, Sort } from "@/lib/grid";
 import type { LaidOutColumn } from "@/composables/useColumnLayout";
 
@@ -48,7 +49,7 @@ const props = withDefaults(
   }>(),
   {
     busy: false,
-    emptyText: "조건에 부합하는 행이 부재합니다. 필터를 축소해 주십시오.",
+    emptyText: "",
     showFilters: true,
   },
 );
@@ -121,6 +122,18 @@ const gridVars = computed(() => {
 function sortOf(key: string): { rank: number; dir: Sort["dir"] } | null {
   const at = props.sorts.findIndex((s) => s.key === key);
   return at === -1 ? null : { rank: at + 1, dir: props.sorts[at].dir };
+}
+
+/**
+ * 보조기기에 전달하는 정렬 상태.
+ *
+ * **▲▼ 는 `aria-hidden` 이라 전달되지 않는다.** 그것만 배치하면 화면을 보지
+ * 못하는 사람에게는 정렬이 적용되었는지 자체가 부재한다.
+ */
+function ariaSort(key: string): "ascending" | "descending" | "none" {
+  const s = sortOf(key);
+  if (!s) return "none";
+  return s.dir === "desc" ? "descending" : "ascending";
 }
 
 /* ── 열 검색 · 값 선택 ─────────────────────────────────────── */
@@ -292,11 +305,12 @@ defineExpose({ close: () => (openFilterKey.value = null) });
             :data-pin-last="i === pinned - 1"
             :data-drag-src="dragging && dragFrom === i"
             :data-drop="dragging && dropAt === i"
-            :data-tip="
-              col.sortable
-                ? `${col.label}\n조작하면 오름차순 → 내림차순 → 해제 · 수평 이동하면 순서 변경`
-                : col.label
-            "
+            role="columnheader"
+            :tabindex="col.sortable ? 0 : undefined"
+            :aria-sort="ariaSort(col.key)"
+            :data-tip="col.sortable ? t('grid.head.tip', { label: col.label }) : col.label"
+            @keydown.enter.prevent="col.sortable && emit('sort', col.key)"
+            @keydown.space.prevent="col.sortable && emit('sort', col.key)"
             @pointerdown="onHeaderPointerDown(i, $event)"
           >
             <span class="dg-hlabel">{{ col.label }}</span>
@@ -310,7 +324,7 @@ defineExpose({ close: () => (openFilterKey.value = null) });
               class="dg-resize"
               :data-active="resizingKey === col.key"
               role="separator"
-              :aria-label="`${col.label} 폭 조절`"
+              :aria-label="t('grid.resize.aria', { label: col.label })"
               @pointerdown="onResizeStart(col, $event)"
             ></span>
           </div>
@@ -331,8 +345,8 @@ defineExpose({ close: () => (openFilterKey.value = null) });
                 type="search"
                 :value="filterText[col.key] ?? ''"
                 :disabled="!col.filterable"
-                :placeholder="col.filterable ? '검색' : ''"
-                :aria-label="`${col.label} 검색`"
+                :placeholder="col.filterable ? t('grid.search.ph') : ''"
+                :aria-label="t('grid.search.aria', { label: col.label })"
                 @input="onSearchInput(col.key, ($event.target as HTMLInputElement).value)"
               />
               <button
@@ -340,9 +354,9 @@ defineExpose({ close: () => (openFilterKey.value = null) });
                 class="dg-fbtn"
                 :data-active="filterValues[col.key] != null"
                 :disabled="!col.filterable"
-                :aria-label="`${col.label} 값 선택`"
+                :aria-label="t('grid.filter.aria', { label: col.label })"
                 :aria-expanded="openFilterKey === col.key"
-                :data-tip="`${col.label} — 값 선택`"
+                :data-tip="t('grid.filter.tip', { label: col.label })"
                 @click="openFilter(col, $event)"
               >
                 <!-- 필터를 의미하는 수평선 3개. 여기에 ▼ 를 사용하면 상단 머리글의
@@ -381,7 +395,9 @@ defineExpose({ close: () => (openFilterKey.value = null) });
           </div>
         </div>
 
-        <p v-if="!busy && !rows.length" class="p-6 text-fg-subtle">{{ emptyText }}</p>
+        <p v-if="!busy && !rows.length" class="p-6 text-fg-subtle">
+          {{ emptyText || t("grid.empty") }}
+        </p>
       </div>
     </div>
 

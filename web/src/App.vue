@@ -29,10 +29,15 @@ import {
   type ScreenDef,
 } from "@/lib/grid";
 import { AppError, start } from "sheetsift-book";
-import { APP_NAME, APP_TAGLINE, storageKey } from "@/lib/app";
-import { ui } from "@/i18n";
+import LocaleToggle from "@/components/LocaleToggle.vue";
+import { APP_NAME, storageKey } from "@/lib/app";
+import { t } from "@/i18n";
+import { canPickFile } from "sheetsift-book";
 
 const KIND_VIEW = { grid: DataGrid } as const;
+
+/** 창에서 구동 중인가. 문구가 '이 컴퓨터' 인지 '이 브라우저' 인지를 가른다. */
+const native = canPickFile();
 
 const groupNames = ref<string[]>([]);
 const screens = ref<ScreenDef[]>([]);
@@ -110,9 +115,37 @@ function readCollapsed(): boolean {
   }
 }
 
-const sideCollapsed = ref(readCollapsed());
+const stored = ref(readCollapsed());
 
-watch(sideCollapsed, (v) => {
+/**
+ * 폭이 협소한 기기에서는 **보관된 선택과 무관하게 접는다.**
+ *
+ * 240px 짜리 목록이 상주하면 표에 남는 폭이 100px 대가 된다. 조작하면 그 자리에서
+ * 개방되고, 보관된 선택은 훼손하지 않는다 — 광폭 기기로 복귀하면 그대로다.
+ */
+const NARROW = 768;
+const narrow = ref(typeof window !== "undefined" && window.innerWidth < NARROW);
+const forced = ref(false);
+
+function onResize() {
+  const now = window.innerWidth < NARROW;
+  if (now === narrow.value) return;
+  narrow.value = now;
+  forced.value = false;
+}
+
+const sideCollapsed = computed({
+  get: () => (narrow.value && !forced.value ? true : stored.value),
+  set: (v: boolean) => {
+    if (narrow.value) {
+      forced.value = !v;
+      return;
+    }
+    stored.value = v;
+  },
+});
+
+watch(stored, (v) => {
   try {
     localStorage.setItem(SIDE_KEY, v ? "1" : "0");
   } catch {
@@ -133,8 +166,14 @@ function onKeydown(ev: KeyboardEvent) {
   sideCollapsed.value = !sideCollapsed.value;
 }
 
-onMounted(() => window.addEventListener("keydown", onKeydown));
-onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
+onMounted(() => {
+  window.addEventListener("keydown", onKeydown);
+  window.addEventListener("resize", onResize);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onKeydown);
+  window.removeEventListener("resize", onResize);
+});
 
 /* 본문이 수평으로도 스크롤한다(표가 화면보다 광범위하다). 표가 아닌 것들은
    수평 스크롤과 무관하게 정위치에 존재해야 하므로 `sticky; left: 0` 에 **가시
@@ -203,7 +242,7 @@ async function opened(name: string, open: () => Promise<ScreenCatalog>) {
     groupNames.value = catalog.groups;
     screens.value = catalog.screens;
     current.value = groups.value[0]?.items[0] ?? screens.value[0] ?? null;
-    if (!screens.value.length) note.value = "이 파일에서 열람 가능한 표를 탐색하지 못했습니다.";
+    if (!screens.value.length) note.value = t("app.file.nosheets");
   } catch (e) {
     errorMessage.value = e instanceof AppError ? e.message : String(e);
     fileName.value = "";
@@ -224,7 +263,7 @@ async function shown() {
   const s = current.value;
   if (!s || s.headerFound) return;
   await setHeader(s.id, FIRST_GUESS);
-  notify(`'${s.title}' 의 머리글을 판별하지 못해 1행을 머리글로 가정했습니다. 상단에서 지정하십시오.`);
+  notify(t("app.header.assumed", { sheet: s.title }));
 }
 
 function select(item: ScreenDef) {
@@ -277,8 +316,8 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
         class="app-head-btn"
         :aria-expanded="!sideCollapsed"
         aria-controls="app-side"
-        aria-label="시트 목록"
-        :data-tip="`시트 목록 ${sideCollapsed ? '표시' : '은폐'} (Ctrl+B)`"
+        :aria-label="t('app.sheets')"
+        :data-tip="t(sideCollapsed ? 'app.sheets.show.tip' : 'app.sheets.hide.tip')"
         @click="sideCollapsed = !sideCollapsed"
       >
         <span aria-hidden="true">☰</span>
@@ -288,7 +327,9 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
 
       <!-- 개방 이전에만 기재한다. 표를 열람하는 중에 상주시키면 그 폭만큼
            파일 명칭이 절단된다. -->
-      <p v-if="!fileName" class="truncate text-fg-subtle">{{ APP_TAGLINE }}</p>
+      <p v-if="!fileName" class="truncate text-fg-subtle">
+        {{ t(native ? "app.tagline.desktop" : "app.tagline.web") }}
+      </p>
 
       <template v-if="fileName">
         <p class="min-w-0 flex-1 truncate text-right font-medium" :data-tip="fileName">
@@ -299,6 +340,7 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
       </template>
       <span v-else class="flex-1"></span>
 
+      <LocaleToggle />
       <ThemeToggle />
     </header>
 
@@ -309,8 +351,8 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
         id="app-side"
         class="app-side"
         :data-collapsed="sideCollapsed"
-        :aria-hidden="sideCollapsed"
-        aria-label="시트"
+        :inert="sideCollapsed || undefined"
+        :aria-label="t('app.sheets')"
       >
         <div class="app-side-inner">
           <div class="app-side-scroll">
@@ -323,7 +365,9 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
                     class="app-side-item"
                     :data-current="current?.id === item.id"
                     :data-tip="
-                      item.headerFound ? item.title : `${item.title} — 머리글 행을 탐색하지 못했습니다`
+                      item.headerFound
+                        ? item.title
+                        : t('app.sheet.noheader.tip', { title: item.title })
                     "
                     @click="select(item)"
                   >
@@ -335,14 +379,14 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
 
             <!-- 묶음에 포함되지 못한 시트. 묵시적으로 소멸하면 인지하지 못하므로 표시한다. -->
             <template v-if="orphans.length">
-              <p class="app-side-group text-danger">묶음 없음</p>
+              <p class="app-side-group text-danger">{{ t("app.group.none") }}</p>
               <ul class="flex flex-col gap-1">
                 <li v-for="item in orphans" :key="item.id">
                   <button
                     type="button"
                     class="app-side-item"
                     :data-current="current?.id === item.id"
-                    :data-tip="`묶음 '${item.group}' 이 목록에 부재합니다`"
+                    :data-tip="t('app.group.missing.tip', { group: item.group })"
                     @click="select(item)"
                   >
                     {{ item.title }}
@@ -356,7 +400,7 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
 
       <!-- 수직 스크롤이 발생하는 유일한 위치. 표의 열 머리글만 상단에 고정된다. -->
       <main ref="mainEl" class="app-main" :style="mainVars">
-        <p v-if="starting" class="app-fixed pt-5 text-fg-muted">{{ ui.loading }}…</p>
+        <p v-if="starting" class="app-fixed pt-5 text-fg-muted">{{ t("app.starting") }}</p>
 
         <!-- 개방 이전. 수령하는 영역이 본문의 전부다 — 여기서 수행할 작업이
              그것 하나뿐이라, 상단에 부착하는 대신 중앙에 배치한다. -->
@@ -392,8 +436,7 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
             <!-- 1행을 적용해도 열을 판별하지 못한 시트. 공백 시트가 그렇다.
                  **단추를 배치하지 않는다** — 조작할 대상이 부재하다. -->
             <p v-if="headless" class="app-fixed text-fg-muted">
-              이 시트에서 열을 판별하지 못했습니다. 공백 시트이거나, 표가 아닌 내용만
-              기재되어 있습니다.
+              {{ t("app.sheet.nocolumns") }}
             </p>
             <!-- 무엇으로 묘사할지는 화면 정의의 kind 가 결정한다. -->
             <component

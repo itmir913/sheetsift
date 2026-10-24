@@ -8,6 +8,7 @@
  * 않는다.
  */
 import { ref, watch } from "vue";
+import { t, tn } from "@/i18n";
 import type { HeaderSpec, Sort } from "@/lib/grid";
 import type { LaidOutColumn } from "@/composables/useColumnLayout";
 
@@ -109,7 +110,6 @@ function moveRows(by: number) {
    **여기 존재해야 한다.** 화면마다 개별 묘사하면 조회 화면에는 존재하고 성적
    검색에는 부재하는 식으로 분기한다. 실제로 그렇게 분기해 있었다.  */
 
-const numberFormat = new Intl.NumberFormat("ko-KR");
 const pageInput = ref("1");
 
 watch(
@@ -144,8 +144,8 @@ function labelOf(key: string): string {
           type="button"
           class="gx-pager-btn"
           :disabled="(page ?? 0) === 0 || busy"
-          aria-label="첫 페이지"
-          data-tip="첫 페이지"
+          :aria-label="t('pager.first')"
+          :data-tip="t('pager.first')"
           @click="goto(0)"
         >
           ⏮
@@ -154,8 +154,8 @@ function labelOf(key: string): string {
           type="button"
           class="gx-pager-btn"
           :disabled="(page ?? 0) === 0 || busy"
-          aria-label="이전 페이지"
-          data-tip="이전 페이지"
+          :aria-label="t('pager.prev')"
+          :data-tip="t('pager.prev')"
           @click="goto((page ?? 0) - 1)"
         >
           ◀
@@ -164,17 +164,17 @@ function labelOf(key: string): string {
           v-model="pageInput"
           class="gx-pager-input"
           inputmode="numeric"
-          aria-label="페이지 번호"
+          :aria-label="t('pager.page.aria')"
           @keydown.enter="applyPageInput"
           @blur="applyPageInput"
         />
-        <span class="text-fg-muted">/ {{ numberFormat.format(pageCount) }}쪽</span>
+        <span class="text-fg-muted">{{ tn("pager.of", pageCount) }}</span>
         <button
           type="button"
           class="gx-pager-btn"
           :disabled="(page ?? 0) >= pageCount - 1 || busy"
-          aria-label="다음 페이지"
-          data-tip="다음 페이지"
+          :aria-label="t('pager.next')"
+          :data-tip="t('pager.next')"
           @click="goto((page ?? 0) + 1)"
         >
           ▶
@@ -183,8 +183,8 @@ function labelOf(key: string): string {
           type="button"
           class="gx-pager-btn"
           :disabled="(page ?? 0) >= pageCount - 1 || busy"
-          aria-label="마지막 페이지"
-          data-tip="마지막 페이지"
+          :aria-label="t('pager.last')"
+          :data-tip="t('pager.last')"
           @click="goto(pageCount - 1)"
         >
           ⏭
@@ -193,12 +193,12 @@ function labelOf(key: string): string {
 
       <span v-if="!compact" class="gx-tools-set">
         <span class="gx-pin">
-          <span class="whitespace-nowrap text-fg-muted">열 고정</span>
+          <span class="whitespace-nowrap text-fg-muted">{{ t("tools.pin") }}</span>
           <button
             type="button"
             class="gx-pin-btn"
             :disabled="pinned <= 0"
-            aria-label="고정 열 감소"
+            :aria-label="t('tools.pin.less.aria')"
             @click="emit('setPinned', pinned - 1)"
           >
             −
@@ -208,7 +208,7 @@ function labelOf(key: string): string {
             type="button"
             class="gx-pin-btn"
             :disabled="pinned >= pinLimit"
-            aria-label="고정 열 증가"
+            :aria-label="t('tools.pin.more.aria')"
             @click="emit('setPinned', pinned + 1)"
           >
             ＋
@@ -216,29 +216,36 @@ function labelOf(key: string): string {
         </span>
 
         <span v-if="header" class="gx-pin">
-          <span class="whitespace-nowrap text-fg-muted">머리글</span>
+          <span class="whitespace-nowrap text-fg-muted">{{ t("tools.header") }}</span>
           <button
             type="button"
             class="gx-pin-btn"
             :disabled="header.at <= 0"
-            aria-label="머리글 개시 행 상향"
-            data-tip="머리글이 개시되는 행을 상향"
+            :aria-label="t('tools.header.up.aria')"
+            :data-tip="t('tools.header.up.tip')"
             @click="moveStart(-1)"
           >
             ↑
           </button>
           <span class="whitespace-nowrap tabular-nums text-fg">
-            <template v-if="header.rows === 1">{{ rowOrigin + header.at + 1 }}행</template>
+            <template v-if="header.rows === 1">
+              {{ t("tools.header.single", { a: rowOrigin + header.at + 1 }) }}
+            </template>
             <template v-else>
-              {{ rowOrigin + header.at + 1 }}–{{ rowOrigin + header.at + header.rows }}행
+              {{
+                t("tools.header.range", {
+                  a: rowOrigin + header.at + 1,
+                  b: rowOrigin + header.at + header.rows,
+                })
+              }}
             </template>
           </span>
           <button
             type="button"
             class="gx-pin-btn"
             :disabled="header.at + header.rows >= sheetRows"
-            aria-label="머리글 개시 행 하향"
-            data-tip="머리글이 개시되는 행을 하향"
+            :aria-label="t('tools.header.down.aria')"
+            :data-tip="t('tools.header.down.tip')"
             @click="moveStart(1)"
           >
             ↓
@@ -247,8 +254,8 @@ function labelOf(key: string): string {
             type="button"
             class="gx-pin-btn"
             :disabled="header.rows <= 1"
-            aria-label="머리글 행 수 감소"
-            data-tip="머리글 행 수를 감소시킨다"
+            :aria-label="t('tools.header.less.aria')"
+            :data-tip="t('tools.header.less.tip')"
             @click="moveRows(-1)"
           >
             −
@@ -258,8 +265,8 @@ function labelOf(key: string): string {
             type="button"
             class="gx-pin-btn"
             :disabled="header.at + header.rows >= sheetRows"
-            aria-label="머리글 행 수 증가"
-            data-tip="머리글 행 수를 증가시킨다"
+            :aria-label="t('tools.header.more.aria')"
+            :data-tip="t('tools.header.more.tip')"
             @click="moveRows(1)"
           >
             ＋
@@ -271,19 +278,19 @@ function labelOf(key: string): string {
           type="button"
           class="gx-tool-btn"
           :disabled="printing || printDisabled"
-          data-tip="현 화면의 정렬·필터를 그대로 인쇄합니다"
+          :data-tip="t('tools.print.tip')"
           @click="emit('print')"
         >
-          {{ printing ? "준비 중…" : "인쇄" }}
+          {{ t(printing ? "tools.print.busy" : "tools.print") }}
         </button>
         <button
           type="button"
           class="gx-tool-btn"
           :disabled="!columnsCustomized"
-          data-tip="열 순서와 폭을 기본값으로"
+          :data-tip="t('tools.columns.reset.tip')"
           @click="emit('resetColumns')"
         >
-          열 초기화
+          {{ t("tools.columns.reset") }}
         </button>
         <button
           type="button"
@@ -291,7 +298,7 @@ function labelOf(key: string): string {
           :disabled="!sorts.length"
           @click="emit('clearSorts')"
         >
-          정렬 초기화
+          {{ t("tools.sorts.clear") }}
         </button>
         <button
           type="button"
@@ -299,7 +306,7 @@ function labelOf(key: string): string {
           :disabled="!hasFilters"
           @click="emit('clearFilters')"
         >
-          필터 초기화
+          {{ t("tools.filters.clear") }}
         </button>
       </span>
     </div>
@@ -307,7 +314,7 @@ function labelOf(key: string): string {
     <!-- 하단 행: 정렬 칩. 증가하면 이 행만 수평 이동한다. -->
     <div v-if="!compact" class="gx-tools-row gx-sorts">
       <span class="shrink-0 font-medium text-fg-muted">
-        {{ sorts.length ? "정렬" : "설명" }}
+        {{ t(sorts.length ? "tools.sorts" : "tools.help") }}
       </span>
       <div class="gx-sort-list">
         <button
@@ -315,7 +322,7 @@ function labelOf(key: string): string {
           :key="s.key"
           type="button"
           class="gx-sort-chip"
-          :data-tip="`${labelOf(s.key)} 정렬 해제`"
+          :data-tip="t('tools.sort.remove.tip', { label: labelOf(s.key) })"
           @click="emit('removeSort', s.key)"
         >
           <span class="dg-rank">{{ i + 1 }}</span>
@@ -328,8 +335,7 @@ function labelOf(key: string): string {
              전체를 제시하는 위치라, 좌측 표지도 '설명' 으로 전환된다. 2문자로
              길이가 동일해 표지가 전환되어도 문구가 수평 이동하지 않는다. -->
         <span v-if="!sorts.length" class="truncate text-fg-subtle">
-          열 제목을 조작해 정렬 / 열을 이동해 순서 변경 /
-          열 사이 선을 조작해 폭 조절
+          {{ t("tools.help.text") }}
         </span>
       </div>
       <slot name="status" />

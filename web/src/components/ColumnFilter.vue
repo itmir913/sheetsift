@@ -13,6 +13,7 @@
 import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { type ColumnDef, type ColumnValue, type ColumnValuesResult } from "@/lib/grid";
 import { AppError, limits } from "sheetsift-book";
+import { formatNumber, t, tn } from "@/i18n";
 
 const props = defineProps<{
   column: ColumnDef;
@@ -38,6 +39,15 @@ const emit = defineEmits<{
 const { blankToken, maxValues } = limits();
 
 const root = ref<HTMLElement | null>(null);
+
+/**
+ * 개방 직후 포커스를 수용하는 입력란.
+ *
+ * **엑셀은 ▼ 이후 즉시 입력이 가능하다.** 포커스가 단추에 잔류하면 사람이
+ * 입력란을 1회 더 조작해야 하고, 키보드만 사용하는 사람은 팝오버 내부로
+ * 진입하는 경로 자체가 부재하다.
+ */
+const searchEl = ref<HTMLInputElement | null>(null);
 
 /** 현재 표시하는 후보. 축소 문자가 존재하면 그것으로 수령한 것이다. */
 const shown = ref<ColumnValue[]>([]);
@@ -69,8 +79,6 @@ const checked = ref<Set<string>>(new Set());
  * 값들이 묵시적으로 통과한다.
  */
 const all = ref(true);
-
-const numberFormat = new Intl.NumberFormat("ko-KR");
 
 const popVars = computed(() => ({
   "--pop-x": `${props.x}px`,
@@ -169,9 +177,21 @@ function applyTyped() {
   apply();
 }
 
+/**
+ * 팝오버 내부의 입력만 수신한다.
+ *
+ * `window` 에서 수신하면 표의 **열 검색란에 입력하는 중의 엔터**까지 여기에
+ * 도달해, 조작하지 않은 팝오버가 적용된다. 이탈(Esc)은 포커스가 어디에 있든
+ * 수용해야 하므로 그것만 외부에서 수신한다.
+ */
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === "Escape") emit("close");
-  if (e.key === "Enter" && !e.isComposing) applyTyped();
+  if (e.key === "Escape") {
+    emit("close");
+    return;
+  }
+  if (e.key !== "Enter" || e.isComposing) return;
+  if (!root.value?.contains(e.target as Node)) return;
+  applyTyped();
 }
 
 function onPointerDown(e: PointerEvent) {
@@ -189,6 +209,7 @@ onMounted(() => {
   all.value = props.selected === null;
   checked.value = new Set(props.selected ?? []);
   void fetchShown();
+  searchEl.value?.focus();
   window.addEventListener("keydown", onKeydown);
   // 팝오버 개방 직후의 클릭까지 포착하지 않도록 차기 틱에 등록한다.
   window.setTimeout(() => window.addEventListener("pointerdown", onPointerDown), 0);
@@ -202,11 +223,18 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="root" class="dg-pop" :style="popVars" role="dialog" :aria-label="`${column.label} 필터`">
+  <div
+    ref="root"
+    class="dg-pop"
+    :style="popVars"
+    role="dialog"
+    aria-modal="true"
+    :aria-label="t('grid.filter.aria', { label: column.label })"
+  >
     <div class="dg-pop-head">
       <span class="font-semibold">{{ column.label }}</span>
       <span class="text-fg-subtle">
-        {{ all ? "전체" : `${numberFormat.format(checked.size)}개 선택` }}
+        {{ all ? t("filter.all") : tn("filter.selected", checked.size) }}
       </span>
     </div>
 
@@ -214,18 +242,19 @@ onBeforeUnmount(() => {
       v-model="search"
       class="dg-finput"
       type="search"
-      placeholder="값 검색"
-      aria-label="값 검색"
+      ref="searchEl"
+      :placeholder="t('filter.search')"
+      :aria-label="t('filter.search')"
     />
 
-    <p v-if="loading" class="dg-pop-note">준비 중…</p>
+    <p v-if="loading" class="dg-pop-note">{{ t("filter.loading") }}</p>
     <p v-else-if="errorMessage" class="dg-pop-note text-danger">{{ errorMessage }}</p>
 
     <template v-else>
       <label class="dg-pop-row dg-pop-all">
         <input type="checkbox" :checked="allShownChecked" @change="toggleAllShown" />
         <span class="font-medium">
-          {{ search.trim() ? "검색 결과 모두 선택" : "모두 선택" }}
+          {{ t(search.trim() ? "filter.checkall.shown" : "filter.checkall") }}
         </span>
       </label>
 
@@ -237,17 +266,14 @@ onBeforeUnmount(() => {
             @change="toggle(c.value)"
           />
           <span class="dg-pop-val" :data-blank="c.value === blankToken">{{ c.value }}</span>
-          <span class="dg-pop-count">{{ numberFormat.format(c.count) }}</span>
+          <span class="dg-pop-count">{{ formatNumber(c.count) }}</span>
         </label>
-        <p v-if="!shown.length" class="dg-pop-note">일치하는 값이 부재합니다</p>
+        <p v-if="!shown.length" class="dg-pop-note">{{ t("filter.none") }}</p>
       </div>
 
       <!-- 절단되었다는 것을 **제시한다.** 절단 사실을 인지하지 못한 채 선택하면,
            노출되지 않던 값들이 누락된 필터가 적용된다. -->
-      <p v-if="truncated" class="dg-pop-note">
-        고유값이 다수라 {{ numberFormat.format(maxValues) }}개까지만 표시합니다.
-        검색으로 축소해 주십시오.
-      </p>
+      <p v-if="truncated" class="dg-pop-note">{{ tn("filter.truncated", maxValues) }}</p>
     </template>
 
     <div class="dg-pop-foot">
@@ -256,7 +282,7 @@ onBeforeUnmount(() => {
         class="rounded-md border border-line px-3 py-1.5 text-fg-muted hover:bg-surface-hover hover:text-fg"
         @click="emit('close')"
       >
-        취소
+        {{ t("filter.cancel") }}
       </button>
       <button
         type="button"
@@ -264,7 +290,7 @@ onBeforeUnmount(() => {
         :disabled="loading"
         @click="apply"
       >
-        적용
+        {{ t("filter.apply") }}
       </button>
     </div>
   </div>

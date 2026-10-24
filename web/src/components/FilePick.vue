@@ -7,6 +7,7 @@
  */
 import { ref } from "vue";
 import { canPickFile, pickFile } from "sheetsift-book";
+import { t } from "@/i18n";
 
 const emit = defineEmits<{ pick: [file: File]; pickAt: [path: string, name: string] }>();
 
@@ -56,14 +57,14 @@ function onDrop(ev: DragEvent) {
     :type="native ? 'button' : undefined"
     class="app-head-btn"
     :class="over ? 'app-head-btn-over' : ''"
-    :data-tip="busy ? '판독 중입니다' : '다른 파일을 선택하거나 이 단추에 투입하십시오'"
+    :data-tip="t(busy ? 'pick.busy.tip' : 'pick.change.tip')"
     @dragover.prevent="over = true"
     @dragleave="over = false"
     @drop.prevent="onDrop"
     @click="native ? onPickNative() : undefined"
   >
     <input v-if="!native" type="file" class="hidden" accept=".xlsx,.xls,.csv" @change="onInput" />
-    {{ busy ? "판독 중…" : "파일 변경" }}
+    {{ t(busy ? "pick.reading" : "pick.change") }}
   </component>
 
   <div v-else class="flex flex-col gap-3">
@@ -77,10 +78,10 @@ function onDrop(ev: DragEvent) {
       @click="native ? onPickNative() : undefined"
     >
       <input v-if="!native" type="file" class="hidden" accept=".xlsx,.xls,.csv" @change="onInput" />
-      <span class="font-medium">xlsx 또는 csv 파일을 선택하거나 이 영역에 투입하십시오</span>
-      <span class="text-fg-subtle">{{
-        busy ? "판독 중…" : native ? "파일은 이 컴퓨터 내부에서만 개방됩니다" : "파일은 이 브라우저 내부에서만 개방됩니다"
-      }}</span>
+      <span class="font-medium">{{ t("pick.drop") }}</span>
+      <span class="text-fg-subtle">
+        {{ busy ? t("pick.reading") : t(native ? "pick.safe.desktop" : "pick.safe.web") }}
+      </span>
     </component>
 
     <p v-if="note" role="status" aria-live="polite" :class="danger ? 'text-danger' : 'text-fg-muted'">

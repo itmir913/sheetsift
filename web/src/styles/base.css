@@ -92,13 +92,17 @@
   }
 
   body {
-    /* 한국어 개행: 어절(공백) 단위로 분할한다.
-       keep-all 만 사용하면 장문 URL·영문 토큰이 초과하므로 anywhere 로 보완한다. */
-    word-break: keep-all;
     overflow-wrap: anywhere;
     -webkit-font-smoothing: antialiased;
-    font-feature-settings: "ss06"; /* Pretendard: 한글 조판 개선 */
     @apply bg-canvas text-fg font-sans text-base leading-relaxed;
+  }
+
+  /* 한국어 조판. **언어를 판별해 적용한다** — `<html lang>` 은 화면의 언어를
+     추종한다(`i18n`). 어절 단위 개행도 `ss06` 도 한글의 것이라, 영문에 적용하면
+     단어가 임의로 분할되거나 일부 글리프가 변형된다. */
+  :root:lang(ko) body {
+    word-break: keep-all;
+    font-feature-settings: "ss06"; /* Pretendard: 한글 조판 개선 */
   }
 
   /* 조작해 선택하는 것을 차단하지 않는다. goe-navi 는 자료가 기관의 것이라
@@ -159,6 +163,56 @@
     border-color: var(--c-accent);
     background-color: var(--c-accent-surface);
     color: var(--c-fg);
+  }
+
+  /* 분절 선택기. 테마와 언어가 동일한 형태를 사용한다 — 동급의 조작이다. */
+  .app-seg {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.25rem;
+    border: 1px solid var(--c-border);
+    border-radius: 0.5rem;
+    background-color: var(--c-surface-sunken);
+    padding: 0.25rem;
+  }
+
+  .app-seg-btn {
+    border-radius: 0.375rem;
+    padding: 0.375rem 0.75rem;
+    font-weight: 500;
+    color: var(--c-fg-muted);
+    white-space: nowrap;
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+
+  .app-seg-btn:hover {
+    background-color: var(--c-surface-hover);
+    color: var(--c-fg);
+  }
+
+  .app-seg-btn[data-on="true"] {
+    background-color: var(--c-accent);
+    color: var(--c-accent-fg);
+  }
+
+  /* 협소한 폭. 머리글이 2행으로 접히고 분절 선택기가 축소된다.
+     **접히게 둔다** — 가로로 압출하면 파일 명칭이 1~2자만 노출된다. */
+  @media (max-width: 48rem) {
+    .app-head {
+      flex-wrap: wrap;
+      row-gap: 0.5rem;
+      padding: 0.5rem 0.75rem;
+    }
+
+    .app-seg-btn {
+      padding: 0.375rem 0.5rem;
+    }
+
+    .app-drop {
+      padding-left: 1rem;
+      padding-right: 1rem;
+    }
   }
 
   /* 개방 이전의 수령 영역. 본문 중앙에 배치한다.

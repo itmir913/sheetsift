@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { APP_NAME } from "@/lib/app";
 import { cellText } from "@/lib/grid";
+import { formatDateTime, formatNumber, t, tn } from "@/i18n";
 import type { Cell, Filter, Row, Sort } from "@/lib/grid";
 import type { LaidOutColumn } from "@/composables/useColumnLayout";
 
@@ -27,13 +28,7 @@ const props = withDefaults(
   { format: (col: LaidOutColumn, value: Cell) => cellText(col, value) },
 );
 
-const numberFormat = new Intl.NumberFormat("ko-KR");
-
-const printedAt = computed(() =>
-  new Intl.DateTimeFormat("ko-KR", { dateStyle: "long", timeStyle: "short" }).format(
-    new Date(),
-  ),
-);
+const printedAt = computed(() => formatDateTime(new Date()));
 
 function labelOf(key: string): string {
   return props.columns.find((c) => c.key === key)?.label ?? key;
@@ -42,7 +37,10 @@ function labelOf(key: string): string {
 /** 적용된 정렬을 사람이 판독하는 한 행으로. */
 const sortSummary = computed(() =>
   props.sorts
-    .map((s, i) => `${i + 1}. ${labelOf(s.key)} ${s.dir === "asc" ? "오름차순" : "내림차순"}`)
+    .map(
+      (s, i) =>
+        `${i + 1}. ${labelOf(s.key)} ${t(s.dir === "asc" ? "print.asc" : "print.desc")}`,
+    )
     .join("  ·  "),
 );
 
@@ -50,14 +48,17 @@ const sortSummary = computed(() =>
 const filterSummary = computed(() =>
   props.filters.map((f) => {
     const parts: string[] = [];
-    if (f.contains) parts.push(`"${f.contains}" 포함`);
+    if (f.contains) parts.push(t("print.contains", { text: f.contains }));
     if (f.values) {
       parts.push(
         f.values.length === 0
-          ? "선택 부재"
+          ? t("print.selected.none")
           : f.values.length <= 4
             ? f.values.join(", ")
-            : `${f.values.slice(0, 3).join(", ")} 외 ${f.values.length - 3}개`,
+            : t("print.more", {
+                list: f.values.slice(0, 3).join(", "),
+                n: f.values.length - 3,
+              }),
       );
     }
     return `${labelOf(f.key)}: ${parts.join(" / ")}`;
@@ -104,34 +105,29 @@ function colVars(col: LaidOutColumn): Record<string, string> {
 
       <dl class="pv-meta">
         <div v-if="sortSummary">
-          <dt>정렬</dt>
+          <dt>{{ t("print.sorts") }}</dt>
           <dd>{{ sortSummary }}</dd>
         </div>
         <div v-if="filterSummary.length">
-          <dt>필터</dt>
+          <dt>{{ t("print.filters") }}</dt>
           <dd>
             <span v-for="(f, i) in filterSummary" :key="i" class="pv-chip">{{ f }}</span>
           </dd>
         </div>
         <div>
-          <dt>건수</dt>
+          <dt>{{ t("print.count") }}</dt>
           <dd>
-            {{ numberFormat.format(rows.length) }}건 인쇄
-            <template v-if="truncated">
-              (조건에 맞는 전체 {{ numberFormat.format(total) }}건 중 상위 일부)
-            </template>
+            {{ tn("print.rows", rows.length) }}
+            <template v-if="truncated">{{ tn("print.oftotal", total) }}</template>
           </dd>
         </div>
         <div>
-          <dt>출력</dt>
+          <dt>{{ t("print.printed") }}</dt>
           <dd>{{ printedAt }} · {{ APP_NAME }}</dd>
         </div>
       </dl>
 
-      <p v-if="truncated" class="pv-warn">
-        조건에 부합하는 행이 다수라 상위 {{ numberFormat.format(rows.length) }}건만
-        인쇄합니다. 필터를 추가로 축소해 주십시오.
-      </p>
+      <p v-if="truncated" class="pv-warn">{{ tn("print.truncated", rows.length) }}</p>
     </header>
 
     <!-- 실제 table 을 사용한다. 브라우저가 페이지마다 thead 를 반복 출력한다. -->
@@ -145,7 +141,7 @@ function colVars(col: LaidOutColumn): Record<string, string> {
       </colgroup>
       <thead>
         <tr>
-          <th class="pv-no">#</th>
+          <th class="pv-no">{{ t("print.no") }}</th>
           <th v-for="col in columns" :key="col.key" :data-kind="col.kind">
             {{ col.label }}
           </th>
@@ -153,7 +149,7 @@ function colVars(col: LaidOutColumn): Record<string, string> {
       </thead>
       <tbody>
         <tr v-for="(row, i) in rows" :key="i">
-          <td class="pv-no">{{ numberFormat.format(i + 1) }}</td>
+          <td class="pv-no">{{ formatNumber(i + 1) }}</td>
           <td v-for="col in columns" :key="col.key" :data-kind="col.kind">
             {{ format(col, row[col.srcIndex]) }}
           </td>
