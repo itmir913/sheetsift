@@ -1,6 +1,7 @@
 import { computed, ref, watch, type Ref } from "vue";
 import { storageKey } from "@/lib/app";
 import { autoWidthRem, fontEpoch, headerWidthRem } from "@/lib/colWidth";
+import { own } from "@/lib/grid";
 import type { ColumnDef, Row, ScreenDef } from "@/lib/grid";
 
 /** 화면에 실제로 묘사되는 열. `srcIndex` 는 바탕이 전송한 행 배열에서의 원위치다. */
@@ -187,7 +188,7 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
         {
           ...col,
           width:
-            widths.value[key] ?? auto.value?.get(key) ?? byHeader.value.get(key) ?? MIN_WIDTH,
+            own(widths.value, key) ?? auto.value?.get(key) ?? byHeader.value.get(key) ?? MIN_WIDTH,
           srcIndex: srcIndexOf.value.get(key) ?? 0,
         },
       ];

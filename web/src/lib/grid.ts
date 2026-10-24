@@ -218,6 +218,18 @@ export function setBlankMark(v: string): void {
   if (v) blankMark = v;
 }
 
+/**
+ * 자료에서 유래한 열쇠로 조회한다.
+ *
+ * **원형(prototype)의 항목을 수령하지 않는다.** 열 명칭과 시트 명칭은 양식이
+ * 결정하므로 `toString`·`constructor` 같은 명칭이 실재할 수 있고, 평범한
+ * 조회(`map[key]`)는 그때 원형의 함수를 반환한다 — 화면이 그것을 문자로
+ * 취급하는 순간 전체가 중단되고 **백지가 묘사된다.** 실제로 그렇게 발생했다.
+ */
+export function own<T>(map: Record<string, T>, key: string): T | undefined {
+  return Object.hasOwn(map, key) ? map[key] : undefined;
+}
+
 /** 값이 공백인가. NULL·공백 문자·양식의 "없음" 표기. */
 export function isBlank(v: unknown): boolean {
   return v === null || v === undefined || v === "" || v === blankMark;

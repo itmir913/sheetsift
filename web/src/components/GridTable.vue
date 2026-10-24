@@ -13,7 +13,7 @@
  */
 import { computed, ref } from "vue";
 import ColumnFilter from "@/components/ColumnFilter.vue";
-import { cellText, isBlank } from "@/lib/grid";
+import { cellText, isBlank, own } from "@/lib/grid";
 import { t } from "@/i18n";
 import type { ColumnValuesResult, Row, Sort, ValuePick } from "@/lib/grid";
 import type { LaidOutColumn } from "@/composables/useColumnLayout";
@@ -343,7 +343,7 @@ defineExpose({ close: () => (openFilterKey.value = null) });
               <input
                 class="dg-finput"
                 type="search"
-                :value="filterText[col.key] ?? ''"
+                :value="own(filterText, col.key) ?? ''"
                 :disabled="!col.filterable"
                 :placeholder="col.filterable ? t('grid.search.ph') : ''"
                 :aria-label="t('grid.search.aria', { label: col.label })"
@@ -352,7 +352,7 @@ defineExpose({ close: () => (openFilterKey.value = null) });
               <button
                 type="button"
                 class="dg-fbtn"
-                :data-active="filterValues[col.key] != null"
+                :data-active="own(filterValues, col.key) != null"
                 :disabled="!col.filterable"
                 :aria-label="t('grid.filter.aria', { label: col.label })"
                 :aria-expanded="openFilterKey === col.key"
@@ -406,7 +406,7 @@ defineExpose({ close: () => (openFilterKey.value = null) });
       v-if="openFilterColumn"
       :key="openFilterColumn.key"
       :column="openFilterColumn"
-      :selected="filterValues[openFilterColumn.key] ?? null"
+      :selected="own(filterValues, openFilterColumn.key) ?? null"
       :load="(needle: string) => loadValues(openFilterColumn!.key, needle)"
       :x="popX"
       :y="popY"

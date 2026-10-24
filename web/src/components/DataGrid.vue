@@ -9,6 +9,7 @@ import GridTable from "@/components/GridTable.vue";
 import GridToolbar from "@/components/GridToolbar.vue";
 import PrintView from "@/components/PrintView.vue";
 import {
+  own,
   columnValues,
   cycleSort,
   fetchPage,
@@ -53,10 +54,10 @@ const gridRoot = ref<HTMLElement | null>(null);
 const activeFilters = computed<Filter[]>(() =>
   props.screen.columns
     .map((c) => {
-      const pick = filterValues.value[c.key] ?? null;
+      const pick = own(filterValues.value, c.key) ?? null;
       return {
         key: c.key,
-        contains: (filterText.value[c.key] ?? "").trim(),
+        contains: (own(filterText.value, c.key) ?? "").trim(),
         values: pick?.mode === "include" ? pick.values : null,
         excluded: pick?.mode === "exclude" ? pick.values : null,
       };
