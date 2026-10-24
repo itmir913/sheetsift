@@ -33,7 +33,16 @@ use crate::{Error, ErrorCode, Result};
 /// 전량 수령한 것으로 판단한다.
 pub const MAX_LIMIT: u32 = 500;
 /// 값 선택 목록의 상한. 초과하면 절단해 전송하고 검색으로 축소하게 한다.
-pub const MAX_VALUES: u32 = 1000;
+///
+/// **이 수는 묘사하는 쪽이 결정한다.** 목록을 산출하는 비용은 고유값 수가
+/// 아니라 자료 전 행의 집약이 지배하므로 상한을 상향해도 바탕은 변동하지 않는다.
+/// 반면 화면은 항목마다 확인란을 묘사하므로, 가상 스크롤이 부재한 상태에서
+/// 5,000 을 초과하면 개방과 폐쇄가 체감되고 수만에서는 정지한다(실측).
+///
+/// 상향하려면 **화면이 선행 변경되어야 한다.** 그리고 32,766 을 초과할 수
+/// 없다 — 값 하나를 해제하면 화면이 전체 목록을 조건으로 송신하는데, 그것이
+/// SQLite 의 바인딩 상한이다.
+pub const MAX_VALUES: u32 = 5000;
 /// 화면에서 공백 값을 표현하는 표식. 실제 자료의 공백 셀/NULL 에 대응한다.
 pub const BLANK_TOKEN: &str = "(비어 있음)";
 
@@ -254,6 +263,23 @@ fn number_sql(base: &str) -> String {
 ///
 /// 변환이 0을 산출한 값 중 **실제로 0인 것**만 수치로 간주한다. 부호와 0과
 /// 소수점과 구분 기호로만 구성된 문자가 그것이다.
+/// 값 선택 목록의 정렬 열쇠.
+///
+/// **공백을 선두로 보낸다.** 표기가 둘 이상이어도(`NULL`·공백 문자·표식) 인접
+/// 하므로 하나로 병합되고, 절단이 발생해도 목록에서 소멸하지 않는다.
+///
+/// 숫자 열은 표와 동일한 순서여야 한다 — 목록이 `1 · 10 · 100` 인데 표는
+/// `1 · 10 · 100` 이 아니면, 사람이 목록에서 판독한 순서로 표를 탐색할 수 없다.
+fn values_order_sql(expr: &str, blank: &str, numeric: bool) -> String {
+    let first = format!("{} DESC", is_blank_sql(expr, blank));
+    if numeric {
+        // 동일한 수치인 표기(`90` 과 `90.0`)의 순서는 문자로 고정한다.
+        format!("{first}, {}, {}, {expr}", not_a_number_sql(expr), number_sql(expr))
+    } else {
+        format!("{first}, {expr}")
+    }
+}
+
 fn not_a_number_sql(base: &str) -> String {
     let n = number_sql(base);
     /* 변환이 0 을 산출한 값 중 **실제로 0 인 것**을 판별한다. 부호·0·소수점·
@@ -529,29 +555,45 @@ pub fn column_values(
         binds.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
     let base = col.base_ref();
-    let over = MAX_VALUES + 1; // 하나 더 수령해 "절단 여부" 를 판정한다.
+    /* 공백 표기(`NULL`·공백 문자·표식)는 셋을 초과하지 않고 **선두에 집약된다.**
+       그만큼 더 수령해야 비공백 값이 상한+1 개 도달하고, 그래야 절단 여부를
+       판정할 수 있다. */
+    let over = MAX_VALUES + 1 + 3;
+    let numeric = col.kind == ColumnKind::Number;
 
-    // 기준 테이블에서만 GROUP BY 한 뒤, 축소된 목록에만 dict 를 조인한다.
-    let inner = format!(
-        "SELECT {base} AS v, COUNT(*) AS n FROM {table} t{where_sql} \
-         GROUP BY v ORDER BY v LIMIT {over}",
-        table = table.base(),
-    );
-    let sql = if col.dict {
-        format!("SELECT d.s, c.n FROM ({inner}) c LEFT JOIN dict d ON d.id = c.v")
+    let sql = if col.dict && numeric {
+        /* **사전 열의 수치 순서는 사전의 문자를 참조해야 한다.** id 는 문자
+           순서로 부여되어 있어 `1 · 10 · 100 · 11` 이 된다. 그래서 조인 이후에
+           정렬하고 절단한다 — 정렬 열쇠를 내부에 두면 자료 전 행마다 변환이
+           발생한다. 조인은 고유값 수만큼이고 사전은 기본 열쇠 탐색이다. */
+        let inner = format!(
+            "SELECT {base} AS v, COUNT(*) AS n FROM {table} t{where_sql} GROUP BY v",
+            table = table.base(),
+        );
+        let order = values_order_sql("d.s", blank, true);
+        format!(
+            "SELECT d.s, c.n FROM ({inner}) c LEFT JOIN dict d ON d.id = c.v \
+             ORDER BY {order} LIMIT {over}"
+        )
     } else {
-        format!("SELECT c.v, c.n FROM ({inner}) c")
+        // 기준 테이블에서만 GROUP BY 한 뒤, 축소된 목록에만 dict 를 조인한다.
+        let order = values_order_sql("v", blank, numeric);
+        let inner = format!(
+            "SELECT {base} AS v, COUNT(*) AS n FROM {table} t{where_sql} \
+             GROUP BY v ORDER BY {order} LIMIT {over}",
+            table = table.base(),
+        );
+        if col.dict {
+            format!("SELECT d.s, c.n FROM ({inner}) c LEFT JOIN dict d ON d.id = c.v")
+        } else {
+            format!("SELECT c.v, c.n FROM ({inner}) c")
+        }
     };
 
     let mut stmt = conn.prepare_cached(&sql)?;
     let mut rows = stmt.query(params.as_slice())?;
     let mut values = Vec::new();
-    /* **수령한 행 수로 절단을 판정한다.** 병합 이후의 길이로 판정하면, 공백
-       표기가 둘 이상인 열에서 병합이 발생해 길이가 상한과 동일해지고 **값 하나가
-       누락된 목록이 "전부" 로 보고된다.** 그러면 화면은 축소를 유도하지 않는다. */
-    let mut fetched = 0u32;
     while let Some(r) = rows.next()? {
-        fetched += 1;
         let raw = value_to_json(r.get_ref(0)?);
         let count: i64 = r.get(1)?;
         let text = match raw {
@@ -560,7 +602,9 @@ pub fn column_values(
             Json::String(s) => s,
             other => other.to_string(),
         };
-        // 공백 값 표식이 복수 회 출현할 수 있으므로 병합한다.
+        /* 공백 값 표식이 복수 회 출현할 수 있으므로 병합한다. **선두에
+           집약되어 있다** — 정렬 열쇠의 첫 조각이 공백 여부라, 표기가 상이해도
+           인접한다. */
         if let Some(last) = values.last_mut() {
             let last: &mut ColumnValue = last;
             if last.value == text {
@@ -571,7 +615,10 @@ pub fn column_values(
         values.push(ColumnValue { value: text, count: count.max(0) as u32 });
     }
 
-    let truncated = fetched > MAX_VALUES;
+    /* **묘사할 수 있는 항목 수로 판정한다.** 공백 표기가 몇 벌이든 하나로
+       병합되므로, 그만큼 더 수령해 두면(`over`) 병합 이후의 길이가 상한을
+       초과하는 것과 "목록에 담기지 못한 값이 존재한다" 가 동치가 된다. */
+    let truncated = values.len() > MAX_VALUES as usize;
     values.truncate(MAX_VALUES as usize);
 
     Ok(ColumnValues { values, truncated, elapsed_ms: started.elapsed().as_secs_f64() * 1000.0 })
@@ -722,6 +769,51 @@ mod tests {
 
         let got = column_values(&conn, &t, BLANK, "v", &[], "").unwrap();
         assert!(got.truncated, "값이 누락되었는데 전부라고 보고했습니다");
+    }
+
+    /// **공백 표기가 몇 벌이든 목록에는 하나로 출현한다.**
+    ///
+    /// 종전에는 인접한 것만 병합했는데, 공백 문자와 표식 사이에 타 값이 끼면
+    /// (`''` · `(가)` · `+5` · `-`) `(비어 있음)` 이 두 번 출현했다. 사람은
+    /// 어느 쪽을 선택해야 하는지 판별할 수 없다.
+    #[test]
+    fn every_spelling_of_blank_becomes_one_entry() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE people(v TEXT);
+             INSERT INTO people VALUES (''), ('(가)'), ('+5'), ('-'), ('100'), (NULL);",
+        )
+        .unwrap();
+        let mut t = T { columns: vec![col("v", ColumnKind::Text, false)] };
+        assign_aliases(t.columns.iter_mut());
+
+        let got = column_values(&conn, &t, BLANK, "v", &[], "").unwrap();
+        let shown: Vec<&str> = got.values.iter().map(|v| v.value.as_str()).collect();
+        assert_eq!(shown.iter().filter(|v| **v == BLANK_TOKEN).count(), 1, "{shown:?}");
+        // 선두에 집약된다. 절단이 발생해도 목록에서 소멸하지 않는다.
+        assert_eq!(shown[0], BLANK_TOKEN);
+        assert_eq!(got.values[0].count, 3, "공백 셋의 수가 합산되지 않았습니다");
+    }
+
+    /// **숫자 열의 목록은 표와 동일한 순서다.**
+    ///
+    /// 문자 순서로 산출하면 `1 · 10 · 100 · 11` 이 된다. 사람이 목록에서 판독한
+    /// 순서로 표를 탐색할 수 없고, 상한에 걸린 열에서는 중간 수치가 목록에서
+    /// 누락된다.
+    #[test]
+    fn a_number_columns_value_list_counts_like_numbers() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE people(v TEXT);
+             INSERT INTO people VALUES ('100'), ('20'), ('9'), ('-5'), ('1,200'), ('');",
+        )
+        .unwrap();
+        let mut t = T { columns: vec![col("v", ColumnKind::Number, false)] };
+        assign_aliases(t.columns.iter_mut());
+
+        let got = column_values(&conn, &t, BLANK, "v", &[], "").unwrap();
+        let shown: Vec<&str> = got.values.iter().map(|v| v.value.as_str()).collect();
+        assert_eq!(shown, [BLANK_TOKEN, "-5", "9", "20", "100", "1,200"]);
     }
 
     /// 값이 부재하는 셀을 식별하는 문자가 **자료에서 유래한다**는 것을 고정한다.
