@@ -301,6 +301,11 @@
   color: var(--c-fg);
 }
 
+/* 한 행의 높이. 화면과 코드가 동일한 수를 참조해야 한다(`ColumnFilter.vue`). */
+.dg-pop {
+  --dg-pop-row-h: 1.875rem;
+}
+
 .dg-pop-list {
   flex: 1 1 auto;
   min-height: 0;
@@ -310,11 +315,15 @@
   border-radius: 0.5rem;
 }
 
+/* 행 높이를 **고정한다.** 목록이 수천 항목이라 묘사하는 범위만 생성하는데,
+   그 범위를 산정하려면 행 하나의 높이가 확정되어야 한다. */
 .dg-pop-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.3125rem 0.5rem;
+  box-sizing: border-box;
+  height: var(--dg-pop-row-h);
+  padding: 0 0.5rem;
   color: var(--c-fg);
   cursor: pointer;
 }
@@ -817,6 +826,17 @@ select.ss-text:disabled {
 }
 
 /* 확인란을 보유한 단추. 단추들과 동일한 열에 배열되므로 형태도 동일하다. */
+/* 검색란의 지우기 단추가 예약하는 공간을 소거한다.
+   **그 공간 때문에 예시 문구가 절단된다** — 6rem 열에서 `검색` 이 `검·` 이
+   된다. 문자는 들어가는데 단추 자리가 먼저 확보되어 그렇다. 지우기는 Esc 와
+   조작부의 `필터 해제` 로 성립한다. */
+.dg-finput::-webkit-search-cancel-button,
+.dg-finput::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
+}
+
 .gx-tool-check {
   display: inline-flex;
   align-items: center;
