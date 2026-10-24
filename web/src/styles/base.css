@@ -181,6 +181,46 @@
 }
 
 /* ─────────────────────────────────────────────────────────────
+   소멸하는 통지. 우측 하단에 출현했다 자체 소멸한다.
+   **판을 점유하지 않는다** — 표가 이동하지 않아야 한다.
+   ───────────────────────────────────────────────────────────── */
+@layer components {
+  .app-toast {
+    position: fixed;
+    right: 1.25rem;
+    bottom: 1.25rem;
+    z-index: 60;
+    max-width: 28rem;
+    cursor: pointer;
+    border: 1px solid var(--c-warn);
+    border-radius: 0.75rem;
+    background-color: var(--c-surface);
+    padding: 0.75rem 1rem;
+    text-align: left;
+    color: var(--c-fg);
+    box-shadow: 0 10px 30px rgb(0 0 0 / 0.25);
+  }
+
+  .app-toast-enter-active,
+  .app-toast-leave-active {
+    transition: opacity 160ms ease, transform 160ms ease;
+  }
+
+  .app-toast-enter-from,
+  .app-toast-leave-to {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .app-toast-enter-active,
+    .app-toast-leave-active {
+      transition: none;
+    }
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
    축소되는 사이드바.
    폭만 변경되므로 내용은 그대로 존치하고 초과 부분만 은폐한다.
    ───────────────────────────────────────────────────────────── */

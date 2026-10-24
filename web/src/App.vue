@@ -10,7 +10,10 @@
  *
  * **개방하면 표가 출현한다.** 사람이 파일을 선택한 행위가 곧 열람 요청이라,
  * 그 사이에 단추를 1회 더 배치할 사유가 부재하다. 머리글 추정이 실패한 시트는
- * 1행을 적용해 묘사하고, 상이하면 사람이 조작부에서 이동시킨다.
+ * 1행을 적용해 묘사하고, 상이하면 사람이 조작부에서 이동시킨다. **그 경우에만
+ * 1회 통지한다** — 판별에 실패한 시트는 선두 자료 행이 열 명칭으로 소비되므로,
+ * 아무 진술도 하지 않으면 그 소비를 인지할 경로가 전무하다. 통지는 소멸하는
+ * 것이라 판 내부에 잔류하지 않는다.
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import AppTooltip from "@/components/AppTooltip.vue";
@@ -40,6 +43,23 @@ const current = ref<ScreenDef | null>(null);
  * 시트는 바탕이 추정한 것을 적용하고, 그 추정은 바탕이 담당한다.
  */
 const headers = ref<Record<string, HeaderSpec>>({});
+
+/* ── 소멸하는 통지 ─────────────────────────────────────────────
+   판 내부에 문구를 상주시키지 않는다. 적중한 추정에까지 표식을 부착하면 매
+   시트에 경고가 출현해 아무도 판독하지 않게 된다. */
+
+const toast = ref<string | null>(null);
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
+
+function notify(text: string) {
+  toast.value = text;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (toast.value = null), 7000);
+}
+
+onBeforeUnmount(() => {
+  if (toastTimer) clearTimeout(toastTimer);
+});
 
 const fileName = ref("");
 const errorMessage = ref<string | null>(null);
@@ -204,6 +224,7 @@ async function shown() {
   const s = current.value;
   if (!s || s.headerFound) return;
   await setHeader(s.id, FIRST_GUESS);
+  notify(`'${s.title}' 의 머리글을 판별하지 못해 1행을 머리글로 가정했습니다. 상단에서 지정하십시오.`);
 }
 
 function select(item: ScreenDef) {
@@ -386,6 +407,20 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
         </template>
       </main>
     </div>
+
+    <!-- 소멸하는 통지. 화면 전체에 하나이고 공간을 점유하지 않는다. -->
+    <Transition name="app-toast">
+      <button
+        v-if="toast"
+        type="button"
+        class="app-toast"
+        role="status"
+        aria-live="polite"
+        @click="toast = null"
+      >
+        {{ toast }}
+      </button>
+    </Transition>
 
     <!-- 포인터 접촉 시 표시되는 설명. 화면 전체에 하나. 공간을 점유하지 않는다. -->
     <AppTooltip />
