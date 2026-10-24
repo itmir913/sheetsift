@@ -93,6 +93,7 @@ export const ui = {
   "pick.change": "다른 파일 열기",
   "pick.change.tip": "다른 파일을 선택하거나 이 단추에 끌어다 놓으십시오",
   "pick.busy.tip": "파일을 읽고 있습니다",
+  "pick.filter": "표 파일",
 
   /* 테마·언어 */
   "theme.aria": "테마",

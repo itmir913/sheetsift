@@ -12,7 +12,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open as pick } from "@tauri-apps/plugin-dialog";
 import type { AppErrorPayload, ErrorCode } from "@/i18n/codes";
-import { formatError } from "@/i18n";
+import { formatError, t } from "@/i18n";
 
 /** 바탕의 오류를 포장한 예외. 화면은 `message` 를 그대로 표시하면 된다. */
 export class AppError extends Error {
@@ -137,10 +137,13 @@ export async function pickFile(): Promise<{ path: string; name: string } | null>
   const chosen = await pick({
     multiple: false,
     directory: false,
-    filters: [{ name: "표", extensions: ["xlsx", "xls", "csv"] }],
+    filters: [{ name: t("pick.filter"), extensions: ["xlsx", "xls", "csv"] }],
   });
   if (typeof chosen !== "string") return null;
-  // 경로의 최종 조각이 파일 명칭이다. 구분자는 운영체제마다 상이하다.
-  const name = chosen.split(/[\/]/).pop() ?? chosen;
+  /* 경로의 최종 조각이 파일 명칭이다. **구분자 양자를 전부 분리한다** —
+     윈도의 대화상자는 `C:\…\a.xlsx` 를 반환하므로 슬래시만 분리하면 명칭이
+     전체 경로가 되고, 그것이 머리글에 묘사된다. 거기에는 사용자 명칭이
+     포함되고, 그 화면은 갈무리되어 외부로 반출된다. */
+  const name = chosen.split(/[\\/]/).pop() || chosen;
   return { path: chosen, name };
 }

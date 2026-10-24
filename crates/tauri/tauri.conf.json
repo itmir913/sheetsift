@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../../web/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "npm --prefix ../web run dev -- --mode tauri",
+    "beforeDevCommand": "npm --prefix ../web run dev -- --mode tauri --strictPort",
     "beforeBuildCommand": "npm --prefix ../web run build -- --mode tauri"
   },
   "app": {
