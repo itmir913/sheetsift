@@ -323,6 +323,13 @@ fn spread(
     let mut carried: Vec<Option<String>> = vec![None; head.len().saturating_sub(1)];
     let mut out = Vec::with_capacity(last);
     for c in 0..last {
+        /* **헤더가 미치지 않는 열에는 상단 묶음을 확산하지 않는다.** 확산하면
+           그 열의 명칭이 묶음 명칭(`모집`)이 되어, 명칭이 부재한다는 사실이
+           소멸하고 부르는 곳이 열 기호를 부여할 근거를 상실한다. */
+        if c >= named {
+            out.push((None, String::new()));
+            continue;
+        }
         let mut parts: Vec<String> = Vec::with_capacity(head.len());
         for (i, carry) in carried.iter_mut().enumerate() {
             let cell = Sheet::at(head[i], c).trim();
@@ -730,6 +737,25 @@ mod tests {
         ]);
         let l = layout(&s, "-");
         assert_eq!(labels(&l), ["이름", "점수", ""], "본문의 3번째 열이 소거되었습니다");
+    }
+
+    /// 다단 헤더에서도 **추가 열이 명칭을 수령하지 않는다.**
+    ///
+    /// 상단 묶음을 확산하면 그 열의 명칭이 `모집` 이 되어, 명칭이 부재한다는
+    /// 사실이 소멸하고 부르는 곳이 열 기호를 부여할 근거를 상실한다. 1단
+    /// 헤더에서는 확산할 상단이 부재해 발현되지 않는다.
+    #[test]
+    fn a_two_row_header_does_not_name_the_columns_it_never_reached() {
+        let s = sheet(&[
+            &["전형개요", "", "모집"],
+            &["지역", "대학", "인원"],
+            &["서울", "가대", "30", "비고1"],
+            &["부산", "나대", "20", "비고2"],
+            &["대구", "다대", "10", "비고3"],
+        ]);
+        let l = layout(&s, "-");
+        assert_eq!(labels(&l), ["지역", "대학", "인원", ""]);
+        assert_eq!(l.columns[3].group, None, "묶음이 확산되었습니다");
     }
 
     /// 중간에 공백이 개재해도 그 우측의 열이 소거되지 않는다. 충전된 셀 수가
