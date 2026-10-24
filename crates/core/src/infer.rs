@@ -222,8 +222,18 @@ fn has_a_nameless_column(row: &[String]) -> bool {
 /// 시에도 오류 사유가 노출된다.
 fn find_header(sheet: &Sheet, blank: &str) -> Header {
     let rows = &sheet.rows;
-    let look = rows.len().min(LOOK);
-    for r in 0..look {
+    /* **공백 행은 점검한 수로 계수하지 않는다.** csv 는 소거된 공백 행을
+       복원해 수용하므로(`sheet::from_csv`), 상단에 여백이 수 행 존재하는 양식
+       에서 그것을 계수하면 헤더에 도달하기 전에 점검이 종료된다. xlsx 는
+       선두의 공백 행이 이미 소거되어 있어 양측의 거동이 그래야 일치한다. */
+    let mut budget = LOOK;
+    for r in 0..rows.len() {
+        if budget == 0 {
+            break;
+        }
+        if looks_like_body(&rows[r], blank) {
+            budget -= 1;
+        }
         // 하단에 자료가 존재해야 헤더다. 최종 행은 헤더가 아니다.
         let Some(below) = rows.get(r + 1..) else { continue };
         if !looks_like_header(&rows[r], below, blank) {

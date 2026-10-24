@@ -152,10 +152,51 @@ pub fn from_csv(bytes: &[u8]) -> Result<Sheet> {
         .has_headers(false)
         .flexible(true)
         .from_reader(text.as_bytes());
-    let mut rows = Vec::new();
+    /* **소거된 공백 행을 복원한다.** csv 상자는 완전히 공백인 행을 레코드로
+       산출하지 않는다. 그대로 수용하면 조작부가 표시하는 행 번호가 원본 파일과
+       어긋나고, 그 번호를 참조해 헤더를 지정하는 사람은 전혀 상이한 행을
+       판독한다 — xlsx 는 `origin` 으로 보정하는데 csv 에는 그 수단이 부재하다.
+
+       레코드가 **개시되는 행 번호**를 상자가 보유하므로, 직전 레코드가 종료된
+       위치와의 간격만큼 공백 행을 삽입한다. 따옴표 내부의 개행은 레코드 하나가
+       복수 행을 점유하므로 그만큼 가산한다. */
+    let raw = text.as_bytes();
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    let mut at = 0usize; // 주사한 위치(바이트)
+    let mut line = 1u64; // `at` 이 소재하는 물리 행
+    let mut expect = 1u64; // 차기 레코드가 개시되어야 할 행
     for record in reader.records() {
         let record = record.map_err(|e| failed(ErrorCode::SheetUnreadable, e))?;
+
+        /* 상자가 제공하는 위치는 **레코드의 개시 위치가 아니라 주사를 개시한
+           위치다** — 공백 행을 건너뛰기 이전의 값이라 행 번호로 사용할 수 없다.
+           그래서 그 위치까지 전진한 뒤 공백 행을 직접 건너뛰며 계수한다. */
+        let scan = record.position().map(|p| p.byte() as usize).unwrap_or(at);
+        while at < scan {
+            if raw[at] == b'\n' {
+                line += 1;
+            }
+            at += 1;
+        }
+        while at < raw.len() && (raw[at] == b'\n' || raw[at] == b'\r') {
+            if raw[at] == b'\n' {
+                line += 1;
+            }
+            at += 1;
+        }
+
+        for _ in expect..line {
+            rows.push(Vec::new());
+        }
+        /* 따옴표 내부의 개행은 레코드 하나가 복수 행을 점유한다. 그 분량만큼
+           공백 행을 부가해야 **이후의 행 번호가 원본과 일치한다.** 자료로는
+           공백 행이 하나 증가할 뿐이고, 어긋난 행 번호보다 유해하지 않다. */
+        let spanned: u64 = record.iter().map(|c| c.matches('\n').count() as u64).sum();
         rows.push(record.iter().map(|c| c.trim().to_string()).collect());
+        for _ in 0..spanned {
+            rows.push(Vec::new());
+        }
+        expect = line + 1 + spanned;
     }
     Ok(Sheet { rows, origin: (0, 0) })
 }
@@ -625,6 +666,33 @@ mod tests {
     }
 
     /// 국내의 csv 는 UTF-8 이 아니면 대개 CP949 다. 양자 모두 수용한다.
+    /// **csv 의 공백 행이 소거되지 않는다.**
+    ///
+    /// 소거하면 조작부가 표시하는 행 번호가 원본 파일과 어긋나고, 그 번호를
+    /// 참조해 헤더를 지정하는 사람은 전혀 상이한 행을 판독한다. xlsx 는
+    /// `origin` 으로 보정하는데 csv 에는 그 수단이 부재하다.
+    #[test]
+    fn a_blank_line_in_a_csv_keeps_its_place() {
+        let csv = "제목\n\n\n이름,점수\n가,90\n\n나,80\n";
+        let s = from_csv(csv.as_bytes()).unwrap();
+        assert_eq!(s.rows.len(), 7, "{:?}", s.rows);
+        assert!(s.rows[1].is_empty() && s.rows[2].is_empty() && s.rows[5].is_empty());
+        assert_eq!(s.rows[3], ["이름", "점수"]);
+        assert_eq!(s.rows[6], ["나", "80"]);
+    }
+
+    /// 따옴표 내부의 개행은 레코드 하나가 복수 행을 점유한다. 그만큼 가산하지
+    /// 않으면 그 이후의 행이 전부 밀린다.
+    #[test]
+    fn a_newline_inside_a_quoted_cell_does_not_shift_the_rows() {
+        let csv = "이름,비고\n가,\"한 행\n두 행\"\n\n나,끝\n";
+        let s = from_csv(csv.as_bytes()).unwrap();
+        assert_eq!(s.rows.len(), 5, "{:?}", s.rows);
+        assert!(s.rows[3].is_empty(), "{:?}", s.rows);
+        assert_eq!(s.rows[4], ["나", "끝"]);
+    }
+
+
     #[test]
     fn csv_is_read_as_utf8_or_cp949() {
         let utf8 = from_csv("이름,점수\n가,90\n".as_bytes()).unwrap();

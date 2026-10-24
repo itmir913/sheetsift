@@ -645,6 +645,28 @@ mod tests {
         }
     }
 
+    /// **csv 의 행 번호가 원본 파일과 일치한다.**
+    ///
+    /// 상자가 공백 행을 소거하므로 복원하지 않으면 조작부가 `1행` 을 표시하고,
+    /// 그 번호를 참조해 원본을 판독하는 사람은 전혀 상이한 행을 본다. xlsx 는
+    /// `row_origin` 으로 보정하는데 csv 에는 그 수단이 부재하다.
+    #[test]
+    fn a_csv_counts_its_rows_the_way_the_file_does() {
+        let csv = "
+
+
+이름,점수
+가,90
+나,80
+";
+        let v = Viewer::open(csv.as_bytes(), "여백.csv").unwrap();
+        let s = screen(&v, 0);
+        assert!(s.header_found);
+        let h = s.header.unwrap();
+        // 원본의 4행이 헤더다. 조작부는 그 수를 표시한다.
+        assert_eq!(s.row_origin + h.at + 1, 4, "행 번호가 원본과 어긋납니다");
+    }
+
     /// **열이 2000 개를 초과하는 양식도 조회된다.**
     ///
     /// SQLite 의 기본 상한이 2000 이라, 초과하면 목록은 산출되는데 조회만
