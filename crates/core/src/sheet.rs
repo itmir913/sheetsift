@@ -76,8 +76,34 @@ fn cell(v: &calamine::Data) -> String {
         }
         Data::Int(i) => i.to_string(),
         Data::Bool(b) => b.to_string(),
-        Data::DateTime(d) => d.to_string(),
+        Data::DateTime(d) => datetime(d),
         other => other.to_string(),
+    }
+}
+
+/// 엑셀의 날짜 셀을 문자로.
+///
+/// **일련번호를 그대로 기재하지 않는다.** 엑셀은 날짜를 1899-12-30 기점의 수로
+/// 수용하므로, 그 수를 문자화하면 화면에 `45,659` 가 묘사된다 — 숫자로 판정되어
+/// 천 단위 구분까지 부착된다. 열람하는 사람이 그것을 날짜로 판독할 수 없다.
+///
+/// **엑셀의 표시 서식을 추종하지 않고 ISO 로 고정한다.** 서식은 양식마다
+/// 상이하고 셀마다도 상이해, 추종하려면 서식 문자열을 해석하는 층이 증가한다.
+/// ISO 는 사전순이 시간순이라 정렬이 자료의 순서와 일치한다는 이점도 존재한다.
+///
+/// 경과 시간(`[hh]:mm:ss`)은 날짜가 아니다. 24시간을 초과하는 값이 존재하므로
+/// 시를 절단하지 않고 그대로 누적해 기재한다.
+fn datetime(d: &calamine::ExcelDateTime) -> String {
+    if d.is_duration() {
+        let total = (d.as_f64() * 86_400.0).round() as i64;
+        let (h, m, s) = (total / 3_600, (total / 60) % 60, total % 60);
+        return format!("{h}:{m:02}:{s:02}");
+    }
+    let (y, mon, day, h, min, sec, _) = d.to_ymd_hms_milli();
+    if (h, min, sec) == (0, 0, 0) {
+        format!("{y:04}-{mon:02}-{day:02}")
+    } else {
+        format!("{y:04}-{mon:02}-{day:02} {h:02}:{min:02}:{sec:02}")
     }
 }
 
@@ -452,6 +478,27 @@ mod tests {
 
     fn mem() -> Connection {
         Connection::open_in_memory().unwrap()
+    }
+
+    /// **날짜는 일련번호가 아니다.** 이 시험이 정지하면 화면에 `45,659` 가
+    /// 묘사된다 — 묵시적으로, 숫자 열로 판정된 채로.
+    #[test]
+    fn a_date_cell_is_not_its_serial_number() {
+        use calamine::{Data, ExcelDateTime, ExcelDateTimeType::*};
+        // 45292 는 2024-01-01 이다. 45943.541 은 calamine 이 문서에 기재한
+        // 2025-10-13 12:59:02.400 이고, 밀리초는 절단한다.
+        let day = Data::DateTime(ExcelDateTime::new(45292.0, DateTime, false));
+        assert_eq!(cell(&day), "2024-01-01");
+        let moment = Data::DateTime(ExcelDateTime::new(45943.541, DateTime, false));
+        assert_eq!(cell(&moment), "2025-10-13 12:59:02");
+    }
+
+    /// 경과 시간은 날짜가 아니다. 24시간을 초과해도 절단하지 않는다.
+    #[test]
+    fn an_elapsed_time_keeps_hours_past_a_day() {
+        use calamine::{Data, ExcelDateTime, ExcelDateTimeType::*};
+        let d = Data::DateTime(ExcelDateTime::new(1.5, TimeDelta, false));
+        assert_eq!(cell(&d), "36:00:00");
     }
 
     #[test]
