@@ -7,8 +7,12 @@
  * 결정했으나 열람 겹에는 그 파일이 부재한다 — 그래도 `kind` 를 참조해 선정한다.
  * 화면 id 를 참조해 선정하면, 시트 명칭을 변경하는 즉시 묵시적으로 상이한 화면이
  * 개방된다.
+ *
+ * **개방하면 표가 출현한다.** 사람이 파일을 선택한 행위가 곧 열람 요청이라,
+ * 그 사이에 단추를 1회 더 배치할 사유가 부재하다. 머리글 추정이 실패한 시트는
+ * 1행을 적용해 묘사하고, 상이하면 사람이 조작부에서 이동시킨다.
  */
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import AppTooltip from "@/components/AppTooltip.vue";
 import ThemeToggle from "@/components/ThemeToggle.vue";
 import FilePick from "@/components/FilePick.vue";
@@ -22,7 +26,7 @@ import {
   type ScreenDef,
 } from "@/lib/grid";
 import { AppError, start } from "sheetsift-book";
-import { APP_NAME, APP_TAGLINE } from "@/lib/app";
+import { APP_NAME, APP_TAGLINE, storageKey } from "@/lib/app";
 import { ui } from "@/i18n";
 
 const KIND_VIEW = { grid: DataGrid } as const;
@@ -61,6 +65,56 @@ const orphans = computed(() => {
   const known = new Set(groupNames.value);
   return screens.value.filter((s) => !known.has(s.group));
 });
+
+/**
+ * 좌측 목록을 배치하는가.
+ *
+ * **시트가 하나면 선택할 것이 부재하다.** 항목 하나짜리 목록에 폭을 15rem
+ * 할당하면 표가 그만큼 축소되고, 그 시트의 명칭은 표 상단의 제목이 이미
+ * 기재한다.
+ */
+const hasNav = computed(() => screens.value.length > 1);
+
+/* ── 좌측 목록 개폐 ─────────────────────────────────────────────
+   개폐 상태를 기억한다. 열람하는 사람의 작업 방식은 파일마다 변동하지 않는다 —
+   매회 개폐하게 하면 그 조작이 열람 절차의 일부가 된다. */
+
+const SIDE_KEY = storageKey("side");
+
+function readCollapsed(): boolean {
+  try {
+    return localStorage.getItem(SIDE_KEY) === "1";
+  } catch {
+    /* 저장소 접근이 차단된 환경에서도 동작해야 한다. */
+    return false;
+  }
+}
+
+const sideCollapsed = ref(readCollapsed());
+
+watch(sideCollapsed, (v) => {
+  try {
+    localStorage.setItem(SIDE_KEY, v ? "1" : "0");
+  } catch {
+    /* 저장 실패는 무시한다. */
+  }
+});
+
+/**
+ * 개폐 단축키. 입력란에 문자를 기재하는 중에는 작동하지 않는다 — 열 검색란에
+ * `b` 를 기재하는 것이 목록 개폐로 해석되면 안 된다.
+ */
+function onKeydown(ev: KeyboardEvent) {
+  if (!(ev.ctrlKey || ev.metaKey) || ev.altKey || ev.key.toLowerCase() !== "b") return;
+  const el = ev.target as HTMLElement | null;
+  if (el && (el.isContentEditable || /^(input|textarea|select)$/i.test(el.tagName))) return;
+  if (!hasNav.value) return;
+  ev.preventDefault();
+  sideCollapsed.value = !sideCollapsed.value;
+}
+
+onMounted(() => window.addEventListener("keydown", onKeydown));
+onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 
 /* 본문이 수평으로도 스크롤한다(표가 화면보다 광범위하다). 표가 아닌 것들은
    수평 스크롤과 무관하게 정위치에 존재해야 하므로 `sticky; left: 0` 에 **가시
@@ -136,6 +190,26 @@ async function opened(name: string, open: () => Promise<ScreenCatalog>) {
   } finally {
     busy.value = false;
   }
+  await shown();
+}
+
+/**
+ * 선택한 시트를 묘사한다. **표가 즉시 출현해야 한다.**
+ *
+ * 추정이 실패한 시트는 1행을 적용한다. 그 지정이 적중한다는 의미가 아니라,
+ * 사람이 조작부에서 원본과 대조해 이동시킬 **기준점**을 제시하는 것이다 —
+ * 공백 화면과 단추만 배치하면 어느 행이 머리글인지 판별할 근거 자체가 부재하다.
+ */
+async function shown() {
+  const s = current.value;
+  if (!s || s.headerFound) return;
+  await setHeader(s.id, FIRST_GUESS);
+}
+
+function select(item: ScreenDef) {
+  if (current.value?.id === item.id) return;
+  current.value = item;
+  void shown();
 }
 
 /** 머리글을 판별하지 못한 시트는 표가 부재한다. **공백 표로 묘사하지 않는다.** */
@@ -164,11 +238,8 @@ async function setHeader(id: string, spec: HeaderSpec) {
 }
 
 /**
- * 머리글을 판별하지 못한 시트에 제시할 최초 지정.
- *
- * **자동 적용하지 않는다.** 사람이 조작한 이후에 적용된다 — 추정에 실패한
- * 시트에 임의의 값을 적용해 표를 묘사하면, 그 표의 정확성을 누구도 확인하지
- * 않는다.
+ * 머리글을 판별하지 못한 시트에 적용하는 최초 지정. 사람이 조작부에서
+ * 이동시킬 기준점이다.
  */
 const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
 </script>
@@ -176,24 +247,50 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
 <template>
   <!-- no-print: 인쇄 시 앱 화면은 은폐하고 인쇄 뷰만 존치한다 -->
   <div class="no-print flex h-screen flex-col bg-canvas text-fg">
-    <header
-      class="flex shrink-0 items-center justify-between gap-4 border-b border-line bg-surface px-4 py-3"
-    >
-      <div class="flex min-w-0 items-center gap-3">
-        <h1 class="shrink-0 text-xl font-bold tracking-tight">{{ APP_NAME }}</h1>
-        <p class="truncate text-fg-subtle">{{ APP_TAGLINE }}</p>
-      </div>
+    <header class="app-head">
+      <!-- 좌측 목록 개폐. 목록을 배치하는 양식에서만 출현한다 — 조작해도 아무
+           작용이 없는 단추를 상주시키지 않는다. -->
+      <button
+        v-if="hasNav"
+        type="button"
+        class="app-head-btn"
+        :aria-expanded="!sideCollapsed"
+        aria-controls="app-side"
+        aria-label="시트 목록"
+        :data-tip="`시트 목록 ${sideCollapsed ? '표시' : '은폐'} (Ctrl+B)`"
+        @click="sideCollapsed = !sideCollapsed"
+      >
+        <span aria-hidden="true">☰</span>
+      </button>
 
-      <p v-if="fileName" class="min-w-0 flex-1 truncate text-right text-fg-muted" :data-tip="fileName">
-        {{ fileName }}
-      </p>
+      <h1 class="shrink-0 text-xl font-bold tracking-tight">{{ APP_NAME }}</h1>
+
+      <!-- 개방 이전에만 기재한다. 표를 열람하는 중에 상주시키면 그 폭만큼
+           파일 명칭이 절단된다. -->
+      <p v-if="!fileName" class="truncate text-fg-subtle">{{ APP_TAGLINE }}</p>
+
+      <template v-if="fileName">
+        <p class="min-w-0 flex-1 truncate text-right font-medium" :data-tip="fileName">
+          {{ fileName }}
+        </p>
+        <!-- 개방 이후의 교체 경로. 투입(drag-drop)도 여기서 수령한다. -->
+        <FilePick compact :busy="busy" @pick="pick" @pick-at="pickAt" />
+      </template>
+      <span v-else class="flex-1"></span>
 
       <ThemeToggle />
     </header>
 
     <div class="flex min-h-0 flex-1">
       <!-- 시트 목록. 양식 개방 이전에는 공백이므로 공간도 점유하지 않는다. -->
-      <nav v-if="screens.length" class="app-side" aria-label="시트">
+      <nav
+        v-if="hasNav"
+        id="app-side"
+        class="app-side"
+        :data-collapsed="sideCollapsed"
+        :aria-hidden="sideCollapsed"
+        aria-label="시트"
+      >
         <div class="app-side-inner">
           <div class="app-side-scroll">
             <template v-for="g in groups" :key="g.name">
@@ -202,16 +299,12 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
                 <li v-for="item in g.items" :key="item.id">
                   <button
                     type="button"
-                    class="w-full truncate rounded-lg px-3 py-2 text-left transition-colors"
-                    :class="
-                      current?.id === item.id
-                        ? 'bg-accent text-accent-fg font-medium'
-                        : 'text-fg-muted hover:bg-surface-hover hover:text-fg'
-                    "
+                    class="app-side-item"
+                    :data-current="current?.id === item.id"
                     :data-tip="
                       item.headerFound ? item.title : `${item.title} — 머리글 행을 탐색하지 못했습니다`
                     "
-                    @click="current = item"
+                    @click="select(item)"
                   >
                     {{ item.title }}
                   </button>
@@ -226,14 +319,10 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
                 <li v-for="item in orphans" :key="item.id">
                   <button
                     type="button"
-                    class="w-full truncate rounded-lg px-3 py-2 text-left transition-colors"
-                    :class="
-                      current?.id === item.id
-                        ? 'bg-accent text-accent-fg font-medium'
-                        : 'text-fg-muted hover:bg-surface-hover hover:text-fg'
-                    "
+                    class="app-side-item"
+                    :data-current="current?.id === item.id"
                     :data-tip="`묶음 '${item.group}' 이 목록에 부재합니다`"
-                    @click="current = item"
+                    @click="select(item)"
                   >
                     {{ item.title }}
                   </button>
@@ -248,16 +337,28 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
       <main ref="mainEl" class="app-main" :style="mainVars">
         <p v-if="starting" class="app-fixed pt-5 text-fg-muted">{{ ui.loading }}…</p>
 
+        <!-- 개방 이전. 수령하는 영역이 본문의 전부다 — 여기서 수행할 작업이
+             그것 하나뿐이라, 상단에 부착하는 대신 중앙에 배치한다. -->
+        <div v-else-if="!fileName" class="app-fixed app-drop">
+          <FilePick
+            :busy="busy"
+            :note="errorMessage ?? note"
+            :danger="errorMessage !== null"
+            @pick="pick"
+            @pick-at="pickAt"
+          />
+        </div>
+
         <template v-else>
-          <div class="app-fixed shrink-0 pt-5 pb-1">
-            <FilePick
-              :busy="busy"
-              :note="errorMessage ?? note"
-              :danger="errorMessage !== null"
-              @pick="pick"
-              @pick-at="pickAt"
-            />
-          </div>
+          <p
+            v-if="errorMessage ?? note"
+            class="app-fixed shrink-0 pt-4"
+            :class="errorMessage ? 'text-danger' : 'text-fg-muted'"
+            role="status"
+            aria-live="polite"
+          >
+            {{ errorMessage ?? note }}
+          </p>
 
           <template v-if="current">
             <div class="app-fixed shrink-0 pt-4 pb-1">
@@ -267,19 +368,12 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
               <p v-if="current.description" class="text-fg-muted">{{ current.description }}</p>
             </div>
 
-            <div v-if="headless" class="app-fixed flex flex-col items-start gap-3">
-              <p class="text-fg-muted">
-                이 시트의 머리글을 판별하지 못했습니다. 열 명칭이 몇 번째 행에 몇 행으로
-                기재되어 있는지 지정해 주십시오 — 원본에서 열 명칭이 노출되는 행입니다.
-              </p>
-              <button
-                type="button"
-                class="rounded-md bg-accent px-4 py-2 font-medium text-accent-fg hover:bg-accent-hover"
-                @click="setHeader(current.id, FIRST_GUESS)"
-              >
-                1행부터 1행으로 열람
-              </button>
-            </div>
+            <!-- 1행을 적용해도 열을 판별하지 못한 시트. 공백 시트가 그렇다.
+                 **단추를 배치하지 않는다** — 조작할 대상이 부재하다. -->
+            <p v-if="headless" class="app-fixed text-fg-muted">
+              이 시트에서 열을 판별하지 못했습니다. 공백 시트이거나, 표가 아닌 내용만
+              기재되어 있습니다.
+            </p>
             <!-- 무엇으로 묘사할지는 화면 정의의 kind 가 결정한다. -->
             <component
               :is="KIND_VIEW[current.kind]"

@@ -36,11 +36,13 @@ const props = withDefaults(
      * 머리글 지정. 부재하면 조작부에 그 영역을 묘사하지 않는다.
      *
      * 양식마다 머리글이 1행이기도 2행이기도 하고, 상단에 제목 행이 부착되기도
-     * 한다. **추정으로 전부 적중시킬 수 없으므로** 사람이 지정한다.
+     * 한다. **추정으로 전부 적중시킬 수 없으므로** 조작부를 상주시킨다.
+     *
+     * 그 지정이 추정인지는 **표시하지 않는다.** 적중 여부는 묘사된 표가
+     * 진술하고, 상이하면 사람이 여기서 이동시킨다 — 매 시트에 부착되는 경고는
+     * 그 조작을 안내하지 못한 채 잡음만 증가시킨다.
      */
     header?: HeaderSpec | null;
-    /** 그 지정이 추정인가. 참이면 확인을 요청하는 표시를 수행한다. */
-    headerGuessed?: boolean;
     /** 시트의 총 행 수. 지정 가능한 범위의 상한이다. */
     sheetRows?: number;
     /** 현 페이지(0부터). 페이지 이동이 부재하는 화면은 전달하지 않는다. */
@@ -56,7 +58,6 @@ const props = withDefaults(
     pinned: 0,
     pinLimit: 0,
     header: null,
-    headerGuessed: false,
     sheetRows: 0,
     columnsCustomized: false,
     hasFilters: false,
@@ -253,11 +254,6 @@ function labelOf(key: string): string {
           >
             ＋
           </button>
-          <!-- 추정이라는 사실을 **표시한다.** 확정처럼 배치하면 열이 이동한
-               표가 정상으로 인식된다. -->
-          <span v-if="headerGuessed" class="whitespace-nowrap text-warn" data-tip="바탕이 추정한 값입니다. 원본과 대조해 주십시오.">
-            추정
-          </span>
         </span>
 
         <button

@@ -118,6 +118,69 @@
 }
 
 /* ─────────────────────────────────────────────────────────────
+   머리글 행. 명칭·개방한 파일·조작이 1행에 배열된다.
+   ───────────────────────────────────────────────────────────── */
+@layer components {
+  .app-head {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+    border-bottom: 1px solid var(--c-border);
+    background-color: var(--c-surface);
+    padding: 0.625rem 1rem;
+  }
+
+  /* 머리글의 단추. 목록 개폐와 파일 교체가 동일한 형태다 — 양자가 동급의
+     조작이라, 일방만 강조하면 타방을 조작 불가로 인식한다. */
+  .app-head-btn {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    cursor: pointer;
+    border: 1px solid var(--c-border);
+    border-radius: 0.5rem;
+    background-color: var(--c-surface);
+    padding: 0.375rem 0.75rem;
+    color: var(--c-fg-muted);
+    white-space: nowrap;
+    transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+  }
+
+  .app-head-btn:hover {
+    background-color: var(--c-surface-hover);
+    color: var(--c-fg);
+  }
+
+  /* 투입이 이 단추 위에 도달한 상태. 수령 가능하다는 것을 표시한다. */
+  .app-head-btn-over {
+    border-color: var(--c-accent);
+    background-color: var(--c-accent-surface);
+    color: var(--c-fg);
+  }
+
+  /* 개방 이전의 수령 영역. 본문 중앙에 배치한다.
+     폭은 `.app-fixed` 가 가시 폭으로 고정하므로, 여기서 축소하지 않고
+     **내부를 중앙에 배치한다** — 상자 자체를 축소하면 좌측에 편재한다. */
+  .app-drop {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding-top: 1.25rem;
+    padding-bottom: 1.25rem;
+  }
+
+  .app-drop > * {
+    width: 100%;
+    max-width: 44rem;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
    축소되는 사이드바.
    폭만 변경되므로 내용은 그대로 존치하고 초과 부분만 은폐한다.
    ───────────────────────────────────────────────────────────── */
@@ -177,6 +240,31 @@
     margin-top: 0;
     padding-top: 0;
     border-top: 0;
+  }
+
+  /* 목록의 항목. 현재 열람 중인 것은 `data-current` 가 표시한다.
+     클래스 문자열을 두 곳(묶음·묶음 없음)에 전재하면 일방만 수정된다. */
+  .app-side-item {
+    width: 100%;
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    color: var(--c-fg-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+
+  .app-side-item:hover {
+    background-color: var(--c-surface-hover);
+    color: var(--c-fg);
+  }
+
+  .app-side-item[data-current="true"] {
+    background-color: var(--c-accent);
+    color: var(--c-accent-fg);
+    font-weight: 500;
   }
 
   /* 하단 영역 — 항상 노출되는 위치. */

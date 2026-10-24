@@ -25,7 +25,12 @@ async function onPickNative() {
   if (chosen) emit("pickAt", chosen.path, chosen.name);
 }
 
-defineProps<{ busy?: boolean; note?: string | null; danger?: boolean }>();
+/**
+ * `compact` 는 **개방 이후**의 형태다. 수령하는 경로는 동일하고 묘사만
+ * 축소한다 — 경로를 두 벌로 분할하면 일방만 수정된다. 양식을 열람하는 중에
+ * 투입 영역이 본문 상단을 점유하면 표가 그만큼 하향 이동한다.
+ */
+defineProps<{ busy?: boolean; note?: string | null; danger?: boolean; compact?: boolean }>();
 
 const over = ref(false);
 
@@ -44,7 +49,24 @@ function onDrop(ev: DragEvent) {
 </script>
 
 <template>
-  <div class="flex flex-col gap-3">
+  <!-- 개방 이후의 축소된 형태. 단추 하나이고, 투입도 동일하게 수령한다. -->
+  <component
+    v-if="compact"
+    :is="native ? 'button' : 'label'"
+    :type="native ? 'button' : undefined"
+    class="app-head-btn"
+    :class="over ? 'app-head-btn-over' : ''"
+    :data-tip="busy ? '판독 중입니다' : '다른 파일을 선택하거나 이 단추에 투입하십시오'"
+    @dragover.prevent="over = true"
+    @dragleave="over = false"
+    @drop.prevent="onDrop"
+    @click="native ? onPickNative() : undefined"
+  >
+    <input v-if="!native" type="file" class="hidden" accept=".xlsx,.xls,.csv" @change="onInput" />
+    {{ busy ? "판독 중…" : "파일 변경" }}
+  </component>
+
+  <div v-else class="flex flex-col gap-3">
     <component
       :is="native ? 'div' : 'label'"
       class="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-line bg-surface px-6 py-10 text-center text-fg-muted transition-colors hover:border-accent hover:text-fg"
