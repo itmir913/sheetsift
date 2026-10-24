@@ -235,6 +235,36 @@ fn is_blank_sql(base: &str, blank: &str) -> String {
     format!("({base} IS NULL OR {base} = '' OR {base} = '{mark}')")
 }
 
+/// 숫자 열의 정렬 열쇠.
+///
+/// 숫자 열도 TEXT 로 수용되어 있다(원자료에 "없음" 표기가 혼입한다). 그래서
+/// 변환해 정렬하는데, **구조를 식별할 때는 제거한 천 단위 구분을 여기서도
+/// 제거해야 한다** — `1,200` 을 숫자로 판정해 두고 변환만 그대로 수행하면
+/// SQLite 가 `1` 로 산출해 `50` 보다 앞에 배치한다.
+fn number_sql(base: &str) -> String {
+    format!("CAST(REPLACE({base}, ',', '') AS REAL)")
+}
+
+/// 수치로 판독되지 않는 값인가. **그런 값은 방향과 무관하게 후위로 배치한다.**
+///
+/// SQLite 의 변환은 판독하지 못한 문자를 `0` 으로 산출한다. 그대로 정렬하면
+/// `총 44850점` 같은 합계 행이 `0` 과 `1` 사이에 삽입되는데, 표를 판독하는
+/// 사람에게는 그것이 0점으로 보인다. 구조 식별이 표본(선두 일부)만 조사하므로
+/// 그런 행은 후단에 상존한다.
+///
+/// 변환이 0을 산출한 값 중 **실제로 0인 것**만 수치로 간주한다. 부호와 0과
+/// 소수점과 구분 기호로만 구성된 문자가 그것이다.
+fn not_a_number_sql(base: &str) -> String {
+    let n = number_sql(base);
+    /* 변환이 0 을 산출한 값 중 **실제로 0 인 것**을 판별한다. 부호·0·소수점·
+       구분 기호를 제거하고 공백 문자가 잔류하면 그것이다. GLOB 에는 반복을
+       지정하는 수단이 부재해 그 제거를 문자 치환으로 수행한다. */
+    let zeroish = ["','", "'0'", "'.'", "'-'", "'+'", "' '"]
+        .iter()
+        .fold(base.to_string(), |acc, ch| format!("REPLACE({acc}, {ch}, '')"));
+    format!("(CASE WHEN {n} <> 0 OR {zeroish} = '' THEN 0 ELSE 1 END) ASC")
+}
+
 fn unknown_column(table: &dyn Table, key: &str, what: &str) -> Error {
     Error::new(ErrorCode::InvalidSortKey)
         .with("key", key)
@@ -376,8 +406,7 @@ fn build_order(table: &dyn Table, sorts: &[Sort], blank: &str) -> Result<String>
             // 사전 열은 정수 id 그대로 (가나다순).
             base.clone()
         } else if col.kind == ColumnKind::Number {
-            // 숫자 열은 TEXT 로 저장되어 있을 수 있어 CAST 후 정렬.
-            format!("CAST({base} AS REAL)")
+            format!("{}, {}", not_a_number_sql(&base), number_sql(&base))
         } else {
             base.clone()
         };
@@ -621,6 +650,52 @@ mod tests {
     }
     fn names(page: &Page) -> Vec<String> {
         page.rows.iter().map(|r| r[0].as_str().unwrap().to_string()).collect()
+    }
+
+    /// **수치로 판독되지 않는 값이 0 의 자리에 삽입되지 않는다.**
+    ///
+    /// SQLite 의 변환은 판독하지 못한 문자를 0 으로 산출한다. 구조 식별은 선두
+    /// 표본만 조사하므로, 합계 행처럼 후단에 소재하는 문자는 숫자 열에 그대로
+    /// 잔류한다 — 그것이 0 점으로 묘사되면 표를 판독하는 사람이 오판한다.
+    #[test]
+    fn text_in_a_number_column_does_not_sit_where_zero_would() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE people(name TEXT, score TEXT);
+             INSERT INTO people VALUES
+               ('영', '0'), ('합계', '총 44850점'), ('하나', '1'), ('공백', '');",
+        )
+        .unwrap();
+        let mut t = T { columns: vec![col("name", ColumnKind::Text, false), col("score", ColumnKind::Number, false)] };
+        assign_aliases(t.columns.iter_mut());
+
+        let asc = query(vec![s("score", SortDir::Asc)], vec![]);
+        let page = run(&conn, &t, BLANK, &asc).unwrap();
+        assert_eq!(names(&page), ["영", "하나", "합계", "공백"], "문자가 0 과 1 사이에 삽입되었습니다");
+
+        // 방향을 역전시켜도 수치가 아닌 것과 부재는 후위를 유지한다.
+        let desc = query(vec![s("score", SortDir::Desc)], vec![]);
+        let page = run(&conn, &t, BLANK, &desc).unwrap();
+        assert_eq!(names(&page), ["하나", "영", "합계", "공백"]);
+    }
+
+    /// **천 단위 구분이 부착된 수치가 구분 앞자리로 정렬되지 않는다.**
+    ///
+    /// 구조를 식별할 때는 구분을 제거해 숫자로 판정하면서 변환만 그대로
+    /// 수행했다. 그러면 `1,200` 이 `1` 로 산출되어 `50` 보다 앞에 배치된다.
+    #[test]
+    fn a_thousands_separator_does_not_cut_the_number_short() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE people(name TEXT, score TEXT);
+             INSERT INTO people VALUES ('천이백', '1,200'), ('구백팔십', '980'), ('오십', '50');",
+        )
+        .unwrap();
+        let mut t = T { columns: vec![col("name", ColumnKind::Text, false), col("score", ColumnKind::Number, false)] };
+        assign_aliases(t.columns.iter_mut());
+
+        let page = run(&conn, &t, BLANK, &query(vec![s("score", SortDir::Asc)], vec![])).unwrap();
+        assert_eq!(names(&page), ["오십", "구백팔십", "천이백"]);
     }
 
     /// 값이 부재하는 셀을 식별하는 문자가 **자료에서 유래한다**는 것을 고정한다.
