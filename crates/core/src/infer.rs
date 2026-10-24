@@ -133,6 +133,31 @@ fn body_width(rows: &[Vec<String>], blank: &str) -> usize {
     counts[counts.len() / 2]
 }
 
+/// 하단 자료 행들이 **실제로 미치는 폭**의 중앙값.
+///
+/// 충전된 셀 수가 아니라 최종 셀의 위치다 — 중간에 공백이 개재하는 열이 존재해도
+/// 그 우측의 열이 소거되지 않아야 한다. 중앙값인 사유는 [`body_width`] 와 동일해,
+/// 돌출한 셀 하나가 존재하는 행이 혼재해도 확장되지 않는다.
+fn body_extent(rows: &[Vec<String>], blank: &str) -> usize {
+    let mut ends: Vec<usize> = rows
+        .iter()
+        .take(SAMPLE)
+        .filter_map(|row| row.iter().rposition(|c| !empty(c, blank)).map(|i| i + 1))
+        .collect();
+    if ends.is_empty() {
+        return 0;
+    }
+    ends.sort_unstable();
+    let middle = ends[ends.len() / 2];
+    /* **행 하나만으로는 확장하지 않는다.** 행 하나짜리 본문에서는 돌출한 셀과
+       정상적인 열을 구분할 근거가 부재하고, 그 경우 돌출로 간주한다 — 열을
+       신설해 전 행이 공백인 열이 출현하는 쪽보다 양호하다. */
+    if ends.iter().filter(|e| **e >= middle).count() < 2 {
+        return 0;
+    }
+    middle
+}
+
 /// **자료의 절반에도 미달하는 협소한 행은 머리글이 아니다.**
 ///
 /// 안내 문장 1행이 그렇다 — 최상단에 "이 표는 …" 1셀만 기재된 양식이 빈번하고,
@@ -239,16 +264,27 @@ fn is_two_row(rows: &[Vec<String>], top: usize, blank: &str) -> bool {
 /// **머리글이 실제로 미치는 범위까지만** 산정한다. 시트 폭은 본문의 이탈한 셀
 /// 하나로 확장되는데, 그 셀까지 열로 산입하면 확산 충전된 묶음이 부착되어
 /// 무의미한 열이 발생한다.
-fn spread(rows: &[Vec<String>], at: usize, count: usize) -> Vec<(Option<String>, String)> {
+fn spread(
+    rows: &[Vec<String>],
+    at: usize,
+    count: usize,
+    least: usize,
+) -> Vec<(Option<String>, String)> {
     let head: Vec<&Vec<String>> = (at..at + count).filter_map(|r| rows.get(r)).collect();
     if head.is_empty() {
         return Vec::new();
     }
     let width = head.iter().map(|r| r.len()).max().unwrap_or(0);
-    let last = (0..width)
+    let named = (0..width)
         .rposition(|c| head.iter().any(|r| !Sheet::at(r, c).trim().is_empty()))
         .map(|i| i + 1)
         .unwrap_or(0);
+    /* **본문이 일관되게 더 넓으면 그 폭까지 산출한다.** 머리글이 미치는 범위
+       까지만 산출하면 그 우측의 열이 전 행에서 묵시적으로 소거된다 — 표는
+       정상으로 묘사되고 자료만 부재한다. 명칭이 부재하는 열이 되고, 부르는
+       곳이 열 기호를 부여한다. `least` 는 중앙값이라 돌출한 셀 하나로는
+       확장되지 않는다. */
+    let last = named.max(least);
 
     // 상단 행마다 직전 공백이 아닌 값을 보유한다. 최하단 행은 확산하지 않는다.
     let mut carried: Vec<Option<String>> = vec![None; head.len().saturating_sub(1)];
@@ -341,7 +377,7 @@ pub fn layout_at(sheet: &Sheet, blank: &str, at: usize, rows: usize) -> Layout {
 fn columns_of(sheet: &Sheet, blank: &str, at: usize, count: usize) -> Vec<Column> {
     let rows = &sheet.rows;
     let body = &rows[(at + count).min(rows.len())..];
-    spread(rows, at, count)
+    spread(rows, at, count, body_extent(body, blank))
         .into_iter()
         .enumerate()
         .map(|(c, (group, label))| Column { label, group, kind: kind_of(body, c, blank) })
@@ -611,6 +647,35 @@ mod tests {
     }
 
     /// 본문의 이탈한 셀 하나를 사유로 열이 추가 생성되지 않는다.
+    /// **머리글보다 넓은 본문의 열이 소거되지 않는다.**
+    ///
+    /// 머리글이 미치는 범위까지만 열을 산출하면 그 우측의 열이 전 행에서
+    /// 묵시적으로 소멸한다 — 표는 정상으로 묘사되고 자료만 부재해, 열람하는
+    /// 사람이 그 소멸을 인지할 경로가 전무하다.
+    #[test]
+    fn a_body_wider_than_its_header_keeps_the_extra_column() {
+        let s = sheet(&[
+            &["이름", "점수"],
+            &["가", "90", "서울"],
+            &["나", "80", "부산"],
+            &["다", "70", "대구"],
+        ]);
+        let l = layout(&s, "-");
+        assert_eq!(labels(&l), ["이름", "점수", ""], "본문의 3번째 열이 소거되었습니다");
+    }
+
+    /// 중간에 공백이 개재해도 그 우측의 열이 소거되지 않는다. 충전된 셀 수가
+    /// 아니라 최종 셀의 위치로 판정하기 때문이다.
+    #[test]
+    fn a_gap_in_the_body_does_not_cut_the_columns_short() {
+        let s = sheet(&[
+            &["이름", "점수"],
+            &["가", "", "서울"],
+            &["나", "", "부산"],
+        ]);
+        assert_eq!(labels(&layout(&s, "-")), ["이름", "점수", ""]);
+    }
+
     #[test]
     fn a_stray_cell_in_the_body_does_not_add_a_column() {
         let s = sheet(&[

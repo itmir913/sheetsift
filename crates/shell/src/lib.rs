@@ -645,6 +645,29 @@ mod tests {
         }
     }
 
+    /// **머리글보다 넓은 본문의 열이 화면에 도달한다.**
+    ///
+    /// 바탕이 그 열을 산출해도 부르는 곳이 머리글 폭으로 절단하면 동일하게
+    /// 소거된다. 명칭이 부재하는 열이므로 엑셀의 열 기호를 부여한다.
+    #[test]
+    fn a_column_the_header_does_not_name_still_reaches_the_screen() {
+        let csv = "이름,점수
+가,90,서울
+나,80,부산
+다,70,대구
+".as_bytes();
+        let mut v = Viewer::open(csv, "넓은본문.csv").unwrap();
+        let s = screen(&v, 0);
+        let labels: Vec<&str> = s.columns.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels, ["이름", "점수", "C열"], "본문의 3번째 열이 소거되었습니다");
+
+        // 자료도 함께 도달해야 한다. 열만 출현하고 전 행이 공백이면 동일한 결함이다.
+        let page = v.query_rows(&ask("넓은본문", 10)).unwrap();
+        let third: Vec<String> =
+            page.rows.iter().map(|r| r[2].as_str().unwrap_or_default().to_string()).collect();
+        assert_eq!(third, ["서울", "부산", "대구"]);
+    }
+
     /// **조작부가 표시하는 행 번호는 엑셀의 행 번호다.**
     ///
     /// calamine 은 선두의 공백 행을 소거한 범위를 반환하므로, 그 소거량을
