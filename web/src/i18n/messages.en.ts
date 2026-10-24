@@ -137,6 +137,7 @@ export const ui: Record<UiKey, string> = {
   "filter.checkall.shown": "Select all results",
   "filter.checkall": "Select all",
   "filter.none": "No matching values",
+  "filter.blank": "(blank)",
   "filter.truncated_one": "Too many distinct values, showing {n}. Narrow it down with a search.",
   "filter.truncated_other": "Too many distinct values, showing {n}. Narrow it down with a search.",
   "filter.cancel": "Cancel",

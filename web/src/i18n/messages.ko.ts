@@ -164,6 +164,7 @@ export const ui = {
   "filter.checkall.shown": "검색 결과 모두 선택",
   "filter.checkall": "모두 선택",
   "filter.none": "일치하는 값이 없습니다",
+  "filter.blank": "(비어 있음)",
   "filter.truncated_one": "값의 종류가 많아 {n}개까지만 보여 줍니다. 검색으로 좁혀 주십시오.",
   "filter.truncated_other": "값의 종류가 많아 {n}개까지만 보여 줍니다. 검색으로 좁혀 주십시오.",
   "filter.cancel": "취소",

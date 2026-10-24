@@ -33,7 +33,11 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-/* 공백 표식과 목록 상한은 **바탕이 제공한다.** 여기 기재하면 바탕이 그것을
+/* 공백 표식은 바탕이 **값으로** 제공한다. 자료의 값이라 번역 대상이 아니고,
+   그 문자를 그대로 묘사하면 영어 화면에 한국어가 출현한다. 그래서 수수하는
+   것은 표식 그대로이고 **묘사만** 화면의 문구로 치환한다.
+
+   공백 표식과 목록 상한은 **바탕이 제공한다.** 여기 기재하면 바탕이 그것을
    변경하는 시점에, 공백이 정상 값으로 인식되고 안내문만 구 수치를 제시한다 —
    양자 모두 오류가 발생하지 않는다. */
 const { blankToken, maxValues } = limits();
@@ -265,7 +269,9 @@ onBeforeUnmount(() => {
             :checked="all || checked.has(c.value)"
             @change="toggle(c.value)"
           />
-          <span class="dg-pop-val" :data-blank="c.value === blankToken">{{ c.value }}</span>
+          <span class="dg-pop-val" :data-blank="c.value === blankToken">
+            {{ c.value === blankToken ? t("filter.blank") : c.value }}
+          </span>
           <span class="dg-pop-count">{{ formatNumber(c.count) }}</span>
         </label>
         <p v-if="!shown.length" class="dg-pop-note">{{ t("filter.none") }}</p>

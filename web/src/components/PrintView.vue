@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { APP_NAME } from "@/lib/app";
 import { cellText } from "@/lib/grid";
 import { formatDateTime, formatNumber, t, tn } from "@/i18n";
+import { limits } from "sheetsift-book";
 import type { Cell, Filter, Row, Sort } from "@/lib/grid";
 import type { LaidOutColumn } from "@/composables/useColumnLayout";
 
@@ -30,6 +31,14 @@ const props = withDefaults(
 
 const printedAt = computed(() => formatDateTime(new Date()));
 
+/* 공백 표식은 자료의 값이라 번역 대상이 아니다. 지면에 그대로 출력하면 영어
+   화면에서 인쇄한 지면에만 한국어가 출현한다 — 화면과 동일하게 묘사만 치환한다. */
+const { blankToken } = limits();
+
+function valueOf(v: string): string {
+  return v === blankToken ? t("filter.blank") : v;
+}
+
 function labelOf(key: string): string {
   return props.columns.find((c) => c.key === key)?.label ?? key;
 }
@@ -54,9 +63,9 @@ const filterSummary = computed(() =>
         f.values.length === 0
           ? t("print.selected.none")
           : f.values.length <= 4
-            ? f.values.join(", ")
+            ? f.values.map(valueOf).join(", ")
             : t("print.more", {
-                list: f.values.slice(0, 3).join(", "),
+                list: f.values.slice(0, 3).map(valueOf).join(", "),
                 n: f.values.length - 3,
               }),
       );
