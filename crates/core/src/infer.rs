@@ -43,7 +43,7 @@ pub enum Kind {
 /// 헤더가 어디인가.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Header {
-    /// `at` 행부터 `rows` 행이 헤더가다.
+    /// `at` 행부터 `rows` 행이 헤더다.
     ///
     /// 2행 이상이면 상단 행은 묶음 명칭이고, 병합된 셀이라 우측으로 확산
     /// 기재되어 있다. **행 수를 둘로 한정하지 않는다** — 이 그릇은 임의의
@@ -66,7 +66,7 @@ impl Header {
 /// 열 하나에 관해 판별한 것.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Column {
-    /// 화면에 노출할 명칭. 2행 헤더가면 하단 행이다.
+    /// 화면에 노출할 명칭. 2행 헤더면 하단 행이다.
     pub label: String,
     /// 묶음 명칭. 2행 헤더의 상단 행이고, 1행이면 부재한다.
     pub group: Option<String>,
@@ -98,12 +98,41 @@ fn empty(s: &str, blank: &str) -> bool {
     crate::sheet::is_blank(s, blank)
 }
 
-/// 헤더 행으로 적합한가. **공백이 아닌 셀이 존재하고, 그 중에 숫자가 부재해야**
-/// 한다. 헤더에 숫자만 기재된 양식은 희소하고, 자료 첫 행을 헤더로 선정하는
-/// 것이 이 모듈이 산출할 수 있는 최악의 결과다.
-fn looks_like_header(row: &[String], blank: &str) -> bool {
+/// 헤더 행으로 적합한가.
+///
+/// 공백이 아닌 셀이 존재해야 하고, **숫자가 혼재하면 하단 자료와 구조가
+/// 상이해야** 한다. 자료 첫 행을 헤더로 선정하는 것이 이 모듈이 산출할 수 있는
+/// 최악의 결과이므로 숫자를 경계하되, 숫자를 전부 기각하지는 않는다 — 연도·회차·
+/// 학년을 열 명칭으로 기재한 양식(`학교 · 2023 · 2024`)이 실재하고, 그것을
+/// 기각하면 **하단의 자료 1행이 열 명칭이 된다.**
+fn looks_like_header(row: &[String], body: &[Vec<String>], blank: &str) -> bool {
     let filled: Vec<&String> = row.iter().filter(|c| !empty(c, blank)).collect();
-    !filled.is_empty() && filled.iter().all(|c| !is_number(c))
+    if filled.is_empty() {
+        return false;
+    }
+    filled.iter().all(|c| !is_number(c)) || differs_from_body(row, body, blank)
+}
+
+/// 행의 구조가 **하단 자료와 상이한가.**
+///
+/// 헤더는 열 명칭이라 그 열의 자료와 종류가 상이하다 — 숫자 열의 상단에는
+/// 문자가 기재된다. 역으로 자료 행은 하단과 종류가 일치한다. 그 차이를
+/// 판정한다.
+///
+/// 종류를 판정하지 못한 열(혼재)은 **근거로 삼지 않는다.** 상이하다고 간주하면
+/// 혼재한 열 하나가 자료 행을 헤더로 승격시킨다.
+fn differs_from_body(row: &[String], body: &[Vec<String>], blank: &str) -> bool {
+    (0..row.len()).any(|c| {
+        let cell = Sheet::at(row, c);
+        if empty(cell, blank) {
+            return false;
+        }
+        match kind_of(body, c, blank) {
+            Kind::Number => !is_number(cell),
+            Kind::Text => is_number(cell),
+            Kind::Unknown => false,
+        }
+    })
 }
 
 /// 자료 행으로 적합한가. 공백이 아닌 셀이 하나라도 존재하면 해당한다.
@@ -195,11 +224,11 @@ fn find_header(sheet: &Sheet, blank: &str) -> Header {
     let rows = &sheet.rows;
     let look = rows.len().min(LOOK);
     for r in 0..look {
-        if !looks_like_header(&rows[r], blank) {
+        // 하단에 자료가 존재해야 헤더다. 최종 행은 헤더가 아니다.
+        let Some(below) = rows.get(r + 1..) else { continue };
+        if !looks_like_header(&rows[r], below, blank) {
             continue;
         }
-        // 하단에 자료가 존재해야 헤더가다. 최종 행은 헤더가 아니다.
-        let Some(below) = rows.get(r + 1..) else { continue };
         if !below.iter().any(|row| looks_like_body(row, blank)) {
             continue;
         }
@@ -228,13 +257,17 @@ fn find_header(sheet: &Sheet, blank: &str) -> Header {
 /// 존재해야** 한다 — 2행짜리 표에서 2번째 행을 헤더로 채택하면 자료가 소멸한다.
 fn is_two_row(rows: &[Vec<String>], top: usize, blank: &str) -> bool {
     let Some(sub) = rows.get(top + 1) else { return false };
-    if !looks_like_header(sub, blank) {
+    let Some(rest) = rows.get(top + 2..) else { return false };
+    if !looks_like_header(sub, rest, blank) {
         return false;
     }
-    let below_has_body = rows
-        .get(top + 2..)
-        .is_some_and(|rest| rest.iter().any(|row| looks_like_body(row, blank)));
-    if !below_has_body {
+    if !rest.iter().any(|row| looks_like_body(row, blank)) {
+        return false;
+    }
+    /* **하단 행이 자료와 구조가 동일하면 그것은 자료다.** 상단이 희소하고
+       하단이 조밀한 것만으로는 제목 1셀 + 자료(`명단` · `가,서울`)와 구분되지
+       않는다. 그 경우 자료 1행이 열 명칭으로 흡수된다. */
+    if !differs_from_body(sub, rest, blank) {
         return false;
     }
     let up = filled(&rows[top], blank);
@@ -511,6 +544,41 @@ mod tests {
     fn inf_and_nan_are_words_not_numbers() {
         let s = sheet(&[&["값"], &["inf"], &["NaN"]]);
         assert_eq!(kinds(&layout(&s, "-")), [Kind::Text]);
+    }
+
+    /// **연도를 열 명칭으로 기재한 헤더를 기각하지 않는다.**
+    ///
+    /// 숫자를 전부 기각하면 그 행이 자료로 간주되고, 하단의 자료 1행이 열
+    /// 명칭으로 승격되며 그 행은 표에서 소멸한다.
+    #[test]
+    fn a_header_may_hold_years_as_column_names() {
+        let s = sheet(&[&["학교", "2023", "2024"], &["가고", "A", "B"], &["나고", "C", "D"]]);
+        let l = layout(&s, "-");
+        assert_eq!(l.header, Header::Found { at: 0, rows: 1 });
+        assert_eq!(labels(&l), ["학교", "2023", "2024"]);
+    }
+
+    /// 제목 1셀 하단의 **자료 행이 2단 헤더로 흡수되지 않는다.**
+    ///
+    /// 상단이 희소하고 하단이 조밀한 것만으로는 제목 + 자료와 2단 헤더를
+    /// 구분할 수 없다. 하단 행의 구조가 그 아래 자료와 동일하면 그것은 자료다.
+    #[test]
+    fn a_title_above_plain_rows_does_not_eat_one_of_them() {
+        let s = sheet(&[&["명단"], &["가", "서울"], &["나", "부산"], &["다", "대구"]]);
+        let l = layout(&s, "-");
+        assert_ne!(
+            l.header,
+            Header::Found { at: 0, rows: 2 },
+            "자료 행이 2단 헤더로 흡수되었습니다: {:?}",
+            labels(&l)
+        );
+        /* 제목 하단의 1행을 헤더로 선정하는 것 자체는 존치한다. `명단 · 가,서울`
+           과 `안내 문장 · 이름,지역` 은 **구조가 동일해** 어떤 규칙으로도
+           구분되지 않는다. 구분할 수 없는 것을 추정으로 선별하지 않고, 사람이
+           조작부에서 이동시킨다. 여기서 차단하는 것은 그 행이 상단 제목과
+           합성되어 `명단 · 가` 같은 명칭이 생성되는 쪽이다. */
+        assert_eq!(l.header, Header::Found { at: 1, rows: 1 });
+        assert_eq!(labels(&l), ["가", "서울"]);
     }
 
     /// 헤더가 숫자뿐인 행은 헤더가 아니다 — 자료 첫 행이다.

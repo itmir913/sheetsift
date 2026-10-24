@@ -92,7 +92,7 @@ impl Source {
 pub struct ColumnInfo {
     /// DB 열 명칭.
     pub column: String,
-    /// 화면에 노출되는 명칭. 원본 헤더가다.
+    /// 화면에 노출되는 명칭. 원본 헤더다.
     pub label: String,
     /// 숫자 열인가. **값의 구조로 추정하지 않는다** — 변환 시점에 판명된 것을
     /// 기재한다.

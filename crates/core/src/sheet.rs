@@ -38,7 +38,7 @@ fn failed(code: ErrorCode, e: impl ToString) -> Error {
 /// [`TablePlan`] 이 기재해 전달한다.
 #[derive(Debug, Clone, Default)]
 pub struct Sheet {
-    /// 첫 행이 헤더가고 나머지가 알맹이다.
+    /// 첫 행이 헤더고 나머지가 알맹이다.
     pub rows: Vec<Vec<String>>,
     /// 이 시트가 양식에서 **개시되는 위치**(0부터). 행과 열 양측이다.
     ///
