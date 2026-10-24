@@ -198,7 +198,13 @@ pub fn from_csv(bytes: &[u8]) -> Result<Sheet> {
         }
         expect = line + 1 + spanned;
     }
-    Ok(Sheet { rows, origin: (0, 0) })
+    /* **선두의 공백 행은 소거하고 그 수를 보유한다.** xlsx 는 상자가 그렇게
+       반환하므로 양측의 거동이 그래야 일치한다. 복원한 채로 두면 추정에
+       실패했을 때 화면이 적용하는 첫 행이 공백 행에 적중해, 열 명칭이 전부
+       부재한 표가 묘사되고 실제 헤더가 자료 1행이 된다 — 실제로 그렇게
+       발생했다. 중간의 공백 행은 자료의 일부라 존치한다. */
+    let lead = rows.iter().take_while(|r| r.iter().all(|c| c.trim().is_empty())).count();
+    Ok(Sheet { rows: rows.split_off(lead), origin: (lead, 0) })
 }
 
 /// UTF-8 이면 그대로, 아니면 CP949. 양자 모두 아니면 중단한다.
@@ -679,6 +685,23 @@ mod tests {
         assert!(s.rows[1].is_empty() && s.rows[2].is_empty() && s.rows[5].is_empty());
         assert_eq!(s.rows[3], ["이름", "점수"]);
         assert_eq!(s.rows[6], ["나", "80"]);
+    }
+
+    /// **선두의 공백 행은 소거하고 그 수를 보유한다.**
+    ///
+    /// xlsx 는 상자가 그렇게 반환하므로 양측의 거동이 그래야 일치한다. 복원한
+    /// 채로 두면 추정에 실패했을 때 화면이 적용하는 첫 행이 공백 행에 적중해,
+    /// 열 명칭이 전부 부재한 표가 묘사되고 실제 헤더가 자료 1행이 된다.
+    #[test]
+    fn leading_blank_lines_become_an_origin_not_rows() {
+        let s = from_csv("
+
+이름,점수
+가,90
+".as_bytes()).unwrap();
+        assert_eq!(s.origin.0, 2);
+        assert_eq!(s.rows.len(), 2);
+        assert_eq!(s.rows[0], ["이름", "점수"]);
     }
 
     /// 따옴표 내부의 개행은 레코드 하나가 복수 행을 점유한다. 그만큼 가산하지
