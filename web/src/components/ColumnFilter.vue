@@ -63,6 +63,15 @@ const searchEl = ref<HTMLInputElement | null>(null);
 /** 현재 표시하는 후보. 축소 문자가 존재하면 그것으로 수령한 것이다. */
 const shown = ref<ColumnValue[]>([]);
 
+/**
+ * 그 후보를 수령할 때 사용한 축소 문자.
+ *
+ * **입력과 후보가 정합하는지의 유일한 근거다.** 감시자가 대기 중인지로
+ * 판정하면 입력 직후의 엔터를 포착하지 못한다 — 감시자는 비동기라 그 시점에
+ * 아직 작동하지 않았다.
+ */
+let shownFor = "";
+
 /** 전체 목록이 상한에 포착되어 절단되었는가. */
 const truncated = ref(false);
 
@@ -136,6 +145,15 @@ watch(shown, () => {
   listEl.value?.scrollTo({ top: 0 });
 });
 
+/**
+ * 적용하면 **아무 행도 통과하지 못하는 상태**인가.
+ *
+ * 열거한 것만 통과시키는 상태에서 전부 해제하면 그렇다. 적용을 허용하면 표가
+ * 공백이 되는데, 사람이 의도한 것은 그것이 아니다 — 엑셀도 그 상태의 확인을
+ * 차단한다.
+ */
+const nothingPasses = computed(() => mode.value === "include" && named.value.size === 0);
+
 const popVars = computed(() => ({
   "--pop-x": `${props.x}px`,
   "--pop-y": `${props.y}px`,
@@ -153,9 +171,11 @@ async function fetchShown() {
   loading.value = true;
   errorMessage.value = null;
   try {
-    const res = await props.load(search.value.trim());
+    const needle = search.value.trim();
+    const res = await props.load(needle);
     if (mine !== token) return;
     shown.value = res.values;
+    shownFor = needle;
     // 축소 없이 수령한 것이면 그것이 곧 전체다.
     if (!search.value.trim()) {
       truncated.value = res.truncated;
@@ -164,7 +184,9 @@ async function fetchShown() {
     if (mine !== token) return;
     errorMessage.value = e instanceof AppError ? e.message : String(e);
   } finally {
-    if (mine === token) loading.value = false;
+    if (mine === token) {
+      loading.value = false;
+    }
   }
 }
 
@@ -236,10 +258,18 @@ function apply() {
  * 부합하는 값이 하나도 부재하면 **아무 작용도 하지 않는다.** 그 시점에 적용하면
  * 아무것도 통과하지 못하는 필터가 적용되는데, 사람이 의도한 것은 그것이 아니다.
  */
-function applyTyped() {
+async function applyTyped() {
   if (!search.value.trim()) {
     apply();
     return;
+  }
+  /* **아직 갱신되지 않은 후보로 적용하지 않는다.** 입력 직후에 엔터를 조작하면
+     축소 요청이 아직 발신되지 않았거나 응답이 도달하지 않은 상태인데, 그
+     시점의 후보는 **축소 이전의 전체**다 — 사람이 입력한 것과 무관한 필터가
+     묵시적으로 적용된다. 대기 중인 요청을 즉시 수행하고 그 결과로 적용한다. */
+  if (shownFor !== search.value.trim() || loading.value) {
+    window.clearTimeout(searchTimer);
+    await fetchShown();
   }
   if (!shown.value.length) return;
   mode.value = "include";
@@ -261,7 +291,7 @@ function onKeydown(e: KeyboardEvent) {
   }
   if (e.key !== "Enter" || e.isComposing) return;
   if (!root.value?.contains(e.target as Node)) return;
-  applyTyped();
+  void applyTyped();
 }
 
 function onPointerDown(e: PointerEvent) {
@@ -349,7 +379,11 @@ onBeforeUnmount(() => {
 
       <!-- 절단되었다는 것을 **제시한다.** 절단 사실을 인지하지 못한 채 선택하면,
            노출되지 않던 값들이 누락된 필터가 적용된다. -->
-      <p v-if="truncated" class="dg-pop-note">{{ tn("filter.truncated", maxValues) }}</p>
+      <!-- 절단 안내는 **축소하지 않은 목록**에 관한 것이다. 축소 중에 함께
+           노출하면 "일치하는 값이 없습니다" 와 동시에 기재되어 의미가 충돌한다. -->
+      <p v-if="truncated && !search.trim()" class="dg-pop-note">
+        {{ tn("filter.truncated", maxValues) }}
+      </p>
     </template>
 
     <div class="dg-pop-foot">
@@ -363,7 +397,7 @@ onBeforeUnmount(() => {
       <button
         type="button"
         class="rounded-md bg-accent px-3 py-1.5 font-medium text-accent-fg hover:bg-accent-hover disabled:opacity-40"
-        :disabled="loading"
+        :disabled="loading || nothingPasses"
         @click="apply"
       >
         {{ t("filter.apply") }}

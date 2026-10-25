@@ -148,10 +148,24 @@ const openFilterColumn = computed(
 );
 
 let filterTimer: number | undefined;
+/**
+ * 발신을 대기 중인 입력들.
+ *
+ * **타이머 하나를 공유하므로 입력을 누적해야 한다.** 열 하나에 입력한 직후 타
+ * 열에 입력하면 선행 입력의 발신이 취소되는데, 발신하는 내용을 입력 시점에
+ * 고정해 두면 그 입력이 **문자까지 소멸한다** — 사람이 기재한 조건이 아무
+ * 진술 없이 사라진다.
+ */
+const typed = new Map<string, string>();
+
 function onSearchInput(key: string, value: string) {
-  const next = { ...props.filterText, [key]: value };
+  typed.set(key, value);
   window.clearTimeout(filterTimer);
-  filterTimer = window.setTimeout(() => emit("update:filterText", next), 250);
+  filterTimer = window.setTimeout(() => {
+    const next = { ...props.filterText, ...Object.fromEntries(typed) };
+    typed.clear();
+    emit("update:filterText", next);
+  }, 250);
 }
 
 function openFilter(col: LaidOutColumn, ev: MouseEvent) {
