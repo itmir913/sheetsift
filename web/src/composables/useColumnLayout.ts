@@ -2,6 +2,7 @@ import { computed, ref, watch, type Ref } from "vue";
 import { storageKey } from "@/lib/app";
 import { autoWidthRem, fontEpoch, headerWidthRem } from "@/lib/colWidth";
 import { own } from "@/lib/grid";
+import { t } from "@/i18n";
 import type { ColumnDef, Row, ScreenDef } from "@/lib/grid";
 
 /** 화면에 실제로 묘사되는 열. `srcIndex` 는 바탕이 전송한 행 배열에서의 원위치다. */
@@ -187,6 +188,9 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
       return [
         {
           ...col,
+          /* 명칭이 부재하는 열은 **화면이 문구를 합성한다.** 바탕은 기호만
+             전달한다 — 거기서 합성하면 영어 화면에도 한국어가 출현한다. */
+          label: col.letter ? t("column.letter", { letter: col.letter }) : col.label,
           width:
             own(widths.value, key) ?? auto.value?.get(key) ?? byHeader.value.get(key) ?? MIN_WIDTH,
           srcIndex: srcIndexOf.value.get(key) ?? 0,

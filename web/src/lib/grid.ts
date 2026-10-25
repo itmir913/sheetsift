@@ -23,6 +23,13 @@ export interface ColumnDef {
    * 상이한 순서를 참으로 판정한다.
    */
   guessed?: boolean;
+  /**
+   * 양식이 명칭을 기재하지 않은 열의 **엑셀 열 기호**(`D`).
+   *
+   * 그 경우 `label` 도 이 기호이나, 화면은 자체 문구로 묘사한다(`D열` ·
+   * `Column D`) — 바탕이 문구를 합성하면 영어 화면에도 한국어가 출현한다.
+   */
+  letter?: string;
 }
 
 /**

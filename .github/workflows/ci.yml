@@ -154,7 +154,7 @@ jobs:
   # `needs` is what holds that. Written down as a rule it gets deleted one day,
   # and then a revision whose tests fail ships anyway. A test reads this file
   # and stops the first gate if the line goes missing
-  # (`crates/wasm/tests/boundary.rs`).
+  # (`crates/shell/tests/gate.rs`).
   #
   # What ships is the screen in `web/`, a Vite + Vue app (see `docs/web.md`).
   # Vite writes it to `web/dist`, and that folder is what goes up -- not `web/`

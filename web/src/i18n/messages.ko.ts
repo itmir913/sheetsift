@@ -145,6 +145,7 @@ export const ui = {
   "tools.sort.remove.tip": "{label} 정렬 해제",
 
   /* 표 */
+  "column.letter": "{letter}열",
   "grid.status": "{from}–{to} / {total}",
   "grid.rows_one": "{n}행",
   "grid.rows_other": "{n}행",

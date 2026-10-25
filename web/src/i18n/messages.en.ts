@@ -119,6 +119,7 @@ export const ui: Record<UiKey, string> = {
   "tools.help.text": "Click a header to sort · drag to reorder · drag the edge to resize",
   "tools.sort.remove.tip": "Remove the sorting on {label}",
 
+  "column.letter": "Column {letter}",
   "grid.status": "{from}–{to} of {total}",
   "grid.rows_one": "{n} row",
   "grid.rows_other": "{n} rows",
