@@ -394,7 +394,7 @@ impl Viewer {
     /// 사람이 변경한 것일 수 있고, 그 시점에 묵시적으로 상이하게 판독하면 훼손된
     /// 표가 그럴듯하게 개방된다.
     pub fn open(bytes: &[u8], name: &str) -> Result<Self> {
-        let raw = if is_zip(bytes) {
+        let raw = if is_workbook(bytes) {
             sheet::from_xlsx(bytes)?
         } else {
             vec![(sheet_name_of(name), sheet::from_csv(bytes)?)]
@@ -606,9 +606,14 @@ fn unique_names(raw: Vec<String>) -> Vec<String> {
     out
 }
 
-/// xlsx 는 zip 이다. **명칭이 아니라 내용으로 식별한다.**
-fn is_zip(bytes: &[u8]) -> bool {
-    bytes.starts_with(b"PK\x03\x04")
+/// 양식인가. **명칭이 아니라 내용으로 식별한다.**
+///
+/// xlsx 는 zip 이고 구 xls 는 복합 문서다. 양자 모두 바탕이 수용하므로 함께
+/// 판정한다 — 구 xls 를 csv 로 취급하면 "문자 표기를 판별하지 못했습니다" 라는
+/// **사유와 무관한 안내**가 노출된다. 파일 선택은 그 확장자를 수용한다고
+/// 기재하고 있다.
+fn is_workbook(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"PK\x03\x04") || bytes.starts_with(&[0xD0, 0xCF, 0x11, 0xE0])
 }
 
 /// csv 에는 시트 명칭이 부재한다. 파일 명칭에서 생성한다.
