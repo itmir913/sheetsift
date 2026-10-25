@@ -90,8 +90,14 @@ impl Book {
 
 /// 화면이 송신한 요청 문자를 구조로 변환한다.
 ///
-/// **훼손된 요청은 중단한다.** 누락된 항목을 기본값으로 충전하면 질의하지 않은
-/// 표의 첫 페이지가 그럴듯하게 반환된다.
+/// **판독하지 못한 문자는 중단한다.** 형태가 상이한 값(`values` 에 수, `dir` 에
+/// 미지의 문자)도 중단한다.
+///
+/// 다만 **누락된 항목은 기본값으로 충전된다**(`serde(default)`). 요청을
+/// 구성하는 쪽이 이 저장소의 화면 하나이고, 항목을 증가시킬 때마다 양측을
+/// 동시에 수정하지 않아도 되게 하기 위해서다 — 그 대가로 항목 명칭을 오기하면
+/// 그 조건이 **묵시적으로 누락된 채** 질의된다. 표를 지시하는 `screenId` 만은
+/// 기본값이 부재해, 지시하지 않은 표가 반환되는 경로는 존재하지 않는다.
 fn parsed<T: serde::de::DeserializeOwned>(request: &str) -> std::result::Result<T, JsValue> {
     serde_json::from_str(request).map_err(|e| {
         thrown(sheetsift_core::Error::new(sheetsift_core::ErrorCode::DbQueryFailed).detail(e))

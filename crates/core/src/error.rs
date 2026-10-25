@@ -84,7 +84,16 @@ impl Error {
     }
 
     pub fn with(mut self, key: &str, value: impl ToString) -> Self {
-        self.params.insert(key.to_string(), value.to_string());
+        /* 치환 값도 절단한다. 화면이 송신한 값이 그대로 반환되는 항목이
+           존재하고(요청이 지시한 시트 명칭 등), 그 값이 거대하면 문구에
+           충전되어 화면을 점유한다. */
+        const LIMIT: usize = 200;
+        let text = value.to_string();
+        let cut = match text.char_indices().nth(LIMIT) {
+            Some((at, _)) => format!("{}…", &text[..at]),
+            None => text,
+        };
+        self.params.insert(key.to_string(), cut);
         self
     }
 
