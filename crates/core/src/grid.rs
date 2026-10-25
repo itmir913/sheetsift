@@ -283,9 +283,6 @@ fn number_sql(base: &str) -> String {
 /// `총 44850점` 같은 합계 행이 `0` 과 `1` 사이에 삽입되는데, 표를 판독하는
 /// 사람에게는 그것이 0점으로 보인다. 구조 식별이 표본(선두 일부)만 조사하므로
 /// 그런 행은 후단에 상존한다.
-///
-/// 변환이 0을 산출한 값 중 **실제로 0인 것**만 수치로 간주한다. 부호와 0과
-/// 소수점과 구분 기호로만 구성된 문자가 그것이다.
 /// 값 선택 목록의 정렬 열쇠.
 ///
 /// **공백을 선두로 보낸다.** 표기가 둘 이상이어도(`NULL`·공백 문자·표식) 인접
@@ -303,19 +300,26 @@ fn values_order_sql(expr: &str, blank: &str, numeric: bool) -> String {
     }
 }
 
-fn not_a_number_sql(base: &str) -> String {
+pub(crate) fn not_a_number_sql(base: &str) -> String {
     /* **전체가 수치의 형태인지 판정한다.** 변환 결과가 0 이 아닌지로 판정하면
        `3 apples`·`12abc`·`7점` 처럼 수치가 **접두사로** 기재된 문자가 그 수치의
-       위치로 정렬된다 — SQLite 의 변환이 접두사를 수용하기 때문이다. 합계 행이
-       그 자리에 삽입되는 것과 동일한 사고다.
+       위치로 정렬된다 — SQLite 의 변환이 접두사를 수용하기 때문이다.
 
-       숫자가 하나는 존재하고, 숫자·부호·소수점·구분 기호 외의 문자가 부재해야
-       한다. GLOB 에는 반복을 지정하는 수단이 부재하므로 "포함하지 않는가" 로
-       판정한다. */
-    format!(
-        "(CASE WHEN {base} GLOB '*[0-9]*' AND NOT {base} GLOB '*[^0-9.,+ -]*' \
-         THEN 0 ELSE 1 END) ASC"
-    )
+       규칙은 [`crate::infer`] 의 `is_number` 와 **동일해야 한다.** 한쪽이
+       수치로 판정한 값이 타방에서 문자로 취급되면 정렬이 자료와 상이한 순서를
+       산출한다. 부호는 선두에 1회까지, 소수점은 1회까지, 숫자가 하나 이상, 그
+       외의 문자는 부재. GLOB 에는 반복을 지정하는 수단이 부재하므로 "포함하지
+       않는가" 로 판정하고, 횟수는 문자를 제거한 길이로 판정한다. */
+    let bare = format!("REPLACE({base}, ',', '')");
+    let count = |ch: &str| format!("LENGTH({bare}) - LENGTH(REPLACE({bare}, '{ch}', ''))");
+    let numeric = format!(
+        "{bare} GLOB '*[0-9]*' \
+         AND NOT {bare} GLOB '*[^0-9.+-]*' \
+         AND NOT {bare} GLOB '?*[+-]*' \
+         AND {} <= 1",
+        count(".")
+    );
+    format!("(CASE WHEN {numeric} THEN 0 ELSE 1 END) ASC")
 }
 
 fn unknown_column(table: &dyn Table, key: &str, what: &str) -> Error {
@@ -838,10 +842,11 @@ mod tests {
         assert_eq!(names(&page), ["오십", "구백팔십", "천이백"]);
     }
 
-    /// **절단 여부는 수령한 행 수로 판정한다.**
+    /// **목록에 담기지 못한 값이 존재하면 그렇다고 보고한다.**
     ///
-    /// 병합 이후의 길이로 판정하면, 공백 표기가 둘 이상인 열에서 병합이 발생해
-    /// 길이가 상한과 동일해지고 **값 하나가 누락된 목록이 "전부" 로 보고된다.**
+    /// 공백 표기만큼 더 수령해 두므로(`over`), 병합 이후의 길이가 상한을
+    /// 초과하는 것과 "담기지 못한 값이 존재한다" 가 동치다. 그 여유가 부재하면
+    /// 병합이 발생한 열에서 **값 하나가 누락된 목록이 "전부" 로 보고된다.**
     #[test]
     fn a_merged_blank_does_not_hide_that_the_list_was_cut() {
         let conn = Connection::open_in_memory().unwrap();

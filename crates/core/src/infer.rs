@@ -83,14 +83,24 @@ pub struct Layout {
 
 /* ── 셀 하나를 어떻게 판정하는가 ────────────────────────────────── */
 
-/// 숫자로 판독되는가. **`inf` 와 `NaN` 은 숫자로 판정하지 않는다** — Rust 의
-/// 파서가 수용하지만, 표에 그 문자가 기재되어 있으면 그것은 문자다.
-fn is_number(s: &str) -> bool {
+/// 숫자로 판독되는가.
+///
+/// **규칙을 문자로 기재한다.** 파서에 위임하면 그 파서가 수용하는 모든 형태가
+/// 규칙이 되는데(`inf`·`NaN`·`1e5`), 조회 엔진은 SQL 로 동일한 판정을
+/// 수행하므로 양측이 어긋난다 — 한쪽이 수치로 판정한 값이 타방에서 문자로
+/// 취급되면 **정렬이 자료와 상이한 순서를 산출한다.**
+///
+/// 규칙: 천 단위 구분을 제거한 뒤 — 부호는 선두에 1회까지, 소수점은 1회까지,
+/// 숫자가 하나 이상, 그 외의 문자는 부재. 지수 표기(`1e5`)는 **문자다** —
+/// 엑셀이 수로 수용한 셀은 수 그대로 도달하므로, 그 문자가 기재된 셀은 수를
+/// 의도한 것이 아니다. [`crate::grid`] 의 `not_a_number_sql` 이 동일한 규칙을
+/// SQL 로 기재한다.
+pub(crate) fn is_number(s: &str) -> bool {
     let t = s.trim().replace(',', "");
-    if t.is_empty() {
-        return false;
-    }
-    t.parse::<f64>().map(|v| v.is_finite()).unwrap_or(false)
+    let body = t.strip_prefix(['+', '-']).unwrap_or(&t);
+    body.chars().any(|c| c.is_ascii_digit())
+        && body.chars().all(|c| c.is_ascii_digit() || c == '.')
+        && body.matches('.').count() <= 1
 }
 
 /// 값이 부재하는 셀인가. 양식이 "없음" 을 기재하는 문자(`blank`)도 공백으로 판정한다.
@@ -586,6 +596,43 @@ mod tests {
     fn inf_and_nan_are_words_not_numbers() {
         let s = sheet(&[&["값"], &["inf"], &["NaN"]]);
         assert_eq!(kinds(&layout(&s, "-")), [Kind::Text]);
+    }
+
+    /// **무엇이 수치인가를 두 층이 동일하게 판정한다.**
+    ///
+    /// 구조를 식별하는 층은 Rust 로, 조회 엔진은 SQL 로 동일한 판정을 수행한다.
+    /// 어긋나면 한쪽이 수치로 판정한 값이 타방에서 문자로 취급되어 **정렬이
+    /// 자료와 상이한 순서를 산출한다.**
+    #[test]
+    fn both_layers_agree_on_what_a_number_is() {
+        let samples = [
+            "0", "-0", "007", "1,200", "+5", "3.14", ".5", "5.", "-42", "9007199254740993",
+            "1e5", "1E5", "2024-01-01", "010-1234-5678", "1 200", "1.2.3", "3 apples", "12abc",
+            "7점", "총 44850점", "--5", "+", ".", "inf", "NaN", "0x10", "１２",
+        ];
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE t(v TEXT);").unwrap();
+        {
+            let mut ins = conn.prepare("INSERT INTO t VALUES (?)").unwrap();
+            for v in samples {
+                ins.execute([v]).unwrap();
+            }
+        }
+        let expr = crate::grid::not_a_number_sql("t.v");
+        let expr = expr.trim_end_matches(" ASC");
+        let sql = format!("SELECT v, {expr} FROM t t");
+        let mut stmt = conn.prepare(&sql).unwrap();
+        let mut rows = stmt.query([]).unwrap();
+        let mut differ: Vec<String> = Vec::new();
+        while let Some(r) = rows.next().unwrap() {
+            let v: String = r.get(0).unwrap();
+            let sql_says_number = r.get::<_, i64>(1).unwrap() == 0;
+            let rust_says_number = is_number(&v);
+            if sql_says_number != rust_says_number {
+                differ.push(format!("{v:?}: SQL={sql_says_number} Rust={rust_says_number}"));
+            }
+        }
+        assert!(differ.is_empty(), "판정이 어긋납니다: {differ:#?}");
     }
 
     /// **연도를 열 명칭으로 기재한 헤더를 기각하지 않는다.**
