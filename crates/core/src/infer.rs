@@ -667,7 +667,7 @@ mod tests {
            열거로 기재되어 있어(`grid` 의 `misgrouped`), 그 열거가 한 항목
            누락된 것은 특정 길이의 특정 조합에서만 발현한다. 공백도 생성한다 —
            양측 모두 절단을 수행하지 않아야 한다. */
-        let alphabet = [b'0', b'1', b',', b'.', b'+', b'-', b' '];
+        let alphabet = b"01,.+- ";
         let mut generated: Vec<String> = Vec::new();
         for len in 1..=5u32 {
             for n in 0..alphabet.len().pow(len) {
