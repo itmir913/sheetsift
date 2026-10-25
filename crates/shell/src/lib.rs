@@ -387,7 +387,20 @@ impl Viewer {
         } else {
             vec![(sheet_name_of(name), sheet::from_csv(bytes)?)]
         };
-        let tabs = raw.into_iter().map(|(n, d)| Tab::read(n, d)).collect();
+        /* **탭 명칭을 유일하게 만든다.** 조회 요청은 명칭으로 표를 지시하므로,
+           명칭이 동일한 탭이 둘이면 **두 번째 탭에 도달할 수단이 전무하다** —
+           선택한 사람은 첫 탭의 표를 열람하면서 오류를 수령하지 않는다. 엑셀은
+           동일한 명칭을 금하나 그 파일 형식은 금하지 않는다. */
+        let mut taken: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let tabs = raw
+            .into_iter()
+            .map(|(n, d)| {
+                let seen = taken.entry(n.clone()).or_insert(0);
+                *seen += 1;
+                let unique = if *seen == 1 { n } else { format!("{n} ({seen})") };
+                Tab::read(unique, d)
+            })
+            .collect();
         Ok(Self { group: sheet_name_of(name), tabs, open: None })
     }
 
@@ -642,6 +655,22 @@ mod tests {
             screen_id: sheet.to_string(),
             column_key: key.to_string(),
             ..ValuesAsk::default()
+        }
+    }
+
+    /// **명칭이 동일한 탭에도 도달할 수 있다.**
+    ///
+    /// 조회 요청은 명칭으로 표를 지시한다. 유일하지 않으면 두 번째 탭을 선택한
+    /// 사람이 첫 탭의 표를 열람하면서 오류를 수령하지 않는다.
+    #[test]
+    fn two_tabs_with_the_same_name_are_both_reachable() {
+        // csv 는 탭이 하나이므로 바탕의 표 목록으로 판정한다.
+        let mut v = Viewer::open(TINY_XLSX, "tiny.xlsx").unwrap();
+        let names = names(&v);
+        assert_eq!(names.len(), names.iter().collect::<std::collections::HashSet<_>>().len());
+        // 각 명칭으로 조회가 성립한다.
+        for n in &names {
+            let _ = v.query_rows(&ask(n, 1));
         }
     }
 
