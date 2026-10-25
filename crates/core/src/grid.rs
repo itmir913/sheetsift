@@ -321,10 +321,44 @@ pub(crate) fn not_a_number_sql(base: &str) -> String {
         "{bare} GLOB '*[0-9]*' \
          AND NOT {bare} GLOB '*[^0-9.+-]*' \
          AND NOT {bare} GLOB '?*[+-]*' \
-         AND {} <= 1",
-        count(".")
+         AND {} <= 1 \
+         AND NOT ({})",
+        count("."),
+        misgrouped(base)
     );
     format!("(CASE WHEN {numeric} THEN 0 ELSE 1 END) ASC")
+}
+
+/// 쉼표가 천 단위 구분으로 유효하지 않게 기재되었는가.
+///
+/// 제거만 수행하면 `1,2,3` 이 123 으로 판정되어 그 위치로 정렬된다. GLOB 에는
+/// 반복을 지정하는 수단이 부재하므로 **유효한 형태를 기재하지 않고, 유효하지
+/// 않은 국소 형태를 열거해 기각한다** — 쉼표 하나하나가 숫자 3 자리를 선행하고
+/// 후행하는지만 판정하면 전체의 유효성이 따라온다.
+///
+/// [`crate::infer`] 의 `grouped` 와 **동일한 집합이어야 한다.** 양자가
+/// 일치하는지는 그 모듈의 시험이 문자를 생성해 대조한다.
+fn misgrouped(base: &str) -> String {
+    [
+        // 쉼표 이후가 숫자 3 자리가 아니다.
+        "GLOB '*,[0-9][0-9][0-9][0-9]*'",
+        "GLOB '*,[0-9][^0-9]*'",
+        "GLOB '*,[0-9][0-9][^0-9]*'",
+        "GLOB '*,[^0-9]*'",
+        "GLOB '*,'",
+        "GLOB '*,[0-9]'",
+        "GLOB '*,[0-9][0-9]'",
+        // 쉼표 이전이 숫자 1~3 자리가 아니다.
+        "GLOB '*[0-9][0-9][0-9][0-9],*'",
+        "GLOB ',*'",
+        "GLOB '*[^0-9],*'",
+        // 소수부에 기재되었다.
+        "GLOB '*.*,*'",
+    ]
+    .iter()
+    .map(|p| format!("{base} {p}"))
+    .collect::<Vec<_>>()
+    .join(" OR ")
 }
 
 fn unknown_column(table: &dyn Table, key: &str, what: &str) -> Error {
