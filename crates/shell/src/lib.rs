@@ -71,6 +71,13 @@ pub struct ColumnView {
     /// **판별하지 못한 열인가.** 화면이 그것을 제시할 수 있어야 한다 —
     /// 추정해 숫자로 정렬해 놓고 침묵하면 상이한 순서를 참으로 판정한다.
     pub guessed: bool,
+    /// 양식이 명칭을 기재하지 않은 열의 **엑셀 열 기호**(`D`).
+    ///
+    /// 그 경우 [`label`](Self::label) 도 이 기호이나, 양자를 구별해야 화면이
+    /// 자체 문구로 묘사할 수 있다(`D열` · `Column D`). 명칭이 존재하는 열은
+    /// 부재한다.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub letter: Option<String>,
 }
 
 /// **화면이 임의로 기재하면 안 되는 값들.**
@@ -286,7 +293,10 @@ impl Shape {
                 // 셀이 포함되면 발생한다. **엑셀의 열 기호를 부여한다** — 공백으로
                 // 배치하면 헤더가 공백이라 열을 지시할 수 없고, 열쇠도 `_`·`_2`
                 // 가 되어 조회 오류에서 어느 열인지 판독할 수 없다.
-                _ if c.label.is_empty() => format!("{}열", column_ref(i + at_col)),
+                //
+                // **기호만 기재한다.** `D열` 처럼 문구를 합성하면 사람이 판독할
+                // 한국어가 바탕에 적재되고, 영어 화면에도 그대로 출현한다.
+                _ if c.label.is_empty() => column_ref(i + at_col),
                 _ => c.label.clone(),
             })
             .collect();
@@ -313,8 +323,10 @@ impl Shape {
                 dict: false,
                 alias: String::new(),
             });
+            let nameless = guess.label.is_empty() && guess.group.is_none();
             view.push(ColumnView {
                 key: db.clone(),
+                letter: nameless.then(|| label.clone()),
                 label,
                 kind: if number { "number" } else { "text" }.to_string(),
                 sortable: true,
@@ -387,19 +399,11 @@ impl Viewer {
         } else {
             vec![(sheet_name_of(name), sheet::from_csv(bytes)?)]
         };
-        /* **탭 명칭을 유일하게 만든다.** 조회 요청은 명칭으로 표를 지시하므로,
-           명칭이 동일한 탭이 둘이면 **두 번째 탭에 도달할 수단이 전무하다** —
-           선택한 사람은 첫 탭의 표를 열람하면서 오류를 수령하지 않는다. 엑셀은
-           동일한 명칭을 금하나 그 파일 형식은 금하지 않는다. */
-        let mut taken: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-        let tabs = raw
+        let (names, sheets): (Vec<String>, Vec<Sheet>) = raw.into_iter().unzip();
+        let tabs = unique_names(names)
             .into_iter()
-            .map(|(n, d)| {
-                let seen = taken.entry(n.clone()).or_insert(0);
-                *seen += 1;
-                let unique = if *seen == 1 { n } else { format!("{n} ({seen})") };
-                Tab::read(unique, d)
-            })
+            .zip(sheets)
+            .map(|(n, d)| Tab::read(n, d))
             .collect();
         Ok(Self { group: sheet_name_of(name), tabs, open: None })
     }
@@ -573,6 +577,35 @@ fn column_ref(mut at: usize) -> String {
     String::from_utf8(out).expect("ASCII")
 }
 
+/// 탭 명칭을 유일하게 만든다.
+///
+/// **조회 요청은 명칭으로 표를 지시한다.** 명칭이 동일한 탭이 둘이면 두 번째
+/// 탭에 도달할 수단이 전무하다 — 선택한 사람은 첫 탭의 표를 열람하면서 오류를
+/// 수령하지 않는다. 엑셀은 동일한 명칭을 금하나 그 파일 형식은 금하지 않는다.
+///
+/// **산출한 명칭이 유일할 때까지 번호를 증가시킨다.** 출현 횟수만 부착하면
+/// `A · A · A (2)` 에서 두 번째와 세 번째가 모두 `A (2)` 가 되어 동일한 사고가
+/// 잔존한다. `sheet::sanitize` 가 열쇠에 사용하는 규칙과 동일하다.
+fn unique_names(raw: Vec<String>) -> Vec<String> {
+    let mut taken: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut next: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut out = Vec::with_capacity(raw.len());
+    for name in raw {
+        let mut n = *next.get(&name).unwrap_or(&1);
+        let unique = loop {
+            let candidate = if n == 1 { name.clone() } else { format!("{name} ({n})") };
+            n += 1;
+            if !taken.contains(&candidate) {
+                break candidate;
+            }
+        };
+        next.insert(name, n);
+        taken.insert(unique.clone());
+        out.push(unique);
+    }
+    out
+}
+
 /// xlsx 는 zip 이다. **명칭이 아니라 내용으로 식별한다.**
 fn is_zip(bytes: &[u8]) -> bool {
     bytes.starts_with(b"PK\x03\x04")
@@ -662,23 +695,28 @@ mod tests {
     ///
     /// 조회 요청은 명칭으로 표를 지시한다. 유일하지 않으면 두 번째 탭을 선택한
     /// 사람이 첫 탭의 표를 열람하면서 오류를 수령하지 않는다.
+    ///
+    /// **이미 유일화된 명칭과 충돌하는 경우까지 판정한다** — 출현 횟수만
+    /// 부착하면 `A · A · A (2)` 에서 둘이 동일해진다.
     #[test]
-    fn two_tabs_with_the_same_name_are_both_reachable() {
-        // csv 는 탭이 하나이므로 바탕의 표 목록으로 판정한다.
-        let mut v = Viewer::open(TINY_XLSX, "tiny.xlsx").unwrap();
-        let names = names(&v);
-        assert_eq!(names.len(), names.iter().collect::<std::collections::HashSet<_>>().len());
-        // 각 명칭으로 조회가 성립한다.
-        for n in &names {
-            let _ = v.query_rows(&ask(n, 1));
-        }
+    fn tab_names_are_made_unique_even_against_names_that_already_exist() {
+        let got = unique_names(vec!["A".into(), "A".into(), "A (2)".into(), "A".into()]);
+        assert_eq!(got, ["A", "A (2)", "A (2) (2)", "A (3)"]);
+        assert_eq!(
+            got.iter().collect::<std::collections::HashSet<_>>().len(),
+            got.len(),
+            "유일하지 않습니다: {got:?}"
+        );
+
+        // 명칭이 상이하면 변경하지 않는다.
+        assert_eq!(unique_names(vec!["가".into(), "나".into()]), ["가", "나"]);
     }
 
     /// **csv 의 행 번호가 원본 파일과 일치한다.**
     ///
     /// 상자가 공백 행을 소거하므로 복원하지 않으면 조작부가 `1행` 을 표시하고,
     /// 그 번호를 참조해 원본을 판독하는 사람은 전혀 상이한 행을 본다. xlsx 는
-    /// `row_origin` 으로 보정하는데 csv 에는 그 수단이 부재하다.
+    /// `row_origin` 으로 보정하고, csv 도 선두의 공백 행을 동일하게 기재한다.
     #[test]
     fn a_csv_counts_its_rows_the_way_the_file_does() {
         let csv = "
@@ -730,7 +768,8 @@ mod tests {
         let mut v = Viewer::open(csv, "넓은본문.csv").unwrap();
         let s = screen(&v, 0);
         let labels: Vec<&str> = s.columns.iter().map(|c| c.label.as_str()).collect();
-        assert_eq!(labels, ["이름", "점수", "C열"], "본문의 3번째 열이 소거되었습니다");
+        assert_eq!(labels, ["이름", "점수", "C"], "본문의 3번째 열이 소거되었습니다");
+        assert_eq!(s.columns[2].letter.as_deref(), Some("C"), "열 기호가 전달되지 않았습니다");
 
         // 자료도 함께 도달해야 한다. 열만 출현하고 전 행이 공백이면 동일한 결함이다.
         let page = v.query_rows(&ask("넓은본문", 10)).unwrap();
@@ -1266,7 +1305,7 @@ mod tests {
         let v = Viewer::open(MIXED_CSV, "진학결과.csv").expect("양식을 열지 못했습니다");
         let s = &v.list_screens(&spec(0, 1)).screens[0];
         let labels: Vec<&str> = s.columns.iter().map(|c| c.label.as_str()).collect();
-        assert_eq!(labels, ["학년", "반", "국어", "D열", "E열", "영어"]);
+        assert_eq!(labels, ["학년", "반", "국어", "D", "E", "영어"]);
     }
 
     #[test]
