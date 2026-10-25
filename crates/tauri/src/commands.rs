@@ -44,12 +44,20 @@ pub fn open_bytes(desk: Held, request: tauri::ipc::Request<'_>) -> Result<()> {
             .detail("expected a raw body")
             .into());
     };
+    /* **복호하지 못하면 중단한다.** 공백으로 충전하면 그 공백이 시트 명칭과
+       묶음 명칭이 되고, 사람은 명칭이 부재하는 표를 열람하면서 사유를 판별할
+       수 없다. */
     let name = request
         .headers()
         .get("x-file-name")
         .and_then(|v| v.to_str().ok())
         .and_then(percent_decode)
-        .unwrap_or_default();
+        .ok_or_else(|| {
+            sheetsift_desk::Fault::from(
+                sheetsift_desk::ShellError::new(sheetsift_desk::ErrorCode::FileReadFailed)
+                    .detail("the x-file-name header is missing or malformed"),
+            )
+        })?;
     held(&desk).open_bytes(bytes, &name)
 }
 
