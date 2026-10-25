@@ -18,7 +18,8 @@ import {
   type ColumnValuesResult,
   type ValuePick,
 } from "@/lib/grid";
-import { AppError, limits } from "sheetsift-book";
+import { limits } from "sheetsift-book";
+import { useFault } from "@/composables/useFault";
 import { formatNumber, t, tn } from "@/i18n";
 import { fontEpoch } from "@/lib/colWidth";
 
@@ -76,7 +77,8 @@ let shownFor = "";
 const truncated = ref(false);
 
 const loading = ref(true);
-const errorMessage = ref<string | null>(null);
+/* 오류는 코드와 치환 값으로 보유한다. 문구로 보유하면 언어 전환을 추종하지 않는다. */
+const { message: errorMessage, capture: captureFault, clear: clearFault } = useFault();
 const search = ref("");
 
 /**
@@ -169,7 +171,7 @@ let token = 0;
 async function fetchShown() {
   const mine = ++token;
   loading.value = true;
-  errorMessage.value = null;
+  clearFault();
   try {
     const needle = search.value.trim();
     const res = await props.load(needle);
@@ -182,7 +184,7 @@ async function fetchShown() {
     }
   } catch (e) {
     if (mine !== token) return;
-    errorMessage.value = e instanceof AppError ? e.message : String(e);
+    captureFault(e);
   } finally {
     if (mine === token) {
       loading.value = false;

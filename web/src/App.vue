@@ -28,7 +28,8 @@ import {
   type ScreenCatalog,
   type ScreenDef,
 } from "@/lib/grid";
-import { AppError, start } from "sheetsift-book";
+import { start } from "sheetsift-book";
+import { useFault } from "@/composables/useFault";
 import LocaleToggle from "@/components/LocaleToggle.vue";
 import { APP_NAME, storageKey } from "@/lib/app";
 import { formatNumber, t } from "@/i18n";
@@ -67,9 +68,19 @@ onBeforeUnmount(() => {
 });
 
 const fileName = ref("");
-const errorMessage = ref<string | null>(null);
-/** 양식은 개방되었으나 그 시트 하나가 공백인 것 — 오류가 아니라 안내다. */
-const note = ref<string | null>(null);
+/* 오류는 코드와 치환 값으로 보유한다. 문구로 보유하면 언어 전환을 추종하지 않는다. */
+const { message: errorMessage, capture: captureFault, clear: clearFault } = useFault();
+/**
+   * 양식은 개방되었으나 열람 가능한 표가 부재한 것 — 오류가 아니라 안내다.
+   *
+   * **문구를 보유하지 않고 상태에서 산출한다.** 보유하면 언어를 전환해도 그
+   * 한 문장만 선행 언어로 잔존한다.
+   */
+const note = computed(() =>
+  fileName.value && !busy.value && screens.value.length === 0 && errorMessage.value === null
+    ? t("app.file.nosheets")
+    : null,
+);
 const busy = ref(false);
 /** wasm 을 아직 기동 중인가. 기동 이전에는 파일을 수령해도 수행 가능한 작업이 부재한다. */
 const starting = ref(true);
@@ -201,7 +212,7 @@ onMounted(async () => {
   try {
     await start();
   } catch (e) {
-    errorMessage.value = e instanceof AppError ? e.message : String(e);
+    captureFault(e);
   } finally {
     starting.value = false;
   }
@@ -232,8 +243,7 @@ async function pickAt(path: string, name: string) {
 
 async function opened(name: string, open: () => Promise<ScreenCatalog>) {
   busy.value = true;
-  errorMessage.value = null;
-  note.value = null;
+  clearFault();
   screens.value = [];
   groupNames.value = [];
   current.value = null;
@@ -246,9 +256,8 @@ async function opened(name: string, open: () => Promise<ScreenCatalog>) {
     groupNames.value = catalog.groups;
     screens.value = catalog.screens;
     current.value = groups.value[0]?.items[0] ?? screens.value[0] ?? null;
-    if (!screens.value.length) note.value = t("app.file.nosheets");
   } catch (e) {
-    errorMessage.value = e instanceof AppError ? e.message : String(e);
+    captureFault(e);
     fileName.value = "";
   } finally {
     busy.value = false;
@@ -296,14 +305,14 @@ const tooWide = computed(() => current.value?.tooWide === true);
 async function setHeader(id: string, spec: HeaderSpec) {
   headers.value = { ...headers.value, [id]: spec };
   busy.value = true;
-  errorMessage.value = null;
+  clearFault();
   try {
     const catalog = await listScreens(headers.value);
     groupNames.value = catalog.groups;
     screens.value = catalog.screens;
     current.value = catalog.screens.find((s) => s.id === id) ?? current.value;
   } catch (e) {
-    errorMessage.value = e instanceof AppError ? e.message : String(e);
+    captureFault(e);
   } finally {
     busy.value = false;
   }

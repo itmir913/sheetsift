@@ -23,9 +23,9 @@ import {
   type Sort,
   type ValuePick,
 } from "@/lib/grid";
+import { useFault } from "@/composables/useFault";
 import { useColumnLayout } from "@/composables/useColumnLayout";
 import { formatNumber, t, tn } from "@/i18n";
-import { AppError } from "sheetsift-book";
 
 const props = defineProps<{ screen: ScreenDef }>();
 
@@ -41,7 +41,8 @@ const page = ref(0);
 const sorts = ref<Sort[]>([]);
 const filterText = ref<Record<string, string>>({});
 const filterValues = ref<Record<string, ValuePick | null>>({});
-const errorMessage = ref<string | null>(null);
+/* 오류는 코드와 치환 값으로 보유한다. 문구로 보유하면 언어 전환을 추종하지 않는다. */
+const { message: errorMessage, capture: captureFault, clear: clearFault } = useFault();
 const busy = ref(false);
 
 const layout = useColumnLayout(toRef(props, "screen"));
@@ -69,7 +70,7 @@ let token = 0;
 async function load() {
   const mine = ++token;
   busy.value = true;
-  errorMessage.value = null;
+  clearFault();
   try {
     const res = await fetchPage(
       props.screen.id,
@@ -84,7 +85,7 @@ async function load() {
     elapsedMs.value = res.elapsedMs;
   } catch (e) {
     if (mine !== token) return;
-    errorMessage.value = e instanceof AppError ? e.message : String(e);
+    captureFault(e);
     rows.value = [];
   } finally {
     if (mine === token) {
@@ -176,7 +177,7 @@ const printing = ref(false);
 async function print() {
   if (printing.value) return;
   printing.value = true;
-  errorMessage.value = null;
+  clearFault();
   try {
     const res = await fetchRows(
       props.screen.id,
@@ -190,7 +191,7 @@ async function print() {
     await new Promise((r) => requestAnimationFrame(() => r(null)));
     window.print();
   } catch (e) {
-    errorMessage.value = e instanceof AppError ? e.message : String(e);
+    captureFault(e);
   } finally {
     printRows.value = [];
     printTruncated.value = false;
