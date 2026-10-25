@@ -94,19 +94,31 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
     let stored: StoredLayout = {};
     try {
       const raw = localStorage.getItem(key.value);
-      if (raw) stored = JSON.parse(raw) as StoredLayout;
+      const parsed: unknown = raw ? JSON.parse(raw) : null;
+      /* **판독한 것이 기대한 구조인지 확인한다.** `null` 이나 배열이나 수가
+         기재되어 있으면 그 하단의 접근이 중단되고, 그 중단은 화면을 구성하는
+         도중에 발생해 **표도 조작부도 묘사되지 않는다** — 보관소를 소거하기
+         전까지 그 양식을 열람할 수 없고, 사람에게 도달하는 진술도 부재하다. */
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        stored = parsed as StoredLayout;
+      }
     } catch {
       /* 저장 내용이 훼손되었으면 기본값으로 진행한다. */
     }
 
     // 저장된 순서 중 현재도 존재하는 열만 존치하고, 신규 발생한 열은 후단에 부착한다.
     const known = new Set(defaults);
-    const kept = (stored.order ?? []).filter((k) => known.has(k));
+    const order0 = Array.isArray(stored.order) ? stored.order : [];
+    const kept = order0.filter((k) => known.has(k));
     const missing = defaults.filter((k) => !kept.includes(k));
     order.value = [...kept, ...missing];
 
     const w: Record<string, number> = {};
-    for (const [k, v] of Object.entries(stored.widths ?? {})) {
+    const widths0 =
+      stored.widths && typeof stored.widths === "object" && !Array.isArray(stored.widths)
+        ? stored.widths
+        : {};
+    for (const [k, v] of Object.entries(widths0)) {
       if (known.has(k) && Number.isFinite(v)) {
         w[k] = clampWidth(v);
       }
@@ -115,7 +127,10 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
 
     // 열이 감소한 양식에서는 저장된 수가 현 열 수를 초과할 수 있다.
     const p = stored.pinned;
-    pinned.value = Number.isInteger(p) && p! >= 0 ? Math.min(p!, MAX_PIN) : DEFAULT_PIN;
+    // 고정 가능한 수는 열 수에도 구속된다. 전 열을 고정하면 이동할 대상이 부재하다.
+    const limit = Math.min(MAX_PIN, Math.max(0, order.value.length - 1));
+    pinned.value =
+      Number.isInteger(p) && p! >= 0 ? Math.min(p!, limit) : Math.min(DEFAULT_PIN, limit);
   }
 
   function save() {
