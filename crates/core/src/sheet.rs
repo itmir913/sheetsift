@@ -142,9 +142,15 @@ pub fn from_xlsx(bytes: &[u8]) -> Result<Vec<(String, Sheet)>> {
         .map_err(|e| failed(ErrorCode::SheetWorkbookUnreadable, e))?;
     let names = wb.sheet_names().to_vec();
     let mut out = Vec::with_capacity(names.len());
-    for name in names {
+    for (at, name) in names.into_iter().enumerate() {
+        /* **명칭이 아니라 위치로 수령한다.** 명칭이 동일한 시트가 둘이면 명칭
+           으로 수령하는 쪽은 언제나 첫 시트를 반환한다 — 부르는 곳이 명칭을
+           유일하게 만들어도 **자료는 여전히 첫 시트의 것**이고, 사람은 상이한
+           탭을 선택하면서 동일한 표를 열람한다. 엑셀은 동일한 명칭을 금하나
+           그 파일 형식은 금하지 않는다. */
         let range = wb
-            .worksheet_range(&name)
+            .worksheet_range_at(at)
+            .ok_or_else(|| Error::new(ErrorCode::SheetUnreadable).with("sheet", &name))?
             .map_err(|e| failed(ErrorCode::SheetUnreadable, e).with("sheet", &name))?;
         let rows = range.rows().map(|r| r.iter().map(cell).collect()).collect();
         // 소거된 선두의 공백 행·열. 부재하면 범위가 공백이라는 의미다.
