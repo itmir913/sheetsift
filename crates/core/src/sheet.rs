@@ -75,13 +75,28 @@ fn cell(v: &calamine::Data) -> String {
     use calamine::Data;
     match v {
         Data::Empty => String::new(),
-        Data::String(s) => s.trim().to_string(),
+        Data::String(s) => cell_text(s),
         Data::Float(f) => number(*f),
         Data::Int(i) => i.to_string(),
         Data::Bool(b) => b.to_string(),
         Data::DateTime(d) => datetime(d),
         other => other.to_string(),
     }
+}
+
+/// 셀의 문자를 수용 가능한 형태로.
+///
+/// **공백 표식과 동일한 문자를 제거한다.** 그 표식은 값이 부재하는 셀을
+/// 지시하려고 바탕이 산출하는 것인데, 동일한 문자가 셀에 기재되어 있으면 값
+/// 선택 목록에 두 항목이 출현하고 **양자가 동일한 값으로 전송된다** — 선택한
+/// 것과 상이한 행이 통과한다. 유니코드가 문자로 배정하지 않는 위치라 그것을
+/// 제거해도 사람이 기재한 내용은 소멸하지 않는다.
+fn cell_text(s: &str) -> String {
+    let t = s.trim();
+    if t.contains(crate::grid::BLANK_TOKEN) {
+        return t.replace(crate::grid::BLANK_TOKEN, "");
+    }
+    t.to_string()
 }
 
 /// 수 하나를 문자로. **엑셀 화면에 노출되는 형태를 준수한다.**
@@ -231,7 +246,7 @@ pub fn from_csv(bytes: &[u8]) -> Result<Sheet> {
            공백 행을 부가해야 **이후의 행 번호가 원본과 일치한다.** 자료로는
            공백 행이 하나 증가할 뿐이고, 어긋난 행 번호보다 유해하지 않다. */
         let spanned: u64 = record.iter().map(|c| c.matches('\n').count() as u64).sum();
-        rows.push(record.iter().map(|c| c.trim().to_string()).collect());
+        rows.push(record.iter().map(cell_text).collect::<Vec<String>>());
         for _ in 0..spanned {
             rows.push(Vec::new());
         }
@@ -800,6 +815,22 @@ mod tests {
         assert!(s.rows[1].is_empty() && s.rows[2].is_empty() && s.rows[5].is_empty());
         assert_eq!(s.rows[3], ["이름", "점수"]);
         assert_eq!(s.rows[6], ["나", "80"]);
+    }
+
+    /// **공백 표식과 동일한 문자가 셀에 기재되어도 분리된다.**
+    ///
+    /// 그 문자가 자료에 잔존하면 값 선택 목록에 두 항목이 출현하고 양자가
+    /// 동일한 값으로 전송된다 — 선택한 것과 상이한 행이 통과한다.
+    #[test]
+    fn a_cell_cannot_carry_the_mark_that_means_blank() {
+        let mark = crate::grid::BLANK_TOKEN;
+        let csv = format!("값
+{mark}
+x
+");
+        let s = from_csv(csv.as_bytes()).unwrap();
+        assert_eq!(s.rows[1], [""], "표식이 자료에 잔존합니다");
+        assert_eq!(s.rows[2], ["x"]);
     }
 
     /// **선두의 공백 행은 소거하고 그 수를 보유한다.**
