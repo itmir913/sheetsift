@@ -28,6 +28,32 @@ fn failed(code: ErrorCode, e: impl ToString) -> Error {
     Error::new(code).detail(e)
 }
 
+/// 조회 엔진이 수용하는 열 수. **연결이 진술하는 값을 판독한다.**
+///
+/// 컴파일 시점에 결정되는 값이라 기재할 수 없다. 이 저장소는 `.cargo/config.toml`
+/// 에서 상향하고 있으나, 저장소 외부에서 빌드한 산출물은 SQLite 의 기본값(2000)
+/// 이다 — 수를 기재하면 그 산출물에서 **허위를 진술한다.**
+pub fn column_limit(conn: &Connection) -> Result<usize> {
+    conn.limit(rusqlite::limits::Limit::SQLITE_LIMIT_COLUMN)
+        .map(|n| n.max(0) as usize)
+        .map_err(|e| failed(ErrorCode::SheetTooWide, e))
+}
+
+/// 열이 상한을 초과하면 **표를 생성하기 전에 중단한다.**
+///
+/// 그러지 않으면 생성이 `SheetTableFailed` 로 중단되는데, 그 코드는 사유를
+/// 진술하지 않는다 — 열은 전부 묘사되는데 자료만 도달하지 않는 상태로 발현한다.
+fn check_width(conn: &Connection, table: &str, width: usize) -> Result<()> {
+    let limit = column_limit(conn)?;
+    if width > limit {
+        return Err(Error::new(ErrorCode::SheetTooWide)
+            .with("table", table)
+            .with("columns", width)
+            .with("limit", limit));
+    }
+    Ok(())
+}
+
 /* ── 시트 ───────────────────────────────────────────────────────── */
 
 /// 시트 하나. 셀은 **전부 문자로 통일한 상태**다.
@@ -494,6 +520,7 @@ pub fn build_plain(
     indexes: &[Vec<String>],
 ) -> Result<(usize, Vec<(String, String)>)> {
     let header = column_names(sheet);
+    check_width(conn, table, header.len())?;
     let decl = header.iter().map(|(_, n)| format!("\"{n}\"")).collect::<Vec<_>>().join(",");
     conn.execute_batch(&format!("CREATE TABLE \"{table}\"({decl})"))
         .map_err(|e| failed(ErrorCode::SheetTableFailed, e).with("table", table))?;
@@ -530,6 +557,7 @@ pub fn build_dict_table(
     let at = locate(sheet, &wanted)?;
     let table = &plan.table;
 
+    check_width(conn, table, plan.map.len())?;
     let decl = plan
         .map
         .iter()
@@ -631,6 +659,28 @@ mod tests {
 
     fn mem() -> Connection {
         Connection::open_in_memory().unwrap()
+    }
+
+    /// **상한을 초과하는 열은 표를 생성하기 전에 진술한다.**
+    ///
+    /// 종전에는 생성이 `SheetTableFailed` 로 중단되었다 — 사유가 부재해, 열은
+    /// 전부 묘사되는데 자료만 도달하지 않는 상태로 발현했다. 상한은 연결이
+    /// 진술하는 값이라, 시험도 그 값을 변경해 판정한다.
+    #[test]
+    fn a_sheet_wider_than_the_engine_allows_says_so() {
+        let conn = mem();
+        conn.set_limit(rusqlite::limits::Limit::SQLITE_LIMIT_COLUMN, 6).unwrap();
+        assert_eq!(column_limit(&conn).unwrap(), 6);
+
+        let s = sheet(&[&["가", "나", "다", "라", "마", "바", "사"], &["1", "2", "3", "4", "5", "6", "7"]]);
+        let err = build_plain(&conn, &s, "t", &[]).unwrap_err();
+        assert_eq!(err.code, ErrorCode::SheetTooWide);
+        assert_eq!(err.params.get("columns").map(String::as_str), Some("7"));
+        assert_eq!(err.params.get("limit").map(String::as_str), Some("6"));
+
+        // 상한 이내는 그대로 생성된다.
+        let s = sheet(&[&["가", "나", "다", "라", "마", "바"], &["1", "2", "3", "4", "5", "6"]]);
+        assert_eq!(build_plain(&conn, &s, "t", &[]).unwrap().0, 1);
     }
 
     /// **날짜는 일련번호가 아니다.** 이 시험이 정지하면 화면에 `45,659` 가

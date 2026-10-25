@@ -20,6 +20,8 @@ export const errors: Record<ErrorCode, string> = {
   SHEET_EMPTY: "No header row was found in the sheet '{sheet}'.",
   SHEET_COLUMN_MISSING: "The columns of the sheet '{sheet}' did not line up.",
   SHEET_TABLE_FAILED: "Could not turn the data into a table.",
+  SHEET_TOO_WIDE:
+    "This sheet has {columns} columns, more than the {limit} that can be opened.",
   SHEET_ENCODING_UNKNOWN:
     "Could not tell the encoding of the csv file. Save it as UTF-8 or CP949.",
   SHEET_SERIALIZE_FAILED: "Could not export the data.",
@@ -63,6 +65,8 @@ export const ui: Record<UiKey, string> = {
   "app.file.nosheets": "No readable table was found in this file.",
   "app.sheet.nocolumns":
     "No columns were found in this sheet. It is empty, or it holds something that is not a table.",
+  "app.sheet.toowide":
+    "This sheet has {columns} columns, more than can be opened.",
   "app.header.assumed":
     "No header was found in '{sheet}', so the first row is being used as one. Set it in the toolbar above.",
 

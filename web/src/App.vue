@@ -31,7 +31,7 @@ import {
 import { AppError, start } from "sheetsift-book";
 import LocaleToggle from "@/components/LocaleToggle.vue";
 import { APP_NAME, storageKey } from "@/lib/app";
-import { t } from "@/i18n";
+import { formatNumber, t } from "@/i18n";
 import { canPickFile } from "sheetsift-book";
 
 const KIND_VIEW = { grid: DataGrid } as const;
@@ -283,6 +283,10 @@ function select(item: ScreenDef) {
 /** 헤더를 판별하지 못한 시트는 표가 부재한다. **공백 표로 묘사하지 않는다.** */
 const headless = computed(() => current.value !== null && !current.value.headerFound);
 
+/* 열이 조회 엔진의 상한을 초과하는 시트. **표를 묘사하지 않는다** — 열은
+   도달해 묘사할 수 있으나 자료는 영구히 도달하지 않는다. */
+const tooWide = computed(() => current.value?.tooWide === true);
+
 /**
  * 헤더 지정을 변경한다. 목록 전체를 재요청해 **열 정의를 교체한다.**
  *
@@ -473,6 +477,10 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
                  **단추를 배치하지 않는다** — 조작할 대상이 부재하다. -->
             <p v-if="headless" class="app-fixed text-fg-muted">
               {{ t("app.sheet.nocolumns") }}
+            </p>
+            <!-- 열이 상한을 초과하는 시트. 조작할 대상이 부재해 단추도 부재하다. -->
+            <p v-else-if="tooWide" class="app-fixed text-danger">
+              {{ t("app.sheet.toowide", { columns: formatNumber(current.columns.length) }) }}
             </p>
             <!-- 무엇으로 묘사할지는 화면 정의의 kind 가 결정한다. -->
             <component

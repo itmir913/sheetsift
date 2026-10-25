@@ -23,6 +23,8 @@ export const errors: Record<ErrorCode, string> = {
   SHEET_EMPTY: "'{sheet}' 시트에서 헤더 행을 찾지 못했습니다.",
   SHEET_COLUMN_MISSING: "'{sheet}' 시트의 열을 맞추지 못했습니다.",
   SHEET_TABLE_FAILED: "읽어 온 자료를 표로 바꾸지 못했습니다.",
+  SHEET_TOO_WIDE:
+    "이 시트는 열이 {columns}개로, 열어 볼 수 있는 {limit}개를 초과합니다.",
   SHEET_ENCODING_UNKNOWN:
     "csv 의 문자 인코딩을 알 수 없습니다. UTF-8 또는 CP949 로 저장해 주십시오.",
   SHEET_SERIALIZE_FAILED: "자료를 내보내지 못했습니다.",
@@ -84,6 +86,7 @@ export const ui = {
   "app.file.nosheets": "이 파일에서 열어 볼 수 있는 표를 찾지 못했습니다.",
   "app.sheet.nocolumns":
     "이 시트에서 열을 찾지 못했습니다. 빈 시트이거나, 표가 아닌 내용만 있습니다.",
+  "app.sheet.toowide": "이 시트는 열이 {columns}개로, 열어 볼 수 있는 범위를 초과합니다.",
   "app.header.assumed":
     "'{sheet}' 의 헤더를 찾지 못해 첫 행을 헤더로 가정했습니다. 위 도구 모음에서 지정해 주십시오.",
 

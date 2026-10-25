@@ -45,6 +45,9 @@ pub enum ErrorCode {
     SheetColumnMissing,
     /// 표를 생성하거나 행을 삽입하지 못했다.
     SheetTableFailed,
+    /// 시트의 열이 조회 엔진이 수용하는 수를 초과한다. **개방을 시도하기 전에
+    /// 진술한다** — 그러지 않으면 열은 전부 묘사되는데 자료만 도달하지 않는다.
+    SheetTooWide,
     /// csv 의 문자 표기를 판별하지 못했다. UTF-8 도 CP949 도 아니다.
     /// **훼손된 문자를 표시하지 않는다** — 그러면 사전이 묵시적으로 분기한다.
     SheetEncodingUnknown,

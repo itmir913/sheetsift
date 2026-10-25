@@ -38,7 +38,7 @@ rand = "0.9"
 ed25519-dalek = { version = "2", default-features = false, features = ["std", "zeroize"] }
 sheetsift-aead = { path = "../aead" }
 # serialize: 봉인한 알맹이를 임시 파일 없이 메모리에서 개방한다.
-rusqlite = { version = "0.40", features = ["bundled", "serialize"] }
+rusqlite = { version = "0.40", features = ["bundled", "serialize", "limits"] }
 # `zeroize` 는 기본에 부재한다. 활성화하지 않으면 상자 내부의 **소거하는 코드가
 # 컴파일에서 전부 누락된다** — 64 MiB 의 Argon2 작업 메모리가 소거되지 않은 채
 # 해제된다.

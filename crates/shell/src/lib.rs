@@ -133,6 +133,9 @@ pub struct ScreenView {
     pub header_guessed: bool,
     /// 시트의 총 행 수. 조작부가 지정 가능한 범위의 상한이다.
     pub sheet_rows: usize,
+    /// 열이 조회 엔진의 상한을 초과하는가. **개방하기 전에 진술한다** —
+    /// 그러지 않으면 열은 전부 묘사되는데 자료만 도달하지 않는다.
+    pub too_wide: bool,
     /// 이 시트가 양식에서 개시되는 **행**(0부터).
     ///
     /// 조작부는 헤더 위치를 **엑셀의 행 번호로** 표시해야 한다. 1~5행이
@@ -416,6 +419,12 @@ impl Viewer {
     /// 요청이 시트별 헤더 지정을 지참한다. 기재하지 않은 시트는 추정값을
     /// 적용한다.
     pub fn list_screens(&self, ask: &CatalogAsk) -> ScreenCatalog {
+        /* 상한은 컴파일 시점에 결정되어 연결만 진술할 수 있다. 판독하지
+           못하면 초과를 진술하지 않는다 — 그 경우의 중단은 개방 시점에
+           `SheetTooWide` 로 도달한다. */
+        let limit = Connection::open_in_memory()
+            .ok()
+            .and_then(|c| sheet::column_limit(&c).ok());
         ScreenCatalog {
             groups: vec![self.group.clone()],
             foot_groups: Vec::new(),
@@ -437,6 +446,7 @@ impl Viewer {
                         header: shape.spec,
                         header_guessed: shape.guessed,
                         sheet_rows: t.height(),
+                        too_wide: limit.is_some_and(|m| shape.view.len() > m),
                         row_origin: t.data.origin.0,
                     }
                 })
@@ -757,6 +767,33 @@ mod tests {
         let page = v.query_rows(&ask("넓은표", 10)).unwrap();
         assert_eq!(page.rows.len(), 1);
         assert_eq!(page.rows[0].len(), width, "열이 전부 도달하지 않았습니다");
+    }
+
+    /// **상한을 초과하는 시트는 목록이 그 사실을 진술한다.**
+    ///
+    /// 종전에는 목록이 열을 전부 산출하고 조회만 `SheetTableFailed` 로
+    /// 중단되었다 — 화면은 열 2만 개를 묘사해 두고 자료를 영구히 수령하지
+    /// 못했다. 상한은 연결만 진술할 수 있어 수를 기재하지 않고 판독한다.
+    #[test]
+    fn a_sheet_wider_than_the_engine_allows_is_marked_in_the_list() {
+        let limit = {
+            let conn = Connection::open_in_memory().unwrap();
+            sheet::column_limit(&conn).unwrap()
+        };
+        let width = limit + 1;
+        let head = (0..width).map(|i| format!("열{i}")).collect::<Vec<_>>().join(",");
+        let body = (0..width).map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+        let csv = format!("{head}
+{body}
+");
+
+        let mut v = Viewer::open(csv.as_bytes(), "과대표.csv").unwrap();
+        let s = screen(&v, 0);
+        assert_eq!(s.columns.len(), width);
+        assert!(s.too_wide, "초과를 진술하지 않습니다");
+
+        let err = v.query_rows(&ask("과대표", 10)).unwrap_err();
+        assert_eq!(err.code, ErrorCode::SheetTooWide, "사유를 진술하지 않습니다");
     }
 
     /// **헤더보다 넓은 본문의 열이 화면에 도달한다.**
