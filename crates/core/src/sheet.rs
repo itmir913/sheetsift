@@ -107,22 +107,39 @@ fn number(f: f64) -> String {
 /// 경과 시간(`[hh]:mm:ss`)은 날짜가 아니다. 24시간을 초과하는 값이 존재하므로
 /// 시를 절단하지 않고 그대로 누적해 기재한다.
 fn datetime(d: &calamine::ExcelDateTime) -> String {
+    /* **환산할 수 없는 수는 환산하지 않는다.** 엑셀은 날짜·시간 서식을 임의의
+       수에 부여할 수 있고(화면에는 `####` 이 묘사된다), 그 수가 극단이면 환산이
+       **중단되거나 허위 값을 산출한다** — 덧셈이 넘쳐 패닉하거나, 포화된 정수가
+       `2562047788015215:30:07` 같은 시간이 된다. 수는 수 그대로 기재한다. */
+    let serial = d.as_f64();
+    if !serial.is_finite() {
+        return number(serial);
+    }
+
     if d.is_duration() {
-        let total = (d.as_f64() * 86_400.0).round() as i64;
+        // 경과 시간은 날짜가 아니라 기간이다. 1e6 일(약 2,700년)을 초과하는
+        // 기간은 양식의 오기이지 사람이 기재한 값이 아니다.
+        if serial.abs() > 1e6 {
+            return number(serial);
+        }
+        let total = (serial * 86_400.0).round() as i64;
         let (h, m, s) = (total / 3_600, (total / 60) % 60, total % 60);
         return format!("{h}:{m:02}:{s:02}");
     }
-    /* **날짜로 환산할 수 없는 수는 환산하지 않는다.** 엑셀은 날짜 서식을 임의의
-       수에 부여할 수 있고(화면에는 `####` 이 묘사된다), 그 수가 극단이면 환산이
-       **중단된다** — 상자 내부에서 덧셈이 넘쳐 패닉하고, 그것은 창과 브라우저
-       양측에서 포착되지 않는다. 날짜가 아닌 것은 수 그대로 기재한다. */
-    const FIRST: f64 = -693_593.0; // 0001-01-01
+
+    /* **0 이하는 날짜가 아니다.** 엑셀의 일련번호는 1 이 1900-01-01 이고 0 과
+       음수에는 대응하는 날짜가 부재하다. 그것을 환산하면 상이한 수들이 전부
+       `1899-12-31` 이라는 **동일한 문자로 병합된다** — 자료가 소멸한다. */
     const LAST: f64 = 2_958_465.0; // 9999-12-31
-    let serial = d.as_f64();
-    if !serial.is_finite() || serial < FIRST || serial > LAST {
+    if serial <= 0.0 || serial > LAST {
         return number(serial);
     }
+
     let (y, mon, day, h, min, sec, _) = d.to_ymd_hms_milli();
+    if serial < 1.0 {
+        // 날짜가 부재하고 시각만 기재된 셀. 엑셀도 시각만 묘사한다.
+        return format!("{h:02}:{min:02}:{sec:02}");
+    }
     if (h, min, sec) == (0, 0, 0) {
         format!("{y:04}-{mon:02}-{day:02}")
     } else {
@@ -647,10 +664,23 @@ mod tests {
         let huge = Data::DateTime(ExcelDateTime::new(1e300, DateTime, false));
         assert!(cell(&huge).starts_with('1'), "{}", cell(&huge));
         assert!(!cell(&huge).contains('-'), "날짜로 환산했습니다");
-        let negative = Data::DateTime(ExcelDateTime::new(-1e9, DateTime, false));
-        assert!(!cell(&negative).is_empty());
         let infinite = Data::DateTime(ExcelDateTime::new(f64::INFINITY, DateTime, false));
         assert_eq!(cell(&infinite), "inf");
+
+        /* **0 이하는 날짜가 아니다.** 환산하면 상이한 수들이 전부
+           `1899-12-31` 이라는 동일한 문자로 병합되어 자료가 소멸한다. */
+        for v in [0.0, -1.0, -693_593.0, -1e9] {
+            let at = Data::DateTime(ExcelDateTime::new(v, DateTime, false));
+            assert_eq!(cell(&at), number(v), "{v} 를 날짜로 환산했습니다");
+        }
+
+        // 날짜가 부재하고 시각만 기재된 셀은 시각만 묘사한다.
+        let noon = Data::DateTime(ExcelDateTime::new(0.5, DateTime, false));
+        assert_eq!(cell(&noon), "12:00:00");
+
+        // 경과 시간이 포화해 허위 시간을 산출하지 않는다.
+        let forever = Data::DateTime(ExcelDateTime::new(1e300, TimeDelta, false));
+        assert!(!cell(&forever).contains(':'), "{}", cell(&forever));
     }
 
     /// **열쇠가 충돌하면 표가 생성되지 않는다.**
