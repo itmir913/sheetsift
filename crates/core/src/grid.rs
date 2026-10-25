@@ -304,16 +304,18 @@ fn values_order_sql(expr: &str, blank: &str, numeric: bool) -> String {
 }
 
 fn not_a_number_sql(base: &str) -> String {
-    let n = number_sql(base);
-    /* 변환이 0 을 산출한 값 중 **실제로 0 인 것**을 판별한다. 부호·0·소수점·
-       구분 기호를 제거하고 공백 문자가 잔류하면 그것이다. GLOB 에는 반복을
-       지정하는 수단이 부재해 그 제거를 문자 치환으로 수행한다. */
-    let zeroish = ["','", "'0'", "'.'", "'-'", "'+'", "' '"]
-        .iter()
-        .fold(base.to_string(), |acc, ch| format!("REPLACE({acc}, {ch}, '')"));
-    /* 0 이 하나는 기재되어 있어야 실제 0 이다. `+` 나 `.` 만 기재된 셀은 제거
-       이후에도 공백이 되는데, 그것은 수치가 아니다. */
-    format!("(CASE WHEN {n} <> 0 OR ({zeroish} = '' AND {base} GLOB '*0*') THEN 0 ELSE 1 END) ASC")
+    /* **전체가 수치의 형태인지 판정한다.** 변환 결과가 0 이 아닌지로 판정하면
+       `3 apples`·`12abc`·`7점` 처럼 수치가 **접두사로** 기재된 문자가 그 수치의
+       위치로 정렬된다 — SQLite 의 변환이 접두사를 수용하기 때문이다. 합계 행이
+       그 자리에 삽입되는 것과 동일한 사고다.
+
+       숫자가 하나는 존재하고, 숫자·부호·소수점·구분 기호 외의 문자가 부재해야
+       한다. GLOB 에는 반복을 지정하는 수단이 부재하므로 "포함하지 않는가" 로
+       판정한다. */
+    format!(
+        "(CASE WHEN {base} GLOB '*[0-9]*' AND NOT {base} GLOB '*[^0-9.,+ -]*' \
+         THEN 0 ELSE 1 END) ASC"
+    )
 }
 
 fn unknown_column(table: &dyn Table, key: &str, what: &str) -> Error {
@@ -790,6 +792,31 @@ mod tests {
         let desc = query(vec![s("score", SortDir::Desc)], vec![]);
         let page = run(&conn, &t, BLANK, &desc).unwrap();
         assert_eq!(names(&page), ["하나", "영", "합계", "공백"]);
+    }
+
+    /// **수치가 접두사로 기재된 문자가 그 수치의 위치로 정렬되지 않는다.**
+    ///
+    /// SQLite 의 변환은 접두사를 수용하므로 `3 apples` 가 3 의 자리에, `12abc`
+    /// 가 12 의 자리에 삽입된다. 표를 판독하는 사람에게 그것은 수치다.
+    #[test]
+    fn text_that_merely_starts_with_a_number_sorts_after_the_numbers() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE people(name TEXT, score TEXT);
+             INSERT INTO people VALUES
+               ('셋', '3'), ('사과', '3 apples'), ('열둘', '12'), ('뒤섞', '12abc'),
+               ('지수', '1e'), ('점', '7점');",
+        )
+        .unwrap();
+        let mut t = T {
+            columns: vec![col("name", ColumnKind::Text, false), col("score", ColumnKind::Number, false)],
+        };
+        assign_aliases(t.columns.iter_mut());
+
+        let page = run(&conn, &t, BLANK, &query(vec![s("score", SortDir::Asc)], vec![])).unwrap();
+        let got = names(&page);
+        assert_eq!(&got[..2], ["셋", "열둘"], "수치가 아닌 것이 수치 사이에 삽입되었습니다: {got:?}");
+        assert_eq!(got.len(), 6);
     }
 
     /// **천 단위 구분이 부착된 수치가 구분 앞자리로 정렬되지 않는다.**

@@ -89,7 +89,16 @@ impl Error {
     }
 
     pub fn detail(mut self, detail: impl ToString) -> Self {
-        self.detail = Some(detail.to_string());
+        /* **원문을 절단한다.** 조회가 중단되면 상자가 질의 전체를 사유에
+           부착하는 경우가 존재하고, 조건에 값이 수만 개 기재된 질의는 그것이
+           수백 KB 다. 그 문자는 화면으로 전송되고 기록에 적재된다 — 판독하는
+           사람에게 유용한 것은 선두뿐이다. */
+        const LIMIT: usize = 2000;
+        let text = detail.to_string();
+        self.detail = Some(match text.char_indices().nth(LIMIT) {
+            Some((at, _)) => format!("{}…", &text[..at]),
+            None => text,
+        });
         self
     }
 }

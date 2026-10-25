@@ -434,7 +434,13 @@ pub fn layout(sheet: &Sheet, blank: &str) -> Layout {
 /// 범위가 시트를 이탈하면 **열이 부재하는 구조**를 반환한다. 임의로 보정하면
 /// 사용자가 지정한 것과 상이한 표가 묵시적으로 표시된다.
 pub fn layout_at(sheet: &Sheet, blank: &str, at: usize, rows: usize) -> Layout {
-    if rows == 0 || at + rows > sheet.rows.len() {
+    /* **넘치는 덧셈을 수행하지 않는다.** 지정은 화면이 송신하는 값이라 임의의
+       수가 도달할 수 있고, 넘치면 그 자리에서 중단되거나(시험·개발 빌드) 0 으로
+       순환해 검사를 통과한다(배포 빌드) — 후자는 묵시적이다. */
+    let Some(end) = at.checked_add(rows) else {
+        return Layout { header: Header::Unknown, columns: Vec::new() };
+    };
+    if rows == 0 || end > sheet.rows.len() {
         return Layout { header: Header::Unknown, columns: Vec::new() };
     }
     Layout {
