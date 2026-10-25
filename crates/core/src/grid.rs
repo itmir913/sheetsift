@@ -94,6 +94,11 @@ impl Column {
     pub fn base_ref(&self) -> String {
         format!("t.\"{}\"", self.column)
     }
+    /// 별칭이 부재하는 열 참조. 색인 정의에 사용한다 — 거기에는 테이블 별칭을
+    /// 기재할 수 없다.
+    pub fn plain_ref(&self) -> String {
+        format!("\"{}\"", self.column)
+    }
     /// 화면에 노출할 식. 사전 열은 조인한 문자열을 사용한다.
     pub fn display_ref(&self) -> String {
         if self.dict {
@@ -474,12 +479,20 @@ fn build_where(
     Ok((sql, binds))
 }
 
-/// ORDER BY 절. 배열 순서가 그대로 정렬 우선순위(1순위, 2순위, …)다.
+/// 정렬 열쇠를 열 순서대로. 배열 순서가 그대로 정렬 우선순위(1순위, 2순위, …)다.
 /// 사전 인코딩 열은 id 자체가 가나다순이라 조인 없이 정수 정렬로 완결된다.
-fn build_order(table: &dyn Table, sorts: &[Sort], blank: &str) -> Result<String> {
-    if sorts.is_empty() {
-        return Ok(String::new());
-    }
+///
+/// `qualified` 는 열을 `t."열"` 로 참조할 것인지를 결정한다. **동일한 목록이
+/// ORDER BY 와 색인 정의 양측에 사용되어야 한다** — 한 문자라도 상이하면
+/// SQLite 가 그 색인을 정렬에 사용하지 않고, 그 사실은 어디에서도 오류로
+/// 출현하지 않는다(완결되는 데 수 초를 소요하는 것으로만 발현한다). 색인
+/// 정의는 테이블 별칭을 수용하지 않아 참조만 분기한다.
+fn order_keys(
+    table: &dyn Table,
+    sorts: &[Sort],
+    blank: &str,
+    qualified: bool,
+) -> Result<Vec<String>> {
     let mut parts = Vec::with_capacity(sorts.len());
     for s in sorts {
         let col = table
@@ -492,7 +505,7 @@ fn build_order(table: &dyn Table, sorts: &[Sort], blank: &str) -> Result<String>
             SortDir::Asc => "ASC",
             SortDir::Desc => "DESC",
         };
-        let base = col.base_ref();
+        let base = if qualified { col.base_ref() } else { col.plain_ref() };
         // 값 부재는 방향과 무관하게 항상 후위로 배치한다. 무엇이 부재인지는 자료가 결정한다.
         let missing = format!("{} ASC", is_blank_sql(&base, blank));
         let expr = if col.dict {
@@ -505,10 +518,96 @@ fn build_order(table: &dyn Table, sorts: &[Sort], blank: &str) -> Result<String>
         };
         parts.push(format!("{missing}, {expr} {dir}"));
     }
+    Ok(parts)
+}
+
+/// ORDER BY 절.
+fn build_order(table: &dyn Table, sorts: &[Sort], blank: &str) -> Result<String> {
+    let parts = order_keys(table, sorts, blank, true)?;
     if parts.is_empty() {
         return Ok(String::new());
     }
     Ok(format!(" ORDER BY {}", parts.join(", ")))
+}
+
+/// 정렬 색인의 명칭 접두. 이 접두를 보유한 색인은 여기서 생성한 것이다.
+const SORT_INDEX_PREFIX: &str = "sheetsift_sort_";
+
+/// 정렬 색인을 생성할 행 수의 하한.
+///
+/// 이보다 소수의 행은 전량 정렬이 이미 즉시 완결되어, 색인은 구축 비용만
+/// 추가한다.
+const SORT_INDEX_LEAST: i64 = 20_000;
+
+/// 열쇠 목록에서 색인 명칭을 산출한다(FNV-1a).
+///
+/// 명칭에 열 명칭을 기재하지 않는다 — 열쇠는 식이라 SQLite 의 식별자에
+/// 수용되지 않는 문자를 포함한다.
+fn fingerprint(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.as_bytes() {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x100_0000_01b3);
+    }
+    h
+}
+
+/// 현 정렬에 대응하는 식 색인을 배치한다.
+///
+/// 정렬 열쇠는 식(`CAST(REPLACE(…))`·`GLOB`)이라 어떠한 열 색인도 사용되지
+/// 않는다. 그 결과 **마지막 페이지를 요청하면 SQLite 가 전 행을 정렬한다** —
+/// 30만 행에서 수 초다. 동일한 식으로 색인을 1회 구축하면 그 이후의 페이지
+/// 이동은 즉시 완결된다.
+///
+/// **표마다 하나만 존치한다.** 열을 변경하며 정렬할 때마다 적재하면 자료와
+/// 동급의 메모리가 정렬 횟수만큼 누적된다. 선행하는 것은 소거하므로, 한
+/// 정렬을 열람하는 동안만 구축 비용을 1회 부담한다.
+///
+/// **실패를 오류로 반환하지 않는다.** 봉인한 `.sift` 는 읽기 전용으로 적재되어
+/// 생성이 거부되는데, 색인이 부재해도 산출되는 행과 그 순서는 동일하다 —
+/// 소요 시간만 상이하다.
+fn ensure_sort_index(conn: &Connection, table: &dyn Table, sorts: &[Sort], blank: &str, total: i64) {
+    if total < SORT_INDEX_LEAST {
+        return;
+    }
+    let Ok(parts) = order_keys(table, sorts, blank, false) else {
+        return;
+    };
+    if parts.is_empty() {
+        return;
+    }
+    let keys = parts.join(", ");
+    let base = table.base();
+    let name = format!("{SORT_INDEX_PREFIX}{:016x}", fingerprint(&format!("{base}\u{0}{keys}")));
+
+    // 이미 존재하면 아무것도 수행하지 않는다. 페이지를 이동할 때마다 도달한다.
+    let exists: std::result::Result<i64, _> = conn.query_row(
+        "SELECT 1 FROM sqlite_schema WHERE type = 'index' AND name = ?1",
+        [&name],
+        |r| r.get(0),
+    );
+    if exists.is_ok() {
+        return;
+    }
+
+    // 동일 표의 선행 정렬 색인을 소거한다.
+    let stale: Vec<String> = conn
+        .prepare(
+            "SELECT name FROM sqlite_schema \
+             WHERE type = 'index' AND tbl_name = ?1 AND name LIKE ?2",
+        )
+        .and_then(|mut st| {
+            let rows = st.query_map(rusqlite::params![base, format!("{SORT_INDEX_PREFIX}%")], |r| {
+                r.get::<_, String>(0)
+            })?;
+            rows.collect()
+        })
+        .unwrap_or_default();
+    for old in stale {
+        let _ = conn.execute_batch(&format!("DROP INDEX IF EXISTS \"{old}\""));
+    }
+
+    let _ = conn.execute_batch(&format!("CREATE INDEX \"{name}\" ON {base}({keys})"));
 }
 
 fn value_to_json(v: ValueRef<'_>) -> Json {
@@ -537,6 +636,10 @@ pub fn run(conn: &Connection, table: &dyn Table, blank: &str, q: &Query) -> Resu
     // 전체 행 수. 기준 테이블만 참조하므로 조인이 전혀 없다.
     let count_sql = format!("SELECT COUNT(*) FROM {base} t{where_sql}", base = table.base());
     let total: i64 = conn.query_row(&count_sql, params.as_slice(), |r| r.get(0))?;
+
+    /* 정렬 열쇠가 식이라 색인이 부재하면 전 행을 정렬한다. 행 수는 상기
+       집약으로 이미 판별했으므로 그것으로 필요를 판정한다. */
+    ensure_sort_index(conn, table, &q.sorts, blank, total);
 
     // 본문: 내부에서 정렬·LIMIT 으로 행을 축소한 뒤, 그 수십 행에만 dict 를 조인한다.
     let select_list = table
@@ -698,14 +801,16 @@ mod tests {
     /// 시험용 표. 정의는 코드에 기재하나 **조회는 정의만 참조해 수행한다.**
     struct T {
         columns: Vec<Column>,
+        /// 기준 테이블 명칭. 시험마다 상이한 표를 수용한다.
+        base: String,
     }
 
     impl Table for T {
         fn id(&self) -> &str {
-            "people"
+            &self.base
         }
         fn base(&self) -> &str {
-            "people"
+            &self.base
         }
         fn columns(&self) -> Box<dyn Iterator<Item = &Column> + '_> {
             Box::new(self.columns.iter())
@@ -741,6 +846,7 @@ mod tests {
         )
         .unwrap();
         let mut t = T {
+            base: "people".into(),
             columns: vec![
                 col("name", ColumnKind::Text, false),
                 col("city", ColumnKind::Text, true),
@@ -785,7 +891,7 @@ mod tests {
                ('영', '0'), ('합계', '총 44850점'), ('하나', '1'), ('공백', '');",
         )
         .unwrap();
-        let mut t = T { columns: vec![col("name", ColumnKind::Text, false), col("score", ColumnKind::Number, false)] };
+        let mut t = T { base: "people".into(), columns: vec![col("name", ColumnKind::Text, false), col("score", ColumnKind::Number, false)] };
         assign_aliases(t.columns.iter_mut());
 
         let asc = query(vec![s("score", SortDir::Asc)], vec![]);
@@ -813,6 +919,7 @@ mod tests {
         )
         .unwrap();
         let mut t = T {
+            base: "people".into(),
             columns: vec![col("name", ColumnKind::Text, false), col("score", ColumnKind::Number, false)],
         };
         assign_aliases(t.columns.iter_mut());
@@ -835,7 +942,7 @@ mod tests {
              INSERT INTO people VALUES ('천이백', '1,200'), ('구백팔십', '980'), ('오십', '50');",
         )
         .unwrap();
-        let mut t = T { columns: vec![col("name", ColumnKind::Text, false), col("score", ColumnKind::Number, false)] };
+        let mut t = T { base: "people".into(), columns: vec![col("name", ColumnKind::Text, false), col("score", ColumnKind::Number, false)] };
         assign_aliases(t.columns.iter_mut());
 
         let page = run(&conn, &t, BLANK, &query(vec![s("score", SortDir::Asc)], vec![])).unwrap();
@@ -857,7 +964,7 @@ mod tests {
             sql.push_str(&format!(", ('가{i:05}')"));
         }
         conn.execute_batch(&sql).unwrap();
-        let mut t = T { columns: vec![col("v", ColumnKind::Text, false)] };
+        let mut t = T { base: "people".into(), columns: vec![col("v", ColumnKind::Text, false)] };
         assign_aliases(t.columns.iter_mut());
 
         let got = column_values(&conn, &t, BLANK, "v", &[], "").unwrap();
@@ -877,6 +984,7 @@ mod tests {
         )
         .unwrap();
         let mut t = T {
+            base: "people".into(),
             columns: vec![col("name", ColumnKind::Text, false), col("v", ColumnKind::Text, false)],
         };
         assign_aliases(t.columns.iter_mut());
@@ -908,7 +1016,7 @@ mod tests {
              INSERT INTO people VALUES (''), ('(가)'), ('+5'), ('-'), ('100'), (NULL);",
         )
         .unwrap();
-        let mut t = T { columns: vec![col("v", ColumnKind::Text, false)] };
+        let mut t = T { base: "people".into(), columns: vec![col("v", ColumnKind::Text, false)] };
         assign_aliases(t.columns.iter_mut());
 
         let got = column_values(&conn, &t, BLANK, "v", &[], "").unwrap();
@@ -932,7 +1040,7 @@ mod tests {
              INSERT INTO people VALUES ('100'), ('20'), ('9'), ('-5'), ('1,200'), ('');",
         )
         .unwrap();
-        let mut t = T { columns: vec![col("v", ColumnKind::Number, false)] };
+        let mut t = T { base: "people".into(), columns: vec![col("v", ColumnKind::Number, false)] };
         assign_aliases(t.columns.iter_mut());
 
         let got = column_values(&conn, &t, BLANK, "v", &[], "").unwrap();
@@ -997,7 +1105,7 @@ mod tests {
              INSERT INTO people VALUES ('abc'), ('ABC'), ('Àbc'), ('àbc');",
         )
         .unwrap();
-        let mut t = T { columns: vec![col("name", ColumnKind::Text, false)] };
+        let mut t = T { base: "people".into(), columns: vec![col("name", ColumnKind::Text, false)] };
         assign_aliases(t.columns.iter_mut());
 
         let page = run(&conn, &t, BLANK, &query(vec![], vec![contains("name", "ABC")])).unwrap();
@@ -1146,6 +1254,93 @@ mod tests {
             cols.iter().map(|c| c.alias.as_str()).collect::<Vec<_>>(),
             ["d1", "d1", "d2"]
         );
-        assert_eq!(dict_joins(&T { columns: cols }).matches("LEFT JOIN").count(), 2);
+        assert_eq!(dict_joins(&T { base: "people".into(), columns: cols }).matches("LEFT JOIN").count(), 2);
+    }
+
+    /// 정렬 색인 시험용. 하한을 초과하는 수의 행을 수용한다.
+    fn big() -> (Connection, T) {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE big(name TEXT, score TEXT);").unwrap();
+        {
+            let tx = conn.unchecked_transaction().unwrap();
+            let mut st = conn.prepare("INSERT INTO big VALUES(?1, ?2)").unwrap();
+            for i in 0..(SORT_INDEX_LEAST + 1) {
+                let v = (i * 7919) % (SORT_INDEX_LEAST + 1);
+                st.execute(rusqlite::params![format!("n{i}"), format!("{v}")]).unwrap();
+            }
+            drop(st);
+            tx.commit().unwrap();
+        }
+        let mut t = T {
+            base: "big".into(),
+            columns: vec![col("name", ColumnKind::Text, false), col("score", ColumnKind::Number, false)],
+        };
+        assign_aliases(t.columns.iter_mut());
+        (conn, t)
+    }
+
+    fn sort_indexes(conn: &Connection) -> Vec<String> {
+        let mut st = conn
+            .prepare("SELECT name FROM sqlite_schema WHERE type = 'index' AND name LIKE 'sheetsift_sort_%' ORDER BY name")
+            .unwrap();
+        let rows = st.query_map([], |r| r.get::<_, String>(0)).unwrap();
+        rows.map(|r| r.unwrap()).collect()
+    }
+
+    /// **색인이 실제로 정렬에 사용되는가.** 식이 한 문자라도 상이하면 SQLite 는
+    /// 그것을 사용하지 않고 전 행을 정렬하는데, 산출되는 행은 동일해 어떠한
+    /// 시험도 그 사실을 발견하지 못한다. 계획을 판독해 확인한다.
+    #[test]
+    fn sorting_a_large_table_does_not_sort_every_row() {
+        let (conn, t) = big();
+        let q = query(vec![s("score", SortDir::Asc)], vec![]);
+        run(&conn, &t, BLANK, &q).unwrap();
+
+        let names = sort_indexes(&conn);
+        assert_eq!(names.len(), 1, "정렬마다 색인 하나");
+
+        let order = build_order(&t, &q.sorts, BLANK).unwrap();
+        let sql = format!("SELECT * FROM big t{order} LIMIT 100 OFFSET {}", SORT_INDEX_LEAST - 50);
+        let plan: Vec<String> = {
+            let mut st = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+            let rows = st.query_map([], |r| r.get::<_, String>(3)).unwrap();
+            rows.map(|r| r.unwrap()).collect()
+        };
+        let plan = plan.join(" | ");
+        assert!(plan.contains(&names[0]), "색인을 경유하지 않는다: {plan}");
+        assert!(!plan.contains("TEMP B-TREE FOR ORDER BY"), "전 행을 정렬한다: {plan}");
+    }
+
+    /// 열을 변경해 정렬하면 선행 색인을 소거한다. 존치하면 자료와 동급의
+    /// 메모리가 정렬 횟수만큼 누적된다.
+    #[test]
+    fn only_the_current_sort_keeps_an_index() {
+        let (conn, t) = big();
+        run(&conn, &t, BLANK, &query(vec![s("score", SortDir::Asc)], vec![])).unwrap();
+        let first = sort_indexes(&conn);
+        run(&conn, &t, BLANK, &query(vec![s("name", SortDir::Desc)], vec![])).unwrap();
+        let second = sort_indexes(&conn);
+        assert_eq!(second.len(), 1);
+        assert_ne!(first, second, "방향과 열이 상이하면 상이한 색인이다");
+    }
+
+    /// 하한 미만의 표에는 생성하지 않는다. 구축 비용만 추가된다.
+    #[test]
+    fn a_small_table_gets_no_index() {
+        let (conn, t) = fixture();
+        run(&conn, &t, BLANK, &query(vec![s("score", SortDir::Asc)], vec![])).unwrap();
+        assert!(sort_indexes(&conn).is_empty());
+    }
+
+    /// **생성하지 못해도 조회는 완결된다.** 봉인한 `.sift` 는 읽기 전용으로
+    /// 적재되어 생성이 거부되는데, 색인이 부재해도 산출되는 순서는 동일하다.
+    #[test]
+    fn a_read_only_database_still_answers() {
+        let (conn, t) = big();
+        conn.execute_batch("PRAGMA query_only = ON;").unwrap();
+        let page = run(&conn, &t, BLANK, &query(vec![s("score", SortDir::Asc)], vec![])).unwrap();
+        assert!(sort_indexes(&conn).is_empty());
+        assert_eq!(page.rows.len(), 100);
+        assert_eq!(page.rows[0][1].as_str(), Some("0"));
     }
 }
