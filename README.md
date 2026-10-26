@@ -1,110 +1,69 @@
 # sheetsift
 
-대형 표(xlsx·csv)를 신속히 개방해 **정렬·필터로 조회하는 읽기 전용 도구**의 바탕.
+**Read Excel files without opening Excel.**
 
-xlsx 는 zip 내부의 XML 이라 직접 판독해서는 신속히 조회할 수 없다. 1회 SQLite 로
-변환해 두고, 반복되는 문자는 사전(dict)으로 압축해 정렬·필터를 정수 비교로
-종료한다.
+Opening a spreadsheet just to look something up means waiting for a heavy
+application to start, loading the whole workbook into memory, and risking an
+accidental edit to a file you only wanted to read. sheetsift is the read-only
+alternative: open a large `xlsx` or `csv` and get sorting, filtering and search
+that stay fast on sheets that make Excel crawl.
 
-## 상자
+- **Read-only.** The source file is never written to.
+- **Fast on large sheets.** Sorting and filtering stay responsive where a
+  spreadsheet application stalls.
+- **Private.** In the browser the data never leaves it — there is nowhere to
+  send it. The desktop build talks to no network at all.
+- **Two builds, one core.** A desktop app (tauri) and a browser app (wasm) run
+  the same code.
 
-| 상자 | 담당 작업 |
-|---|---|
-| `crates/core` | 표 변환(`sheet`), 구조 식별(`infer`), 수용 형식(`sift`), 조회 엔진(`grid`), 비밀번호 봉투(`vault`), 서명한 그릇(`seal`) |
-| `crates/aead` | AES-256-GCM 한 겹. 개발 빌드에서도 최적화해 실행하려고 분리 배치한다 |
-| `crates/shell` | 플랫폼 중립 알맹이(`Viewer`). 변환한 연결·열 정의·요청을 단일 위치에 결속한다 |
-| `crates/wasm` | 바탕을 브라우저에 부착하는 껍질. `wasm_bindgen` 은 이 상자에만 존재한다 |
-| `crates/desk` | 창이 호출하는 명령과 **파일 판독·기록**. 통상 Rust 라 관문이 전부 참조한다 |
-| `crates/tauri` | 그 명령을 창에 부착하는 tauri 앱. 워크스페이스 외부라 `ci:tauri` 가 담당한다 |
-| `web/` | Vite + Vue 조회 화면. 표·정렬·필터·인쇄까지 동작한다 |
+## Why it is fast
 
-## 사용하지 않는 층은 도입하지 않는다
+An `xlsx` is XML inside a zip, which cannot be queried directly at speed. The
+sheet is converted once into SQLite; repeated strings are interned into a
+dictionary, so sorting and filtering reduce to integer comparisons.
 
-`sift` 와 `infer` 는 **활성화해야 도입된다.** 기본은 전부 활성화한 것이고,
-축소하려는 앱이 선별해 비활성화한다.
+A converted sheet can be kept as a `.sift` file and reopened without converting
+again. It is password-sealed by default, because a sheet may contain people's
+names.
 
-```toml
-sheetsift-core = { git = "…", rev = "…", default-features = false }
-```
+## Running it
 
-코드가 감소하는 것이 요점이 아니다. **오류 코드가 단일 enum 이라서** 그렇다 —
-여기 코드를 하나 증가시키면 그것을 사용하지 않는 앱까지 사람이 판독할 문구를
-한 행 기재해야 하고, 그 문구는 영영 화면에 출현할 수 없다. 활성화하지 않은 층의
-코드는 enum 에 전무하다.
-
-`core` 는 tauri 도 파일 시스템도 인지하지 않는다. 바이트를 수령하고 바이트를
-반환한다 — 데스크톱과 웹(wasm)이 동일한 코드를 사용하려면 그래야 한다.
-
-## `.sift`
-
-변환해 둔 것을 파일로 수용하는 형식이다. 알맹이는 `sheet` 가 생성한 SQLite
-그대로이고, 거기에 **어디서 유래한 자료인지**(명칭·크기·해시)와 열 정보를 한 행
-추가 수용한다. 사본은 원본이 변경되면 노후화하므로, 재개방할 때 동일한 원본에서
-산출된 것인지를 그 위치에서 판별할 수 있어야 한다.
-
-**비밀번호 봉투가 기본이다.** 표에는 사람 성명이 포함될 수 있고, 수용할 때
-선택하게 하면 누구도 선택하지 않는다. 평문으로 수용하는 경로는 별도로 존재하고,
-사용하는 곳이 의도적으로 호출해야 한다.
-
-**열쇠는 여기 부재한다.** 봉인 대칭키·서명 공개키·매직은 부르는 앱이 주입한다.
-이 저장소는 공개되어 있어, 여기 기재한 열쇠는 누구나 인지하는 열쇠가 된다.
-
-## 시험
-
-```bash
-npm run ci
-```
-
-관문은 이 명령 하나다. 내부는 조각으로 분할되어 있고 **조각의 목록은
-`package.json` 에만 존재한다** — 여기 전재하면 두 벌이 되고, 조각을 하나
-증가시킨 시점에 한쪽만 수정된다. 액션도 잡마다 그 조각을 호출할 뿐 검사를 별도
-기재하지 않는다. **명령을 신규 생성하지 않는다** — 외부에 배치하면 어디선가만
-실행되고 어디선가는 실행되지 않게 된다.
-
-`ci:gate` 에 **문자로 판독하는 관문**이 함께 포함되어 있다
-(`crates/core/tests/secrets.rs`). 복호화한 평문과 열쇠가 자동 소거되는 그릇에
-수용되는지, 소멸할 때 소거하고 출력될 때 은폐하는지, 암호 크레이트의 소거 기능이
-컴파일에 존치되는지를 소스를 판독해 확인한다. 실행하는 시험으로는 확인할 수 없는
-위치라 그렇다 — 소거하는 행이 누락되어도 결과는 정확하고 녹색이 표시된다.
-
-**수호 대상을 탐색하지 못하면 통과가 아니라 실패다.** 그리고 그 관문 자체가
-아무것도 확인하지 않게 되는 것도 동일하게 묵시적이므로, 의도적으로 훼손한 소스를
-투입해 정지하는지를 동일 파일에서 확인한다.
-
-`ci:wasm` 은 웹에서도 작동하는지를 **거기서 1회 실행해** 확인한다. 컴파일되는
-것과 작동하는 것은 상이하다 — 운영체제가 부재해 호출하는 순간 패닉하는 함수가
-존재한다. 이 조각은 clang 을 요구하므로 현재 실제로 작동하는 위치는 액션 러너
-뿐이다.
-
-무엇이 가능하고 무엇이 불가능한지는 `docs/wasm.md` 에 기재해 두었다.
-
-구조를 식별하는 작업(`infer`)이 어디까지 가능한지는 `docs/infer.md` 에 존재한다.
-
-## 창에서 개방하기
+In a window:
 
 ```bash
 npm run dev:tauri
 ```
 
-화면은 동일한 것이다. 상이한 것은 **개방하는 위치 하나** — 창은 운영체제의
-선택 대화상자가 반환한 경로를 수령해 직접 판독하고, 바이트를 화면으로
-경유시키지 않는다. 투입(drag-drop)은 양측 모두 바이트다.
-
-굽는 것은 `npm run build:tauri` 이고, 액션의 `bake` 잡이 관문을 대기한 뒤
-동일한 작업을 수행한다. 그 명령이 요구하는 것은 `docs/desktop.md` 에 존재한다.
-
-## 브라우저에서 개방하기
+In a browser:
 
 ```bash
 npm run dev:web
 ```
 
-알맹이를 wasm 으로 컴파일한 뒤 화면을 기동한다. **컴파일에는 clang 과
-`wasm-bindgen-cli` 가 필요하다** — 설치 경로는 `docs/wasm.md` 에 존재한다.
-배포되는 것을 산출하는 것은 `npm run build:web` 이다.
+The UI is the same one. **Exactly one thing differs:** the window takes the path
+returned by the operating system's file dialog and reads it directly, instead of
+routing the bytes through the UI. Drag-and-drop is bytes on both platforms.
 
-파일을 선택하면 그 위치에서 SQLite 로 변환되고, 정렬·값 선택·검색으로 조회한다.
-헤더가 몇 행인지는 조작부에서 사람이 지정한다.
-**자료는 브라우저 외부로 이탈하지 않는다** — 전송하는 곳이 부재한다.
+Pick a file and it is converted to SQLite right there, then queried by sorting,
+value selection and search. How many header rows there are is specified by the
+user in the controls.
 
-컴파일 사유와 불가능한 것은 `docs/web.md` 에 존재한다.
+The distributable builds are `npm run build:tauri` and `npm run build:web`.
+`docs/desktop.md` lists what baking the desktop build requires, and
+`docs/wasm.md` what the browser build requires (clang and `wasm-bindgen-cli`).
+
+## Tests
+
+```bash
+npm run ci
+```
+
+That one command is the gate.
+
+## Using it as a library
+
+The viewer is built on `sheetsift-core`, which takes bytes and returns bytes and
+knows nothing about tauri or the file system. Integrating it in another
+application — the crate layout, the feature gates, the `.sift` format, the keys
+the caller has to inject, and what the gate does and does not cover — is
+documented separately in **[docs/core.md](docs/core.md)**.

@@ -1,20 +1,22 @@
-# 웹 껍데기를 컴파일하고 기동하는 법
+# Compiling and running the web shell
 
-`crates/shell` 이 플랫폼 중립 알맹이고, `crates/wasm` 이 그것을 브라우저에
-부착하는 껍질이고, `web/` 이 그 껍질을 사용하는 화면이다. Vite + Vue 로 구축하고, goe-navi 의 조회 화면을 그대로 이식했다.
+`crates/shell` is the platform-neutral kernel, `crates/wasm` is the shell that
+attaches it to the browser, and `web/` is the UI that uses that shell. Built with
+Vite + Vue, with goe-navi's viewer ported over as-is.
 
-한동안 `web/` 에는 경계가 작동하는지 확인하려고 배치한 1매짜리 하네스가
-존재했다. 화면이 도입되면서 소멸했다 — 그 하네스가 수호하던 것(어느 문을 어떤
-형태로 호출하는가)은 이제 `src/lib/book.wasm.ts` 하나가 담당한다.
+For a while `web/` held a one-page harness placed there to check that the
+boundary worked. It disappeared when the UI arrived — what the harness guarded
+(which command is called in what shape) is now the job of `src/lib/book.wasm.ts`
+alone.
 
-표를 묘사하는 작업은 `GridTable` 과 `GridToolbar` 둘만 수행한다. 화면마다 표를
-개별 생성하면 어느 쪽에는 열 검색이 존재하고 어느 쪽에는 부재하는 식으로
-분기한다 — goe-navi 에서 실제로 그랬다.
+Rendering a table is done by `GridTable` and `GridToolbar`, those two only.
+Building a table per screen makes them diverge — column search present on one,
+absent on another. That is what actually happened in goe-navi.
 
-**이 글은 규칙이 아니라 기록이다.** 가능한 것과 불가능한 것은 글이 아니라 시험이
-진술한다.
+**This is a record, not a rule.** What is and is not possible is stated by the
+tests, not by this document.
 
-## 컴파일
+## Compiling
 
 ```bash
 rustup target add wasm32-unknown-unknown
@@ -23,254 +25,282 @@ cargo install wasm-bindgen-cli --locked
 npm run pkg
 ```
 
-`wasm-bindgen-cli` 의 판은 `wasm-bindgen` 크레이트와 **동일해야** 한다. 불일치
-하면 도구가 그렇다고 진술하고 정지한다 — 묵시적으로 오류가 발생하지 않는다.
+The `wasm-bindgen-cli` version must be **identical** to the `wasm-bindgen` crate.
+On a mismatch the tool says so and stops — nothing fails silently.
 
-컴파일한 것(`web/pkg/`)은 저장소에 수용하지 않는다. 수용하면 소스와 컴파일한
-것이 분기하고, 어느 쪽이 정본인지 판별할 수 없어진다.
+The compiled output (`web/pkg/`) is not kept in the repository. Keeping it would
+let the source and the build diverge, with no way to tell which one is canonical.
 
-## 기동
+## Running
 
-`file://` 로는 불가하다. 모듈 JS 와 wasm 은 **동일 출처에서 수령해야** 한다.
+`file://` will not work. The module JS and the wasm **have to come from the same
+origin.**
 
-컴파일한 wasm 이 `web/pkg` 에 존재해야 한다. 그 위치는 `web/vite.config.ts` 의
-`sheetsift-wasm` 별칭이 인지한다.
+The compiled wasm has to be at `web/pkg`. That location is known to the
+`sheetsift-wasm` alias in `web/vite.config.ts`.
 
 ```bash
 npm run dev:web
 ```
 
-**wasm 을 컴파일하려면 clang 이 필요하다**(`docs/wasm.md`). 그것이 존재하는
-환경에서는 상기 명령이 `web/pkg` 를 생성하고 화면을 로컬에서 조작한다 —
-알맹이를 수정할 때만 `npm run pkg` 를 재실행하고, 화면 파일은 Vite 가 즉시
-반영한다.
+**Compiling wasm needs clang** (`docs/wasm.md`). Where it exists, the command
+above produces `web/pkg` and lets you work with the UI locally — rerun
+`npm run pkg` only when the kernel changes; Vite picks up UI files immediately.
 
-clang 이 부재하는 환경에서는 화면을 수정한 뒤 푸시해 **배포된 것을 조작한다.**
-번잡하지만, 컴파일하지 못한 상태로 추측해 수정하는 것보다 양호하다.
+Where clang is absent, change the UI, push, and **work with the deployed build.**
+Cumbersome, but better than guessing at changes you cannot compile.
 
-## 배포 위치
+## Where it is deployed
 
-화면은 깃허브 Pages 로 배포된다 — `ci.yml` 의 `pages` 잡이 컴파일하고 배포한다.
-**관문의 조각을 전부 경과한 이후에만 작동한다**(`needs`). 그 행에서 하나가
-누락되면 시험이 정지하는 판이 그대로 배포되고 배포는 정상적으로 성공하므로,
-누락 여부는 `ci:gate` 가 문자로 판독한다(`crates/shell/tests/gate.rs`).
+The UI is deployed to GitHub Pages — the `pages` job in `ci.yml` compiles and
+deploys it. **It runs only after every piece of the gate has passed** (`needs`).
+Dropping one from that line would deploy a revision whose tests fail, and the
+deployment would still succeed, so whether one is missing is read textually by
+`ci:gate` (`crates/shell/tests/gate.rs`).
 
-컴파일한 것(`web/pkg`)은 저장소에 수용하지 않으니 그 잡이 생성한다. 그다음
-Vite 가 `web/dist` 를 산출하고, **배포되는 것은 그 폴더다** — `web/` 자체가
-아니다. 거기에는 소스와 `node_modules` 가 포함되어 있다.
+Since the compiled output (`web/pkg`) is not in the repository, that job produces
+it. Vite then produces `web/dist`, and **that folder is what gets deployed** —
+not `web/` itself, which contains the sources and `node_modules`.
 
-배포 이전에 알맹이가 실제로 거기 존재하는지 확인하는 행이 존재한다. wasm 이
-번들까지 적재되었는지도 함께 확인한다 — 누락되면 **화면은 표시되는데 아무 작용도
-발생하지 않고, 배포는 성공한 것처럼 인식된다.**
+There is a line that checks, before deploying, that the kernel is really there.
+It also checks that the wasm made it into the bundle — if it did not, **the UI
+renders and nothing at all happens, and the deployment looks successful.**
 
-`npm run build` 가 `vue-tsc` 를 선행 실행한다. 화면을 `web/src/pkg.d.ts` 에
-기재해 둔 형태와 대조하는 위치는 그것뿐이라, 불일치하면 배포가 정지한다.
+`npm run build` runs `vue-tsc` first. That is the only place where the UI is
+compared against the shapes written in `web/src/pkg.d.ts`, so a mismatch stops
+the deployment.
 
-## 컴파일은 왜 관문에 부재하는가
+## Why compiling is not in the gate
 
-컴파일은 검사가 아니다. 그리고 **입력하는 명령을 신규 생성하지 않는다** — 그래서
-컴파일하는 행은 이 글에만 존재하고, 관문에 포함되는 것은 화면의 타입 검사
-(`ci:web`)뿐이다. 번들이 실제로 산출되는지는 배포하는 잡이 확인한다. 거기서
-정지하면 아무것도 배포되지 않는다.
+Compiling is not a check. And **no new command gets invented** — so the compile
+line exists only in this document, and what the gate includes is the UI's type
+check (`ci:web`). Whether the bundle is actually produced is checked by the
+deploying job; if it stops there, nothing is deployed.
 
-대신 **관문이 참조할 수 있는 범위를 최대한 확대해 두었다.**
+Instead, **the gate's reach was widened as far as possible.**
 
-`crates/shell` 의 알맹이(`Viewer`)에는 `wasm_bindgen` 이 1행도 부재한다. 통상
-Rust 라서 `cargo test --workspace` 가 데스크톱에서 그대로 참조한다 — 양식을
-개방하고, 시트를 선택하고, 정렬·필터를 적용하고, 헤더를 탐색하지 못했을 때
-어떻게 되는지까지.
+The kernel in `crates/shell` (`Viewer`) contains not one line of `wasm_bindgen`.
+Being ordinary Rust, `cargo test --workspace` covers it on the desktop as-is —
+opening a sheet, selecting a worksheet, applying sorting and filtering, and what
+happens when no header is found.
 
-브라우저와 수수하는 겹(`crates/wasm`)은 문자를 수령해 문자를 반환하는 껍질뿐
-이고, 그것만 별도로 확인한다. **그 의존성이 상자 하나에 격리된 것이 분할한
-사유다** — 데스크톱 껍질이 `wasm-bindgen` 을 함께 수령하지 않는다.
+The layer that talks to the browser (`crates/wasm`) is a shell that takes strings
+and returns strings, and is checked separately on its own. **The split exists so
+that dependency is isolated in one crate** — the desktop shell does not drag in
+`wasm-bindgen`.
 
 ```bash
 cargo test -p sheetsift-wasm --target wasm32-unknown-unknown
 ```
 
-**여기 로직이 유입되면 그만큼이 관문 외부로 이탈한다.** 박막으로 유지하는 것이
-요점이다.
+**Any logic that leaks in here leaves the gate's reach by exactly that much.**
+Keeping it a thin film is the point.
 
-그리고 `tests/wasm.rs` 는 데스크톱에서 **전체가 빈 파일**이다. 공개 함수의
-형태를 변경하고 그 파일을 수정하지 않아도 `ci:gate` 는 녹색이다. 1회 그렇게
-발생했다 — `npm run ci` 가 `ci:wasm` 을 함께 실행한다.
+And `tests/wasm.rs` is **an entirely empty file** on the desktop. Change the
+shape of a public function without touching it and `ci:gate` is still green. That
+happened once — `npm run ci` runs `ci:wasm` along with the rest.
 
-## 브라우저로 실행하고 판별한 것
+## What running it in a browser revealed
 
-실행하지 않았으면 인지하지 못했을 것이 둘 존재했다.
+Two things would not have been known without running it.
 
-**`hidden` 이 적용되지 않는다.** 브라우저 기본 규칙은 `[hidden] { display: none }`
-인데, 조작부에 `display: flex` 를 부여하면 그쪽이 우선한다. 은폐했다고 판단한
-조작부가 **그대로 노출된 채** 전 시트의 검색어와 정렬 칩을 보유하고 있었다.
-화면과 자료가 불일치하는데 아무 오류도 발생하지 않는다. 현 화면은 `hidden`
-속성이 아니라 Vue 의 `v-if` 로 소거하므로 이 경로가 부재한다 — 존치하는 것은
-**은폐했다고 신뢰하는 것이 가장 위험하다**는 기록이다.
+**`hidden` does not apply.** The browser's default rule is
+`[hidden] { display: none }`, but giving the toolbar `display: flex` wins over
+it. A toolbar believed to be hidden was **sitting there in plain view**, holding
+the previous sheet's search terms and sort chips. The UI and the data disagree
+and no error occurs. The current UI removes it with Vue's `v-if` rather than the
+`hidden` attribute, so this path is gone — what remains is the record that
+**trusting something to be hidden is the most dangerous part.**
 
-**값 선택 패널이 자체 단추를 상실한다.** 값을 선택할 때마다 헤더를 전체 재
-묘사했더니, 개방되어 있는 패널이 고정하고 있던 단추가 DOM 에서 소멸해 패널이
-정위치를 상실하고 폐쇄되었다. 체크 하나 수행했을 뿐인데 패널이 소멸한다.
-변경되는 것은 그 열의 표시 하나뿐이므로 그것만 수정하게 했다.
+**The value-selection panel loses its own button.** Re-rendering the whole header
+on every value selection removed from the DOM the button an open panel was
+anchored to, so the panel lost its position and closed. One checkbox, and the
+panel vanishes. Since only that column's display changes, only that is updated
+now.
 
-**브라우저가 수행한 스크롤이 클릭보다 지연 도달한다.** 화면 외부의 열을 조작하면
-브라우저가 그 단추를 노출하게 스크롤하는데, 그 스크롤 이벤트가 클릭 **이후에**
-도달한다. 스크롤하면 패널을 폐쇄하게 설정했더니 방금 개방한 패널이 그 위치에서
-폐쇄되었다 — 조작했는데 아무 작용도 발생하지 않은 것처럼 인식되고 오류는
-발생하지 않는다. 폐쇄하지 않고 추종하게 수정했다.
+**A scroll the browser performed arrives later than the click.** Operating a
+column outside the viewport makes the browser scroll that button into view, and
+that scroll event arrives **after** the click. With "close the panel on scroll"
+in place, the panel just opened closed on the spot — it reads as nothing having
+happened, and no error occurs. It now follows instead of closing.
 
-**축소한 상태에서 하나를 해제하면 조작하지 않은 값까지 제외된다.** 화면을
-이식하면서 값 선택에 "전체" 상태를 배치했다. 거기서 체크를 하나 해제하면 "현재
-통과하는 값 전부" 에서 그것만 제외해야 하는데, **축소되어 노출되는 것**에서
-제외하고 있었다. 「대」로 축소해 대구·대전만 노출되는 상태에서 대전을 해제하면
-필터가 `지역 = 대구` 가 되어, 조작하지도 않은 광주·부산·서울·인천이 함께
-제외된다.
+**Clearing one value while narrowed excludes values nobody touched.** The port
+gave value selection an "all" state. Clearing one checkbox there should exclude
+just that one from "every value currently passing", but it was excluding from
+**what the narrowing happens to show.** Narrow to `Dae` so that only Daegu and
+Daejeon are visible, clear Daejeon, and the filter becomes `region = Daegu`,
+excluding Gwangju, Busan, Seoul and Incheon, which nobody touched.
 
-1,200행이 1,012행이 아니라 198행이 된다. 그런데 표는 정상적으로 묘사되고,
-수치도 유력하고, 콘솔은 침묵한다. **사람이 그 넷을 제외한 적이 없다는 것을
-인지하는 주체가 부재한다.** 축소하지 않고 수령해 둔 목록을 별도 보유하고 거기서
-충전하게 수정했다(`ColumnFilter.vue` 의 제외 목록 전환).
+1,200 rows become 198 rows instead of 1,012. And the table renders fine, the
+number looks plausible, and the console is silent. **Nothing in the system knows
+that the person never excluded those four.** It now keeps a separate unnarrowed
+list and fills from that (the exclusion-list switch in `ColumnFilter.vue`).
 
-이것도 실행하지 않았으면 인지하지 못했다. 타입 검사도, 문자를 판독하는 검사도,
-바탕의 시험도 통과한다 — 바탕은 지시받은 대로 여과한 것뿐이다.
+This one, too, would not have been known without running it. The type check
+passes, the source-reading checks pass, the core's tests pass — the core only
+filtered exactly as instructed.
 
-**시계가 부재한다.** 이것은 이 껍데기를 구축하기 이전에 바탕에서 먼저 발생했다 —
-`docs/wasm.md` 에 존재한다.
+**There is no clock.** This one surfaced in the core before this shell was built
+— it is in `docs/wasm.md`.
 
-전부 **문자로 판독하는 검사도 데스크톱 시험도 발견하지 못하는** 부류다. 그래서
-실행한다.
+All of these are the kind **neither a source-reading check nor a desktop test
+finds.** That is why it gets run.
 
-## 현재 가능한 것
+## What works today
 
-실제 양식(교육청 자료를 정제한 수십 MB 짜리 xlsx)으로 실행했다.
+Run against real sheets (tens of MB of xlsx, an education office's data cleaned
+up).
 
-- 양식을 개방해 시트 목록을 산출하는 데 수 초
-- 십만 행 초과 시트 하나를 SQLite 로 변환하는 데 1초 미만
-- 그 이후 정렬은 수십 밀리초, 모든 열을 주사하는 전체 검색은 수백 밀리초
+- A few seconds to open a workbook and produce the sheet list
+- Under a second to convert one sheet of over a hundred thousand rows to SQLite
+- After that, tens of milliseconds to sort, and hundreds of milliseconds for a
+  full search scanning every column
 
-**수치는 기재하지 않는다.** 기계와 파일이 상이하면 상이해지고, 그 시점에 이 글만
-노후화한다. 직접 측정하는 것이 신속하다 — 화면이 조회마다 소요된 시간을 제시한다.
+**No numbers are written down.** They differ with the machine and the file, and
+at that moment only this document goes stale. Measuring it yourself is quicker —
+the UI shows the time each query took.
 
-**자료는 브라우저 외부로 이탈하지 않는다.** 전송하는 곳이 부재한다. 파일을
-판독하는 것도 변환하는 것도 조회하는 것도 전부 그 위치에서 발생한다.
+**The data never leaves the browser.** There is nowhere to send it. Reading the
+file, converting it and querying it all happen right there.
 
-## 경계는 창의 명령과 한 벌이다
+## The boundary is one set with the window's commands
 
-화면은 goe-navi 의 구조를 이식했다. 그쪽은 Tauri 명령을 호출하고 이쪽은 wasm
-메서드를 호출하는데, 문 명칭과 요청의 항목 명칭을 동일한 벌로 배치했으므로
-**수정한 것은 호출 대상뿐**이었다. 그 위치가 `web/src/lib/book.*.ts` 다 —
-브라우저 벌과 창 벌 둘이고, 화면은 `sheetsift-book` 이라는 명칭으로 반입해 어느
-쪽인지 인지하지 않는다. 상세는 `docs/desktop.md` 에 존재한다.
+The UI is a port of goe-navi's structure. That side calls Tauri commands and this
+side calls wasm methods, but the command names and the request field names were
+laid out as one set, so **the only change was the call target.** That place is
+`web/src/lib/book.*.ts` — the browser variant and the window variant; the UI
+imports under the name `sheetsift-book` and does not know which it got. Details
+are in `docs/desktop.md`.
 
-| `crates/tauri` (창) | `crates/wasm` (브라우저) |
+| `crates/tauri` (window) | `crates/wasm` (browser) |
 |---|---|
 | `list_screens` | `listScreens()` |
 | `query_rows { request }` | `queryRows(request)` |
 | `column_values { request }` | `columnValues(request)` |
 | — | `limits()` |
 
-요청은 **단일 묶음**으로 전달된다. 문자 셋을 위치로 수령하던 시기는 위치만
-교체해 전달해도 오류가 발생하지 않아서, 열 명칭 위치에 필터가 혼입된 상태로
-"그런 값 없습니다" 가 표시되었다. 그 위치가 재증가하는지는 시험이 문자로
-판독한다(`crates/wasm/tests/boundary.rs`).
+A request is passed as **a single bundle.** Back when three strings were taken
+positionally, swapping positions raised no error, so a filter ended up in the
+column-name position and "no such value" was shown. Whether such a position
+creeps back in is read textually by the tests
+(`crates/wasm/tests/boundary.rs`).
 
-요청이 **무슨 표를 참조하는지 지참한다**(`screenId`). 개방해 둔 것을 겹이
-기억하면, 표를 교체한 이후 지연 도달한 전 요청의 응답이 신규 표의 것처럼
-묘사된다.
+A request **carries which table it refers to** (`screenId`). If the layer
+remembered what was open, a late response to a previous request would be rendered
+as belonging to the new table after a table switch.
 
-**목록은 1회에 전량 제공한다.** 모든 표의 열 정의가 함께 도달하므로 화면은 표를
-하나씩 개방하며 열을 수집하지 않는다. 열을 식별하는 작업은 양식을 개방할 때 전부
-수행하고, SQLite 표로 변환하는 작업만 그 표를 최초 질의할 때 수행한다 — 사전에
-전량 변환해 두면 참조하지도 않을 시트를 사유로 최초 화면이 지연된다.
+**The list is served in full, once.** Every table's column definitions arrive
+together, so the UI does not collect columns by opening tables one at a time.
+Identifying columns is done entirely when the workbook is opened, and only the
+conversion into a SQLite table is done on that table's first query — converting
+everything up front would delay the first screen because of sheets nobody is
+going to look at.
 
-**목록이 응답할 수 없는 항목이 존재한다.** goe-navi 의 `list_screens` 는 숫자
-항목의 소수 자릿수(`decimals`)와 자료 판(`dataVersion`)을 함께 제공하는데, 양자
-모두 그 앱의 것이다. 열람하는 겹은 양식의 값을 수정하지 않고 그대로 제시하므로
-자릿수를 결정할 위치가 부재하고, 자료가 언제 것인지도 인지하지 못한다.
-`decimals` 는 **`null` 로 전송한다** — 0 을 전송하면 양식의 소수가 묵시적으로
-반올림되고 그것은 화면 어디에서도 노출되지 않는다. `dataVersion` 은 전무하다.
+**There are fields the list cannot answer.** goe-navi's `list_screens` also
+serves the decimal places of numeric fields (`decimals`) and the data version
+(`dataVersion`), and both belong to that app. A viewing layer presents the
+workbook's values without altering them, so there is nowhere to decide the
+decimal places, and it does not know when the data is from. `decimals` is **sent
+as `null`** — sending 0 would silently round the workbook's decimals, and that
+would not be visible anywhere on screen. `dataVersion` does not exist at all.
 
-이식한 화면은 `decimals` 가 `null` 이면 **반올림하지 않는다.** 양식에 존재하는
-값을 그대로 묘사한다 — 열람하는 겹이 값을 수정하지 않는다는 약속과 동일한
-진술이다. goe-navi 의 `cellText` 는 `null` 에서 정지하게 되어 있었는데, 그것은
-자릿수를 인지하는 앱의 규칙이라 여기로 이식하지 않았다.
+The ported UI **does not round** when `decimals` is `null`. It renders exactly
+the value present in the workbook — the same statement as the promise that a
+viewing layer does not alter values. goe-navi's `cellText` was set to stop on
+`null`, but that is the rule of an app that knows its decimal places, so it was
+not ported here.
 
-## 헤더는 사람이 지정한다
+## The header is specified by the person
 
-`sheetsift` 는 **범용**이다. 임의의 양식을 수용해야 하므로 헤더가 1행인지
-2행인지 n행인지, 어느 행에서 개시되는지를 사전에 확정할 수 없다. `goe-navi` 는
-그 중 헤더 위치와 화면 종류를 **고정한 특수 사례**이고, 그래서 거기서는
-정의 파일이 전부 결정한다.
+`sheetsift` is **general-purpose.** It has to take an arbitrary workbook, so
+whether the header is one row, two rows or n rows, and which row it starts at,
+cannot be settled in advance. `goe-navi` is **the special case that pinned**
+header position and screen kind, which is why the definition file decides
+everything there.
 
-바탕은 추정을 시도하고, 실패하면 **실패했다고 반환한다**(`headerFound: false`).
-적중시킬 수 없는 것을 적중한 것처럼 반환하지 않는다. 결정은 조작부에서 사람이
-한다 — `헤더 1–2행` 처럼 개시 행과 행 수를 지정한다.
+The core attempts an inference and, when it fails, **returns that it failed**
+(`headerFound: false`). What cannot be hit is not returned as a hit. The decision
+is made by the person in the toolbar — specifying the start row and the row count,
+as in `header rows 1–2`.
 
-추정이 성공한 경우에도 바탕은 **추정이라고 진술한다**(`headerGuessed`).
-**화면은 그것을 묘사하지 않는다** — 적중한 추정에까지 표식을 부착하면 매 시트에
-경고가 출현해 아무도 판독하지 않게 된다. 대신 판별에 실패해 화면이 첫 행을
-가정한 경우에만 소멸하는 통지로 1회 진술한다. 바탕의 그 항목은 현재 소비되지
-않으나, 추정을 묘사하기로 결정하는 날 거기 존재해야 한다.
+Even when the inference succeeds, the core **states that it is an inference**
+(`headerGuessed`). **The UI does not render it** — marking even correct guesses
+would put a warning on every sheet until nobody reads any of them. Instead it is
+stated once, in a dismissible notice, only when detection failed and the UI
+assumed the first row. That core field is currently unconsumed, but it has to be
+there the day rendering the inference is decided on.
 
-### 지정은 요청이 지참한다
+### The specification is carried by the request
 
-`screenId` 와 동일한 이유다. 겹이 기억하면, 지정을 변경한 직후 도착한 지연
-응답이 **신규 열 구성의 것으로 오인**되어 표시된다. 오류는 발생하지 않는다.
+Same reason as `screenId`. If the layer remembered it, a late response arriving
+just after the specification changed would be **mistaken for the new column
+layout** and displayed. No error occurs.
 
 ```
-listScreens  { headers: { "<시트>": { at, rows } } }
+listScreens  { headers: { "<sheet>": { at, rows } } }
 queryRows    { screenId, header: { at, rows }, … }
 columnValues { screenId, header: { at, rows }, … }
 ```
 
-`goe-navi` 의 `list_screens` 는 인자가 없다. 범용 쪽이 칸을 하나 더 보유하는
-것이므로, 그 앱은 지참하지 않으면 된다.
+`goe-navi`'s `list_screens` takes no argument. The general-purpose side is the
+one holding an extra field, so that app simply does not carry it.
 
-### 추정이 실패하는 실제 형태
+### How the inference actually fails
 
-열마다 단수가 상이한 양식이 실재한다. 진학결과 양식은 좌측 18열이 1단이고
-(`학년`·`반`·`대학명` …) 우측만 2단이다(`국어` 아래 `선택과목`·`표준점수`·
-`등급`). 추정은 **상단 줄이 하단 줄보다 성긴 경우**를 묶음 줄로 판정하는데,
-이 양식은 그 반대다(상단 24칸, 하단 14칸). 그래서 1단으로 판정을 시도하고,
-병합으로 비어 있는 칸을 이름 없는 열로 인식해 거부한다.
+Workbooks whose columns differ in depth do exist. The admissions-results workbook
+has one level in its left 18 columns (`grade`, `class`, `university name` …) and
+two levels only on the right (`elective`, `standard score`, `grade band` under
+`Korean`). The inference judges a row to be a group row **when the upper row is
+sparser than the lower one**, and this workbook is the opposite (24 cells above,
+14 below). So it tries a single-level reading, sees the cells left empty by
+merging as nameless columns, and declines.
 
-거부가 옳다. 그 상태로 1단으로 개방하면 `등급` 이 여섯 열에 중복되고, 정렬·
-필터가 어느 열에 적용되는지 알 수 없다.
+Declining is right. Opened as single-level in that state, `grade band` would be
+duplicated across six columns, and there would be no telling which column sorting
+or filtering applies to.
 
-### 명칭은 합성한다
+### Names are composed
 
-2단 이상이면 `묶음 · 명칭` 으로 합성한다(`국어 · 등급`). 표의 헤더가 1행
-이라 그렇기도 하고, **합성하지 않으면 명칭이 유일하지 않다** — 그 양식은
-`등급` 이 여섯 번 등장한다.
+At two levels or more, names are composed as `group · name` (`Korean · grade
+band`). Partly because the table's header is a single row, and partly because
+**without composing, the names are not unique** — `grade band` appears six times
+in that workbook.
 
-SQL 열쇠도 원문이 아니라 이 합성 명칭에서 파생한다. 2단 헤더는 하단 줄이
-일부 열에서 공백이라(`학년` 은 상단에만 존재) 원문으로는 열쇠가 `_`·`_2`·`_3`
-가 되고, 조회 오류가 발생해도 어느 열인지 판독할 수 없다.
+SQL keys are derived from this composed name too, not from the original text.
+With a two-level header the lower row is blank in some columns (`grade` exists
+only on the upper row), so the raw keys would be `_`, `_2`, `_3`, and a query
+error would not say which column it was about.
 
-명칭이 전혀 없는 열에는 **엑셀의 열 기호**를 부여한다(`U열`). 사람이 원본에서
-그 열을 찾아갈 수 있는 유일한 표현이다.
+A column with no name at all is given **Excel's column letter** (`column U`).
+That is the only expression by which a person can find that column in the
+original.
 
-## 인쇄를 확인하는 법
+## How printing is checked
 
-`window.print()` 는 차단형이라 자동으로 호출할 수 없다. 지면의 묘사만 판정
-하려면 **인쇄 매체의 양식을 화면에 주입한다** — `document.styleSheets` 에서
-`@media print` 규칙만 추출해 평시 `<style>` 로 삽입하고, `.print-root` 를
-복제해 관찰한다. 제목·메타·열 비율·활자 크기는 그 방법으로 전부 확인된다.
+`window.print()` is blocking, so it cannot be called automatically. To judge only
+how the page renders, **inject the print medium's styles into the screen** —
+extract just the `@media print` rules from `document.styleSheets`, insert them as
+an ordinary `<style>`, and clone `.print-root` to observe. Title, metadata,
+column proportions and type sizes are all verifiable that way.
 
-**지면 분할과 머리 행 반복은 그 방법으로 판정되지 않는다.** 브라우저의 개발
-도구에서 인쇄 매체를 모의하거나 PDF 로 출력해 확인한다. 창(WebView2)의 인쇄
-대화상자는 사람이 1회 확인한다 — 그것을 자동으로 조작할 수단이 부재하다.
+**Page breaks and repeating header rows are not judged that way.** Emulate the
+print medium in the browser's dev tools, or print to PDF. The window's (WebView2)
+print dialog is checked once by a person — there is no means of driving it
+automatically.
 
-## 아직 부재하는 것
+## Not there yet
 
-- **시트 하나가 화면 하나다.** goe-navi 는 무엇으로 묘사할지(표·차트·검색)를
-  정의 파일이 결정했는데, 열람하는 겹에는 그 파일이 부재한다. 그래서 `kind` 는
-  항상 `"grid"` 다. 항목은 존치했다 — 정의 파일을 도입하는 날 증가할 위치가
-  거기 하나다.
-- **헤더 지정의 보존.** 현재는 양식을 교체하면 소멸한다. 동일 양식을 매번
-  재지정해야 하는지는 사용해 보고 판단한다.
-- **`.sift` 로 수용.** 바탕에 형식이 존재하나 껍데기가 호출하지 않는다. 1회
-  변환한 것을 재사용하려면 그 경로가 필요하다.
-- **극히 대용량인 파일.** wasm 은 32비트라 주소 공간이 제한된다. 어디서
-  차단되는지는 측정하지 않았다. 창에는 상한이 배치되어 있다
-  (`crates/desk` 의 `MAX_BYTES`) — 판독한 바이트의 약 14배를 점유하기 때문이다.
-  셀마다 문자 그릇을 생성하는 구조를 단일 아레나로 전환하면 그 비율이 절반
-  이하로 감소하나, 그것은 별도 사유의 변경이다.
+- **One sheet is one screen.** In goe-navi the definition file decided what to
+  render it as (table, chart, search), and a viewing layer has no such file. So
+  `kind` is always `"grid"`. The field was kept — it is the one place that grows
+  the day a definition file is introduced.
+- **Persisting the header specification.** It is lost when the workbook is
+  swapped. Whether the same workbook has to be re-specified every time will be
+  judged by using it.
+- **Saving as `.sift`.** The format exists in the core but the shell does not call
+  it. Reusing a conversion requires that path.
+- **Extremely large files.** wasm is 32-bit, so the address space is limited.
+  Where it gives out has not been measured. The window has a ceiling in place
+  (`MAX_BYTES` in `crates/desk`) — it occupies roughly 14× the bytes read.
+  Switching the per-cell string containers to a single arena would cut that ratio
+  to less than half, but that is a change for a different reason.

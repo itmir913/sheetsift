@@ -1,78 +1,92 @@
-# 구조를 식별하는 작업이 어디까지 가능한가
+# How far structure detection goes
 
-정의 파일을 수동 작성하지 않고 임의의 xlsx 를 개방하려면, 수령한 위치에서
-헤더가 어디인지와 어느 열이 숫자인지를 판별해야 한다. `core::infer` 가 그
-최초 단계이고, 이 글은 그것을 **실제 양식에 대조하고** 기록한 것이다.
+Opening an arbitrary xlsx without hand-writing a definition file means deciding,
+right where the file arrives, where the header is and which columns are numeric.
+`core::infer` is that first stage, and this document records what happened when
+it was **checked against real sheets.**
 
-**이 글은 규칙이 아니라 기록이다.** 가능한 것과 불가능한 것은 글이 아니라
-시험이 진술한다 — `crates/core/src/infer.rs` 의 시험 묶음이다.
+**This is a record, not a rule.** What is and is not possible is stated by the
+tests, not by this document — the test bundle in `crates/core/src/infer.rs`.
 
-## 수호하는 것은 하나다
+## There is exactly one thing it guards
 
-**추정한 것을 확정한 것처럼 반환하지 않는다.**
+**An inference is never returned as if it were certain.**
 
-헤더 행을 오선택하면 자료 1행이 열 명칭이 된다. 숫자 열을 문자로 판정하면
-정렬이 1 · 10 · 2 가 된다. 양자 모두 묵시적이다 — 화면이 개방되고, 값이
-노출되고, 순서만 상이하다. 그래서 `Kind::Unknown` 과 `Header::Unknown` 이
-존재하고, 수령한 곳이 사람에게 질의하든 기본값을 사용하든 그것은 그쪽 소관이다.
+Pick the wrong header row and one row of data becomes the column names. Judge a
+numeric column to be text and sorting becomes 1 · 10 · 2. Both are silent — the
+view opens, the values appear, only the order differs. That is why
+`Kind::Unknown` and `Header::Unknown` exist; whether the caller asks a person or
+uses a default is the caller's business.
 
-## 대조 결과
+## Results of the check
 
-goe-navi 의 양식으로 대조했다. 교육청 원본을 사람이 정제한 것이라, 헤더가
-1행으로 정리되어 있고 시트마다 구조가 상이하다.
+Checked against goe-navi's sheets. They are an education office's originals
+cleaned up by hand, so headers are tidied into a single row and the structure
+differs per sheet.
 
-**자료 시트의 헤더는 전부 정확히 탐색했다.** 1행짜리 헤더를 최초 행에서
-포착했다.
+**Every data sheet's header was located exactly.** A one-row header was caught on
+the first row.
 
-**열의 종류는 대부분 판별되었고, 판별되지 않은 것은 "모름" 으로 존치되었다.**
-모름이 출현하는 위치는 한 가지 부류였다 — 숫자와 문자가 **실제로** 혼합된
-열이다("미정" 이 혼입된 점수 열 같은 것). 그것은 오답이 아니라 정답이다.
-거기서 하나를 선택하면 어느 쪽을 선택해도 묵시적으로 오류가 발생한다.
+**Most column kinds were determined, and the ones that were not stayed
+"unknown".** Unknown appeared in exactly one category — columns where numbers and
+text are **genuinely** mixed (a score column with "undecided" in it). That is not
+a wrong answer but the right one: picking either side there fails silently.
 
-### 불가능한 것
+### What is not possible
 
-**문장만 기재된 시트를 표로 판정한다.** 안내 시트(`00 읽어보기` 같은 것)는
-2칸짜리 문장이 연속 기재되어 있어, 구조로는 표와 상이하지 않다. 거기서 헤더를
-탐색해 반환한다 — 그중 하나는 2행 헤더로까지 판정했다.
+**A sheet containing only prose is judged to be a table.** A guidance sheet (like
+`00 read me`) has prose written in two cells row after row, which is
+structurally indistinguishable from a table. A header is found and returned there
+— and one of them was even judged to have a two-row header.
 
-**문자만으로는 판별할 수 없는 것이 정당하다.** 무엇이 자료 시트인지는 부르는
-곳이 인지한다(goe-navi 는 정의 파일에 기재해 둔다). 이 모듈에 시트 명칭이나
-번호를 주입하는 것은 **자료를 코드에 혼입하는 작업**이라 수행하지 않는다.
+**It is right that text alone cannot decide this.** Which sheets are data sheets
+is known by the caller (goe-navi writes it in its definition file). Injecting
+sheet names or numbers into this module would be **mixing data into code**, so it
+is not done.
 
-## 어떻게 선택하는가
+## How the choice is made
 
-상단부터 주사해 **최초로 조건에 부합하는 행**을 선택한다. 가장 유력한 행을
-점수로 선택하지 않는다 — 점수가 상이할 때 왜 그 행이 선정되었는지 누구도 설명할
-수 없다. 상단부터라는 규칙은 오류일 때도 왜 오류인지가 노출된다.
+It scans from the top and takes **the first row that satisfies the conditions.**
+The most likely row is not chosen by score — when scores differ, nobody can
+explain why that row was selected. The scan-from-the-top rule exposes why even a
+wrong answer was wrong.
 
-조건은 하기와 같다.
+The conditions are as follows.
 
-- 공백이 아닌 셀이 존재하고, **하단 자료와 종류가 동일한 숫자가 부재한다.**
-  헤더는 열 명칭이라 그 열의 자료와 종류가 상이하다 — 숫자 열의 상단에는 문자가
-  기재된다. 역으로 자료 행은 하단과 일치한다. 자료 최초 행을 헤더로 선택하는
-  것이 최악의 답이라 숫자를 경계하되, 전부 기각하지는 않는다 — 연도·회차·학년을
-  열 명칭으로 기재한 양식(`학교 · 2023 · 2024`)이 실재하고, 그것을 기각하면
-  하단의 자료 1행이 열 명칭이 된다.
+- There is a non-blank cell, and **no number whose kind matches the data below
+  it.** A header holds column names, so its kind differs from that column's data
+  — above a numeric column, text is written. Conversely, a data row matches what
+  is below it. Choosing the first data row as the header is the worst possible
+  answer, so numbers are treated with suspicion without being rejected outright:
+  sheets that use years, rounds or grades as column names (`school · 2023 · 2024`)
+  do exist, and rejecting those would turn a row of data below into the column
+  names.
 
-  종류를 판정하지 못한 열(혼재)은 근거로 삼지 않는다. 거기 기재된 숫자를 자료의
-  증거로 간주하면 혼재한 열 하나가 헤더를 기각시킨다.
-- **하단에 자료가 존재한다.** 최종 행은 헤더가 아니다.
-- **하단 자료만큼 광범위하다.** 최상단에 "이 표는 …" 1셀만 기재된 안내 행이
-  빈발하고, 그 행도 문자뿐이라 헤더로 인식된다. 그것을 수용하면 열 명칭이
-  안내 문장이 되고 나머지 열은 명칭이 소멸한다.
+  A column whose kind could not be determined (mixed) is not used as evidence. If
+  a number written there counted as proof of data, one mixed column would veto
+  the header.
+- **There is data below it.** The last row is not a header.
+- **It is as wide as the data below it.** A guidance row with only "This table
+  shows …" in a single top cell is common, and being text-only it too reads as a
+  header. Accepting it would make the guidance sentence a column name and leave
+  every other column nameless.
 
-  동일하기를 요구하지 않는 사유는 반대편 사고다. 본문에 헤더보다 우측으로
-  돌출한 셀이 존재하는 양식도 빈발하는데, 동일하기를 요구하면 그런 정상 표에서
-  헤더를 전혀 탐색하지 못한다.
-- **명칭 없는 열을 생성하지 않는다.** 1행에 공백이 존재하면 그 열 명칭이 빈
-  문자가 된다. 대개 2행 헤더의 상단 행을 단독 포착한 것이고, 하단 행을 함께
-  판독하지 못했다면 선택하지 않는 것이 정당하다.
+  The reason exact equality is not required is the opposite accident: sheets with
+  a body cell protruding to the right of the header are also common, and
+  requiring equality would find no header at all in such a perfectly normal
+  table.
+- **No nameless column is produced.** A blank in the first row would make that
+  column's name an empty string. Usually that means the top row of a two-row
+  header was caught alone, and if the lower row could not be read along with it,
+  declining to choose is the right outcome.
 
-2행 헤더는 **분산 충전된 형태**로 식별한다. 상단 행이 묶음 명칭이라 간헐적
-이고(`전형개요` 하나가 복수 열에 걸친다), 하단 행이 조밀하다. 양자 모두 조밀하면
-2번째 행은 자료다.
+A two-row header is identified by its **sparse-then-dense shape**: the upper row
+holds group names and is therefore intermittent (one `admission summary` spans
+several columns) while the lower row is dense. If both are dense, the second row
+is data.
 
-## 여기서 판별할 수 없는 것
+## What cannot be decided here
 
-**의미는 판별하지 못한다.** 어느 열이 성명이고 어느 열이 점수인지, 어느 열을
-사전으로 압축해야 이득인지는 문자만 참조해 판별할 수 없다. 이 모듈은 구조까지다.
+**Meaning cannot be decided.** Which column is a person's name and which is a
+score, and which columns pay off when dictionary-compressed, cannot be decided
+from text alone. This module goes as far as structure.

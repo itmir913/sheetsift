@@ -1,66 +1,69 @@
-# 창에서 개방하는 벌
+# The window build
 
-웹과 동일한 화면을 데스크톱 창에 부착한 것이다. 이 글은 그 구성과, **무엇을
-어디에 배치했는지의 사유**를 기재한다.
+The same UI as the web, attached to a desktop window. This document records how
+it is put together and **why each piece sits where it does.**
 
-## 상자가 둘인 사유
+## Why there are two crates
 
-| 상자 | 소재하는 것 |
+| Crate | What lives there |
 |---|---|
-| `crates/desk` | 창이 호출하는 문이 수행하는 작업. 파일 판독·기록. **통상 Rust** |
-| `crates/tauri` | 그 문을 창에 부착하는 겹. `tauri` 를 수령하는 유일한 위치 |
+| `crates/desk` | What the commands the window calls actually do. File reading and writing. **Ordinary Rust** |
+| `crates/tauri` | The layer that attaches those commands to a window. The only place that takes `tauri` |
 
-`crates/tauri` 는 **워크스페이스 외부**다(뿌리 `Cargo.toml` 의 `exclude`).
-`tauri` 가 운영체제의 webview 를 수령하므로, 워크스페이스에 수용하면 리눅스
-러너의 `ci:gate` 가 webkit 의 개발 파일을 요구하게 된다 — 그 조각은 데스크톱을
-실행하지 않는데도 그것을 요구하게 되고, 조각 하나가 타 조각의 사정으로
-중단된다.
+`crates/tauri` is **outside the workspace** (`exclude` in the root
+`Cargo.toml`). `tauri` pulls in the operating system's webview, so keeping it in
+the workspace would make `ci:gate` on a Linux runner require webkit's
+development files — that piece does not run the desktop at all, yet would demand
+them, and one piece would break because of another's circumstances.
 
-그래서 조각을 분리했다. `ci:tauri` 가 그 상자를 담당하고 윈도에서 작동한다.
-**알맹이를 `crates/desk` 에 배치한 사유도 동일하다** — 거기 소재하는 것은
-`cargo test --workspace` 가 전부 판정한다.
+So the piece was separated. `ci:tauri` owns that crate and runs on Windows.
+**The kernel sits in `crates/desk` for the same reason** — everything there is
+judged by `cargo test --workspace`.
 
-## 창을 기동하는 법
+## How to start the window
 
 ```bash
 npm run dev:tauri
 ```
 
-그 명령이 `crates/tauri` 로 이동해 tauri 의 CLI 를 호출하고,
-`beforeDevCommand` 가 화면을 `--mode tauri` 로 기동한다. 그 모드가 경계의 두 벌
-중 창 벌을 선택한다(하기).
+That command moves into `crates/tauri` and calls tauri's CLI, and
+`beforeDevCommand` starts the UI with `--mode tauri`. That mode picks the window
+variant of the two boundaries (below).
 
-**포트를 고정한다**(`--strictPort`). `tauri.conf.json` 의 `devUrl` 은 5173 으로
-고정되어 있는데 Vite 는 그 포트가 선점되어 있으면 묵시적으로 타 포트로 이동한다.
-그러면 창은 5173 을 적재하므로 **전혀 상이한 앱이 창에 출현하고 오류는 어디에서도
-발생하지 않는다** — 실제로 그렇게 발생했다. 고정하면 선점 시 그 자리에서 정지한다.
+**The port is pinned** (`--strictPort`). `devUrl` in `tauri.conf.json` is pinned
+to 5173, but Vite silently moves to another port when that one is taken. The
+window still loads 5173, so **an entirely different app appears in the window and
+no error occurs anywhere** — which is what actually happened. Pinning makes it
+stop right there when the port is taken.
 
-**그 명령의 작업 디렉터리는 `crates` 다** — `tauri.conf.json` 이 소재하는
-디렉터리가 아니다. tauri 는 그 파일의 **상위**를 앱의 뿌리로 간주한다. 그래서
-`npm --prefix ../web` 이고, 동일한 파일의 `frontendDist` 는 그 파일을 기준으로
-해석되어 `../../web/dist` 다. 양자가 상이한 것은 우리 사정이 아니다.
+**That command's working directory is `crates`** — not the directory holding
+`tauri.conf.json`. tauri treats that file's **parent** as the app root. Hence
+`npm --prefix ../web`, while `frontendDist` in the same file is resolved relative
+to the file itself and reads `../../web/dist`. That the two differ is not our
+doing.
 
-## 경계는 두 벌이고 화면은 한 벌이다
+## Two boundaries, one UI
 
-화면은 `sheetsift-book` 이라는 명칭으로 반입하고 **어느 쪽에서 구동 중인지
-인지하지 않는다.**
+The UI imports under the name `sheetsift-book` and **does not know which side it
+is running on.**
 
-| 구동 위치 | 경계 | 반입 대상 |
+| Running in | Boundary | What it imports |
 |---|---|---|
-| 브라우저 | `web/src/lib/book.wasm.ts` | wasm 껍질 |
-| 창 | `web/src/lib/book.tauri.ts` | tauri 명령 |
+| Browser | `web/src/lib/book.wasm.ts` | The wasm shell |
+| Window | `web/src/lib/book.tauri.ts` | The tauri commands |
 
-선택은 Vite 의 모드가 수행한다(`web/vite.config.ts`). 환경 변수가 아닌 사유는
-**운영체제마다 부여하는 방법이 상이하지 않아서**다 — 명령 하나가 윈도와
-리눅스에서 동일하게 작동한다.
+The choice is made by Vite's mode (`web/vite.config.ts`). Not an environment
+variable, because **modes are not set differently per operating system** — one
+command works identically on Windows and Linux.
 
-양자가 **동일한 것을 반출하는지**는 `crates/shell/tests/screen.rs` 가 글자로
-대조한다. 일방에만 존재하는 문이 발생하면 그 벌에서만 화면이 중단되는데, 타입
-검사는 기준으로 삼은 일방만 참조하므로 통과한다.
+Whether the two **export the same thing** is checked textually by
+`crates/shell/tests/screen.rs`. If a command ends up existing on only one side,
+the UI breaks in that variant only, while type checking passes because it looks
+at whichever side it was pointed at.
 
-## 상이한 것은 개방하는 위치 하나다
+## Exactly one thing differs: where the file is opened
 
-| 창 | 브라우저 |
+| Window | Browser |
 |---|---|
 | `open_workbook { path }` | — |
 | `open_bytes { bytes, name }` | `new Book(bytes, name)` |
@@ -69,57 +72,60 @@ npm run dev:tauri
 | `column_values { request }` | `columnValues(request)` |
 | `limits` | `limits()` |
 
-경로로 개방하는 쪽을 존치하는 사유는 **용량**이다. 바이트로 수령하면 화면이
-파일 전체를 1회 적재하므로, 데스크톱이 해소하려는 제약(wasm 의 4GiB)이 그대로
-잔존한다. 선택 대화상자는 경로만 전달한다.
+The path-opening side exists because of **size**. Receiving bytes means the UI
+loads the whole file once, which leaves exactly the constraint the desktop is
+meant to remove (wasm's 4GiB) in place. The file dialog passes only a path.
 
-투입(drag-drop)은 양측 모두 바이트다. 창에서 그쪽까지 경로로 전환하려면 창의
-사건을 수신해야 하고, 그것은 화면이 어느 쪽에서 구동 중인지 인지하는 코드를
-증가시킨다. `dragDropEnabled` 를 거짓으로 기재한 사유가 그것이다 — 그래야
-webview 가 HTML 의 투입을 그대로 처리한다.
+Drag-and-drop is bytes on both sides. Turning that into a path in the window
+would mean subscribing to the window's own events, which adds code that knows
+which side the UI is running on. That is why `dragDropEnabled` is set to false —
+it lets the webview handle the HTML drop as-is.
 
-## 오류
+## Errors
 
-창이 반환하는 것은 바탕의 오류이거나 껍질의 오류이고, **직렬화한 구조가
-동일하다**(`code`·`params`·`detail`). 화면은 양자를 구별하지 않고 단일 사전으로
-문구를 부여한다.
+What the window returns is either a core error or a shell error, and **their
+serialized shape is identical** (`code`, `params`, `detail`). The UI does not
+distinguish the two and attaches wording from a single dictionary.
 
-파일을 판독하지 못한 사유를 바탕의 enum 에 증설하지 않은 사유는, 파일을 판독할
-일이 영구히 부재한 웹 껍질까지 그 문구를 한 행 기재해야 하기 때문이다. 양측
-코드가 중복하지 않는지는 `crates/desk/tests/desk.rs` 가 두 파일을 대조한다.
+The reason a "could not read the file" case was not added to the core enum is
+that it would force the web shell — which will never read a file — to write that
+line of wording too. Whether the two sides duplicate a code is checked by
+`crates/desk/tests/desk.rs`, comparing the two files.
 
-**치환 값에 전체 경로를 기재하지 않는다.** 그 값은 화면에 표시되고 갈무리되어
-반출되는데 거기에는 사용자 명칭이 포함된다.
+**Full paths are never put in substitution values.** Those values are shown on
+screen and get captured and shared, and they contain the user's name.
 
-## 창을 기동하는 시험은 배치하지 않는다
+## No test starts a window
 
-tauri 가 제공하는 모의 실행기(`tauri::test`)를 시험에 결속하면, 윈도에서 **그
-시험 실행 파일이 적재 시점에 중단된다**(`STATUS_ENTRYPOINT_NOT_FOUND`). 시험이
-1건도 실행되지 않고 사유는 코드와 무관하다. 실행하지 못하는 시험을 관문에
-배치하면 그 조각은 영구히 적색이다.
+Binding tauri's mock runner (`tauri::test`) into a test makes **the test
+executable abort at load time on Windows** (`STATUS_ENTRYPOINT_NOT_FOUND`). Not
+a single test runs, and the reason has nothing to do with the code. Putting a
+test that cannot run into the gate makes that piece permanently red.
 
-대신 **부착의 정합을 글자로 판독한다**(`crates/tauri/tests/boundary.rs`) — 기재한
-문이 전부 부착되었는가, 화면이 호출하는 명칭이 실재하는가. 양자 모두 불일치해도
-오류가 발생하지 않고 창에서만 중단되는 부류다. 문이 수행하는 작업은
-`crates/desk` 의 시험이 실행해 판정한다.
+Instead, **the wiring is read as text** (`crates/tauri/tests/boundary.rs`) — is
+every declared command attached, does every name the UI calls actually exist.
+Both are the kind of mismatch that raises no error and only breaks in the window.
+What the commands do is exercised by the tests in `crates/desk`.
 
-## 굽기
+## Baking
 
 ```bash
 npm run build:tauri
 ```
 
-액션의 `bake` 잡이 관문을 대기한 뒤 동일한 작업을 수행하고 산출물을 보관한다.
-**굽기는 검사가 아니다** — 결합하면 어느 쪽이 중단되었는지가 은폐되고, 동일한
-명령을 운영체제 둘에 운반할 수 없다.
+The workflow's `bake` job does the same thing after the gate passes and keeps the
+artifacts. **Baking is not a check** — combining them hides which side broke, and
+the same command cannot be carried to two operating systems.
 
-현재 굽는 위치는 윈도뿐이다. 맥에서 굽는지는 묻지 않는다.
+Windows is currently the only place it is baked. Whether it bakes on a Mac is not
+asked.
 
-## 아직 부재하는 것
+## Not there yet
 
-- **`.sift` 반출.** 기록하는 수단은 배치되어 있고(`crates/desk` 의 `file::write`,
-  임시 명칭으로 기록하고 완료 이후 교체한다) 형식도 `core::sift` 에 존재하나,
-  봉인 바이트를 생성하는 경로가 알맹이에 부재해 문이 아직 부재하다.
-- **창의 메뉴와 제목.** 개방한 파일 명칭을 창이 표시하지 않는다.
-- **대용량 파일의 실측.** 경로로 개방하는 쪽이 어디까지 수용하는지 측정하지
-  않았다.
+- **`.sift` export.** The means of writing exists (`file::write` in
+  `crates/desk`, writing under a temporary name and swapping after completion)
+  and the format exists in `core::sift`, but the kernel has no path that produces
+  the sealed bytes, so there is no command yet.
+- **Window menu and title.** The window does not show the name of the open file.
+- **Measurements for large files.** How far the path-opening side goes has not
+  been measured.

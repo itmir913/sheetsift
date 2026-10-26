@@ -1,35 +1,35 @@
-# 웹에서 무엇이 가능하고 무엇이 불가능한가
+# What is and is not possible on the web
 
-이 바탕은 웹(GitHub Pages)을 1차 목표로 한다. 그래서 `core` 가 tauri 도 파일
-시스템도 인지하지 않고 바이트만 수수한다. 그 설계가 실제로 작동하는지를 1회
-실행하고 기록한 글이다.
+This foundation targets the web (GitHub Pages) first. That is why `core` knows
+nothing about tauri and nothing about the file system, and exchanges only bytes.
+This document records what happened when that design was actually run once.
 
-**이 글은 규칙이 아니라 기록이다.** 크레이트 판이 상승하면 상이해질 수 있다.
-무엇이 가능한지는 글이 아니라 시험이 진술한다 — `crates/core/tests/wasm.rs` 다.
+**This is a record, not a rule.** It may differ once crate versions move. What is
+possible is stated by the tests, not by this document — `crates/core/tests/wasm.rs`.
 
 ```bash
 cargo test -p sheetsift-core --target wasm32-unknown-unknown
 ```
 
-## 실행 도구가 별도로 필요하다
+## A separate runner is required
 
-wasm 은 단독 실행할 수 없다. 컴파일한 것을 노드나 브라우저가 적재해야 한다.
-`.cargo/config.toml` 이 그 도구를 기재해 두었고, 부재하면 수령한다.
+wasm cannot run on its own; something — node or a browser — has to load what was
+compiled. `.cargo/config.toml` names that tool; install it if it is missing.
 
 ```bash
 rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --locked
 ```
 
-판은 `wasm-bindgen` 크레이트와 **동일해야** 한다. 불일치하면 도구가 그렇다고
-진술하고 정지한다 — 묵시적으로 오류가 발생하지 않는다.
+The version must be **identical** to the `wasm-bindgen` crate. On a mismatch the
+tool says so and stops — nothing fails silently.
 
-### C 컴파일러가 1개 더 필요하다
+### One more C compiler is required
 
-상기 둘로는 부족하다. `rusqlite` 를 `bundled` 로 수령하므로 **SQLite 의 C 소스를
-함께 컴파일한다.** 데스크톱에서는 Visual Studio 의 `cl.exe` 가 그 작업을 수행해
-노출되지 않지만, wasm 에서는 `cc-rs` 가 **`clang` 만** 탐색한다. MSVC 가 그
-타깃을 산출하지 못하기 때문이다. 부재하면 이렇게 정지한다:
+Those two are not enough. `rusqlite` is taken with `bundled`, so **SQLite's C
+sources are compiled along with it.** On the desktop Visual Studio's `cl.exe`
+does that job and never surfaces, but on wasm `cc-rs` looks for **`clang` only**,
+because MSVC cannot produce that target. Without it, this is where it stops:
 
 ```
 Compiling sqlite-wasm-rs
@@ -37,163 +37,175 @@ warning: Compiler family detection failed due to error:
   ToolNotFound: failed to find tool "clang": program not found
 ```
 
-**MinGW gcc 로는 불가하다.** 플래그 사안이 아니다 — 하나의 gcc 는 하나의 타깃을
-산출하고(`gcc -dumpmachine` 이 진술한다), GCC 본가에는 WebAssembly 백엔드가
-부재해 `--target=` 이라는 플래그조차 인지하지 못한다. **wasm 을 산출하는 C
-백엔드는 실질적으로 LLVM 하나**라, wasm 을 컴파일하는 도구는 명칭이 무엇이든
-내부가 clang 이다(LLVM 배포본, emscripten, wasi-sdk, `zig cc`, Visual Studio 의
-clang 구성요소). CLion 이 포함한 것은 `clangd` 와 `clang-tidy` 뿐이고 **양자
-모두 `.o` 를 산출하지 못한다.**
+**MinGW gcc will not do.** This is not a matter of flags — one gcc produces one
+target (`gcc -dumpmachine` states it), and upstream GCC has no WebAssembly
+backend, so it does not even recognize a `--target=` flag. **The only C backend
+that effectively produces wasm is LLVM**, so whatever a wasm-capable C toolchain
+is called, clang is what is inside it (the LLVM distribution, emscripten,
+wasi-sdk, `zig cc`, Visual Studio's clang component). What CLion bundles is
+`clangd` and `clang-tidy`, and **neither of them produces a `.o`.**
 
-설치하지 않으면 `ci:wasm` 이 그 위치에서 정지한다. 하기 "관문은 한 명령" 을
-참조한다.
+Without the install, `ci:wasm` stops right there. See "The gate is one command"
+below.
 
-## 관문은 한 명령
+## The gate is one command
 
-사람이 입력하는 것은 `npm run ci` 하나다. 그 내부의 조각 하나(`ci:wasm`)가 상기
-2행과 껍질 clippy 를 실행한다 — 데스크톱 clippy 는 `bindings.rs` 를 참조할 수
-없다. 조각은 `package.json` 에 존재하고, 액션은 잡마다 그 조각을 호출할 뿐 검사를
-별도 기재하지 않는다.
+What a person types is `npm run ci`, nothing else. One piece inside it
+(`ci:wasm`) runs the two lines above plus clippy on the shell crate — desktop
+clippy cannot see `bindings.rs`. The pieces live in `package.json`, and the
+workflow just calls a piece per job instead of restating the checks.
 
-러너 이미지에는 clang 이 존재한다. 작업하는 환경에 부재하면 `npm run ci` 가 그
-조각에서 정지한다 — 상기 설치 경로가 그것을 해소한다. **생략되게 구성하지
-않았다** — 생략하고도 녹색이면 실행하지 않은 것을 실행했다고 판독한다.
+The runner image has clang. If the working environment does not, `npm run ci`
+stops at that piece — the installation above resolves it. **It is deliberately
+not built to be skipped** — green after a skip reads as having run something that
+never ran.
 
-`wasm-bindgen-cli` 의 판은 거기서도 수동 기재하지 않는다 — `Cargo.lock` 에서
-판독한다. 기재해 두면 크레이트를 상승시키는 날 그 파일만 노후화한다.
+The `wasm-bindgen-cli` version is not written by hand there either — it is read
+out of `Cargo.lock`. Writing it down would leave that one file stale the day the
+crate moves.
 
-**그 액션이 삭제되거나 조각 하나가 누락되면 `ci:gate` 가 정지한다**
-(`crates/shell/tests/gate.rs`). 실행 위치가 하나뿐인 검사는 그 위치가
-소멸하는 것으로 묵시적으로 소멸한다.
+**If that workflow is deleted or one of the pieces goes missing, `ci:gate` stops**
+(`crates/shell/tests/gate.rs`). A check that runs in exactly one place dies
+silently when that place does.
 
-### 임의의 clang 이 가능한 것이 아니다
+### Not just any clang will do
 
-**Visual Studio 의 clang 으로는 불가하다.** Installer 의 "C++ Clang compiler for
-Windows" 를 설치하면 `…\VC\Tools\Llvm\x64\bin\clang.exe` 가 생성되는데, 그것은
-**WebAssembly 백엔드 없이 컴파일된 clang** 이다. 설치하고 실행하면 이렇게
-정지한다:
+**Visual Studio's clang will not do.** Installing the Installer's "C++ Clang
+compiler for Windows" produces `…\VC\Tools\Llvm\x64\bin\clang.exe`, and that is
+**a clang compiled without the WebAssembly backend.** Install it, run it, and
+this is where it stops:
 
 ```
 error: unable to create target:
   'No available targets are compatible with triple "wasm32-unknown-unknown"'
 ```
 
-`clang --print-targets` 가 사전에 진술한다 — 거기 `wasm32` 가 부재하면 그 clang
-으로는 컴파일하지 못한다. VS 가 포함한 것은 AArch64·ARM·X86 뿐이다.
+`clang --print-targets` states this in advance — if `wasm32` is absent there,
+that clang cannot compile for it. What VS bundles is AArch64, ARM and X86 only.
 
-**설치 이전에 그 행으로 먼저 확인한다.** 설치 이후에 인지하면 기가 단위를 무용하게
-수신한다.
+**Check with that line before installing.** Finding out afterwards means
+gigabytes downloaded for nothing.
 
-그러니 수령할 것은 **모든 타깃이 포함된 clang** 이다. LLVM 공식 배포본
-(`winget install LLVM.LLVM`)이나, 설치 프로그램 없는 압축본 하나로 종료되는
-`zig`(내부의 clang 을 `zig cc` 로 호출한다)·`wasi-sdk` 가 그런 것이다. zig 측은
-`clang` 이라는 명칭으로 그것을 호출하는 배치 파일을 하나 배치하고
-`CC_wasm32_unknown_unknown` 에 그 파일의 전체 경로를 기입한다 — `cc-rs` 는
-`clang.exe` 를 탐색하므로 PATH 에 배치 파일을 배치하는 것으로는 불가하다.
-작동 여부는 아직 확인하지 않았다.
+So what you want is **a clang that includes every target**: the official LLVM
+distribution (`winget install LLVM.LLVM`), or one of the single-archive,
+no-installer options — `zig` (which calls its internal clang as `zig cc`) or
+`wasi-sdk`. For the zig route, place one batch file that invokes it under the
+name `clang` and put that file's full path in `CC_wasm32_unknown_unknown` —
+`cc-rs` looks for `clang.exe`, so putting a batch file on PATH is not enough.
+Whether it works has not been verified yet.
 
-어느 쪽이든 설치했으면 그 타깃이 실제로 포함되었는지 `--print-targets` 로 확인한
-다음 시험을 실행한다.
+Either way, once installed, confirm with `--print-targets` that the target is
+really there before running the tests.
 
-**브라우저 없이 가능하다.** 노드에서 작동한다. 브라우저에서 실행하려면
-`wasm_bindgen_test_configure!(run_in_browser)` 와 드라이버가 추가로 필요한데,
-현재 확인하려는 것(SQLite 가 개방되는가, 조회가 작동하는가, 봉투가 개방되는가)은
-브라우저와 노드가 동일한 wasm 을 사용하므로 노드로 대체한다. **화면이 부착되는
-날 재확인할 위치다** — 파일을 선택하고 수령하는 작업은 브라우저에만 존재한다.
+**No browser is needed.** It works under node. Running in a browser would
+additionally need `wasm_bindgen_test_configure!(run_in_browser)` and a driver,
+but what is being verified right now (does SQLite open, does querying work, does
+the envelope open) uses the same wasm in both, so node stands in. **It is worth
+revisiting the day the UI is attached** — selecting and receiving a file exists
+only in the browser.
 
-## 가능한 것
+## What works
 
-- **SQLite.** 조작한 것이 부재한다. `rusqlite 0.40` 은 `bundled` 로 설정해도
-  wasm 에서는 `sqlite-wasm-rs` 를 자동 경유한다. 메모리 DB 가 개방되고 표가
-  생성된다.
-- **조회 엔진.** 정렬·필터·값 목록이 작동한다. 시계만 교체했다(하기).
-- **비밀번호 봉투.** 봉인하고, 개방하고, 상이한 비밀번호를 거절하는 것까지
-  작동한다. Argon2 의 작업 메모리도 확보된다 — wasm 의 메모리는 증대해야 하는
-  것이라 데스크톱에서 무사했던 것이 여기서 차단될 수 있는데, 차단되지 않았다.
-- **서명한 그릇(`seal`).** 봉인한 것이 개방되고, 타 열쇠로 서명한 것과 한
-  바이트를 훼손한 것이 차단된다. 데스크톱의 통과가 여기를 진술하지 못하는
-  사유는 `curve25519-dalek` 이 플랫폼마다 상이한 구현을 선택하고(32비트·64비트),
-  그 선택이 컴파일 시점에 묵시적으로 수행되기 때문이다.
-- **양식에서 DB 까지 1회 순환.** xlsx 바이트를 수령해 SQLite 로 변환하고, 조회
-  하고, 바이트로 추출하는 데까지 작동한다. 이 바탕이 웹에서 수행하려는 작업
-  전부가 그 1회 순환이다. `calamine`·`csv`·`encoding_rs` 가 거기 포함된다.
+- **SQLite.** Nothing was done to it. `rusqlite 0.40`, even configured with
+  `bundled`, routes through `sqlite-wasm-rs` automatically on wasm. An in-memory
+  DB opens and tables are created.
+- **The query engine.** Sorting, filtering and value lists work. Only the clock
+  was replaced (below).
+- **The password envelope.** Sealing, opening, and rejecting a different
+  password all work. Argon2's working memory is obtained as well — wasm memory
+  has to grow, so something that was fine on the desktop can be blocked here,
+  and it was not.
+- **The signed container (`seal`).** What was sealed opens, and both a container
+  signed with another key and one with a single byte corrupted are rejected.
+  A desktop pass cannot state anything about this, because `curve25519-dalek`
+  picks a different implementation per platform (32-bit vs 64-bit) and makes
+  that choice silently at compile time.
+- **One full round trip from sheet to DB.** Taking xlsx bytes, converting to
+  SQLite, querying, and extracting back to bytes all work. That round trip is
+  the entirety of what this foundation does on the web. `calamine`, `csv` and
+  `encoding_rs` are part of it.
 
-## 교체해야 했던 것
+## What had to be replaced
 
-### 시계
+### The clock
 
-`std::time::Instant::now()` 는 wasm 에 **부재한다.** 그런데 컴파일은 정상적으로
-수행되고 호출하는 순간 패닉한다 — `time not implemented on this platform`.
-조회 소요 시간을 측정하는 위치가 그것이었다.
+`std::time::Instant::now()` is **absent** on wasm. Yet it compiles fine and
+panics the moment it is called — `time not implemented on this platform`. The
+place that measured query duration was exactly that.
 
-이 부류가 가장 난해하다. **문자로 판독하는 검사도, 데스크톱 시험도 발견하지
-못한다.** 웹에서 1회 실행하고서야 노출되었다. 이 글이 존재하는 사유이고, 그
-시험을 존치한 사유다.
+This category is the hardest. **Neither a source-reading check nor a desktop test
+finds it.** It surfaced only after running once on the web. That is why this
+document exists, and why that test is kept.
 
-`web-time` 으로 교체했다. 데스크톱에서는 그대로 `std` 이고, wasm 에서는
-브라우저의 `performance.now()` 다.
+It was replaced with `web-time`: plain `std` on the desktop, the browser's
+`performance.now()` on wasm.
 
-### 난수
+### Randomness
 
-`getrandom` 은 wasm 에서 **어떤 위치도 선택하지 않고 컴파일을 정지시킨다.**
-묵시적으로 0 을 산출하는 쪽보다 양호하다 — 그랬다면 봉인 nonce 가 중복되었을
-것이다.
+On wasm, `getrandom` **picks no source and stops the compilation.** That is
+better than silently producing zeros — had it done so, sealing nonces would have
+repeated.
 
-브라우저의 `crypto.getRandomValues` 를 사용하라고 기재한다. 판이 둘 혼입되고
-(`rand` 가 0.3, 다른 상자가 0.4), 0.3 은 기능만으로 부족해 `--cfg` 까지 수령
-한다. 상세는 `crates/core/Cargo.toml` 과 `.cargo/config.toml` 의 주석에 존재한다.
+It is told to use the browser's `crypto.getRandomValues`. Two versions are mixed
+in (`rand` at 0.3, another crate at 0.4), and 0.3 needs more than a feature — it
+takes a `--cfg` too. Details are in the comments in `crates/core/Cargo.toml` and
+`.cargo/config.toml`.
 
-## 아직 확인하지 않은 것
+## Not verified yet
 
-- **브라우저에서의 실제 동작.** 상기 사유로 노드로 대체했다.
+- **Actual behavior in a browser.** Node stands in, for the reason above.
 
-## 대용량 — 무엇이 먼저 막히는가
+## Large files — what gives out first
 
-**메모리다.** 그리고 그 한계에 도달하면 오류를 반환하지 않고 **모듈이 중단된다.**
+**Memory.** And when that limit is reached, no error is returned: **the module
+aborts.**
 
-노드에서 1회 측정한 것이다(csv 5열, 비고 열에 장문). 수치는 환경과 판에 따라
-상이해질 수 있으므로 **배치가 아니라 경향으로 판독한다.**
+Measured once under node (a 5-column csv with long text in a remarks column).
+The numbers can differ with environment and versions, so **read them as a trend,
+not as a configuration.**
 
-| csv | wasm 메모리 | 결과 |
+| csv | wasm memory | result |
 |---|---|---|
-| 4MiB | 21MiB | 개방·조회 |
-| 37MiB | 181MiB | 개방·조회 |
-| 73MiB | 360MiB | 개방·조회 |
-| 148MiB | 732MiB | 개방·조회 |
-| 296MiB | 1466MiB | 개방·조회 |
-| 약 600MiB | — | **중단**(`RuntimeError: unreachable`) |
+| 4MiB | 21MiB | opens, queries |
+| 37MiB | 181MiB | opens, queries |
+| 73MiB | 360MiB | opens, queries |
+| 148MiB | 732MiB | opens, queries |
+| 296MiB | 1466MiB | opens, queries |
+| ~600MiB | — | **abort** (`RuntimeError: unreachable`) |
 
-### 1. 메모리가 원본의 약 5배로 증대한다
+### 1. Memory grows to roughly 5× the original
 
-판독한 문자, 행의 구조, 그리고 SQLite 의 표가 동시에 상주한다. 그래서 4GiB 의
-주소 공간에 도달하는 지점은 **대략 800MiB~1GiB 의 csv** 다 — 4GiB 짜리 파일이
-아니다.
+The parsed strings, the row structure and SQLite's table are all resident at
+once. So the point where the 4GiB address space is reached is **a csv of roughly
+800MiB to 1GiB** — not a 4GiB file.
 
-### 2. 중단은 오류가 아니다
+### 2. An abort is not an error
 
-할당하지 못한 시점에 반환되는 것은 `Err` 가 아니라 `unreachable` 이다. 그릇의
-`ErrorCode` 가 도달하지 않고 **모듈 자체가 정지한다.** 화면에서는 응답이
-영구히 도달하지 않는 것으로 발현된다 — 문구도, 코드도 부재하다.
+What comes back when an allocation fails is not an `Err` but `unreachable`. The
+container's `ErrorCode` never arrives and **the module itself stops.** On screen
+it presents as a response that never arrives — no message, no code.
 
-어느 단계에서 중단되었는지는 그 중단이 진술하지 않는다. 판독인지 변환인지를
-구별하려면 단계마다 측정해야 한다.
+Which stage aborted is not stated by the abort. Distinguishing parsing from
+conversion would require measuring per stage.
 
-### 3. 메모리는 반환되지 않는다
+### 3. Memory is not given back
 
-wasm 의 메모리는 **축소되지 않는다.** 양식을 폐쇄해도 그 시점의 최대치가 유지
-되므로, 연속 개방하면 각 회차가 아니라 **누적된 것**이 한계에 도달한다. 상기
-표의 시작 메모리가 회차마다 증대하는 것이 그것이다.
+wasm memory **does not shrink.** Closing the sheet keeps the peak of that moment,
+so opening files in sequence hits the limit on **the accumulated total** rather
+than on any single file. The rising starting memory per row in the table above is
+that effect.
 
-### 데스크톱이 해소하는 범위
+### What the desktop resolves
 
-경로로 개방하는 쪽(`crates/desk`)은 64비트라 주소 공간 제약이 부재하고, 바이트
-를 화면으로 경유시키지 않아 적재가 1회뿐이다. **상기 셋 전부가 그쪽에는
-해당하지 않는다.** 다만 그쪽의 한계는 측정하지 않았다.
+The path-opening side (`crates/desk`) is 64-bit, so there is no address space
+constraint, and it does not route the bytes through the UI, so there is only one
+copy loaded. **None of the three items above applies there.** Its own limits
+have not been measured.
 
-### 배치하지 않은 것
+### What was deliberately not built
 
-**용량으로 사전 차단하는 행을 배치하지 않았다.** 무엇을 과대로 판정할지는 이
-겹이 아니라 쓰는 곳이 인지하고, 그 수치를 여기 고정하면 환경이 상이한 곳에서
-개방 가능한 양식이 차단된다. 다만 **중단이 오류로 도달하지 않는 것**은 이
-저장소가 거부하는 형태이므로, 차단하기로 결정하는 시점에는 그릇의 코드 하나가
-증가한다.
+**No line pre-blocks a file by size.** What counts as too large is known by the
+caller, not by this layer, and pinning a number here would block files that are
+perfectly openable in a different environment. That said, **an abort that never
+arrives as an error** is the shape this repository rejects, so the day blocking
+is decided on, the container gains one error code.
