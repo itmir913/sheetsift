@@ -70,7 +70,7 @@ function onDrop(ev: DragEvent) {
   <div v-else class="flex h-full flex-col gap-3">
     <component
       :is="native ? 'div' : 'label'"
-      class="flex h-full cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-line bg-surface px-6 py-12 text-center text-fg-muted transition-colors hover:border-accent hover:text-fg"
+      class="app-dropzone flex h-full cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed bg-surface px-6 py-12 text-center text-fg-muted transition-colors hover:border-accent hover:text-fg"
       :class="over ? 'border-accent bg-accent-surface text-fg' : ''"
       @dragover.prevent="over = true"
       @dragleave="over = false"

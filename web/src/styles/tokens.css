@@ -25,6 +25,14 @@
   /* 테두리 */
   --c-border: #dce0e6;
   --c-border-strong: #b9c0cb;
+  /* 투하 영역의 점선. 통상 경계선보다 명도가 높다 — 그 상자는 **수령한다는
+     것을 자체로 진술해야** 하므로, 타 경계선과 동일한 명도면 배경과 분간되지
+     않는다. 암색에서 특히 그렇다. */
+  --c-drop-border: #9aa3b2;
+  /* 조작과 카드의 경계선. 표의 격자와 **상이한 값이다** — 격자는 조밀해
+     명도를 상승시키면 문자가 격자에 묻히는데, 조작과 카드는 성겨서 동일한
+     명도면 배경과 분간되지 않는다. 암색에서 특히 그렇다. */
+  --c-chrome-border: #d2d7df;
 
   /* 강조 */
   --c-accent: #1d4ed8;
@@ -82,6 +90,8 @@
 
   --c-border: #2b313a;
   --c-border-strong: #3d4552;
+  --c-drop-border: #6f7a8c;
+  --c-chrome-border: #434c5b;
 
   --c-accent: #6b9bff;
   --c-accent-hover: #8bb1ff;

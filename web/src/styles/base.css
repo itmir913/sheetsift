@@ -149,7 +149,7 @@
     align-items: center;
     gap: 0.375rem;
     cursor: pointer;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--c-chrome-border);
     border-radius: 0.5rem;
     background-color: var(--c-surface);
     padding: 0.625rem 1rem;
@@ -196,7 +196,7 @@
     flex: 0 0 auto;
     align-items: center;
     gap: 0.25rem;
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--c-chrome-border);
     border-radius: 0.5rem;
     background-color: var(--c-surface-sunken);
     padding: 0.25rem;
@@ -262,6 +262,12 @@
     max-width: 44rem;
   }
 
+  /* 투하 영역. 경계선만 전용 색이다 — `border-line` 은 암색에서 배경과
+     명도가 근소해 상자가 보이지 않는다. */
+  .app-dropzone {
+    border-color: var(--c-drop-border);
+  }
+
   /* 시작 화면. 조각 사이의 간극을 **한 곳에서** 부여한다 — 조각마다 여백을
      부착하면 하나를 수정할 때 타 조각과 괴리한다. */
   .app-start {
@@ -286,7 +292,7 @@
   }
 
   .app-card {
-    border: 1px solid var(--c-border);
+    border: 1px solid var(--c-chrome-border);
     border-radius: 0.75rem;
     background-color: var(--c-surface);
     padding: 1.25rem 1.5rem;
@@ -314,7 +320,7 @@
   }
 
   .app-foot {
-    border-top: 1px solid var(--c-border);
+    border-top: 1px solid var(--c-chrome-border);
     padding-top: 1.25rem;
     padding-bottom: 1.25rem;
     text-align: center;
