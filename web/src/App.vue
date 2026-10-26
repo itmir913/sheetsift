@@ -33,6 +33,7 @@ import { useFault } from "@/composables/useFault";
 import LocaleToggle from "@/components/LocaleToggle.vue";
 import StartScreen from "@/components/StartScreen.vue";
 import { APP_NAME, storageKey } from "@/lib/app";
+import { painted } from "@/lib/paint";
 import { formatNumber, t } from "@/i18n";
 
 const KIND_VIEW = { grid: DataGrid } as const;
@@ -248,6 +249,9 @@ async function opened(name: string, open: () => Promise<ScreenCatalog>) {
   // 전혀 상이한 표에 그 지정이 적용된다.
   headers.value = {};
   fileName.value = name;
+  // 점유하기 이전에 '읽는 중' 이 화면에 도달해야 한다. 브라우저 벌의 개방은
+  // 동기라, 대기하지 않으면 전환이 묘사되지 않은 채 창이 응답을 정지한다.
+  await painted();
   try {
     const catalog = await open();
     groupNames.value = catalog.groups;
@@ -303,6 +307,8 @@ async function setHeader(id: string, spec: HeaderSpec) {
   headers.value = { ...headers.value, [id]: spec };
   busy.value = true;
   clearFault();
+  // 개방과 동일한 사유다. 헤더를 변경하면 시트를 재변환하므로 그만큼 점유된다.
+  await painted();
   try {
     const catalog = await listScreens(headers.value);
     groupNames.value = catalog.groups;
