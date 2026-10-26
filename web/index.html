@@ -3,10 +3,26 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <!-- 제목은 켠 뒤에 붙인다(`main.ts`). 여기 적어 두면 이름이 두 곳에 살게
-         되고, 한쪽만 고치면 탭 제목과 화면이 갈린다. -->
-    <title></title>
-    <link rel="icon" href="data:," />
+    <!-- 제목과 설명은 **여기 기재한다.** 탐색기와 공유 카드가 판독하는 것은
+         기동 이전의 문서라, 켠 뒤에 부여하면 공백으로 수집된다. 영문인 사유도
+         그것이다 — 판독하는 쪽이 우리 말을 인지하지 못한다.
+
+         명칭이 두 곳에 존재하게 되나, 양자가 분기하는 것은
+         `crates/shell/tests/screen.rs` 가 대조해 차단한다. -->
+    <title>SheetSift — Fast, offline Excel and CSV viewer</title>
+    <meta
+      name="description"
+      content="Open large xlsx, xls and csv files without Excel. Sort, filter and search hundreds of thousands of rows right in your browser — read-only, and nothing ever leaves your device."
+    />
+    <!--
+      아이콘의 정본은 luminousky.com에 하나뿐이다. 저장소에 복사본을 두면
+      둘이 서로 달라지고, 어느 쪽이 맞는지 아무도 모르게 된다. 그래서 가리키기만 한다.
+
+      대신 **그림 한 장을 받는 길만** CSP에 연다 — 그만큼 아이콘을 받을 때
+      luminousky.com에 요청이 한 번 나간다. 자료가 나가는 길(`connect-src`)은 그대로 닫혀 있다.
+    -->
+    <link rel="icon" href="https://luminousky.com/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="https://luminousky.com/apple-touch-icon.png" />
   </head>
   <body>
     <div id="app"></div>

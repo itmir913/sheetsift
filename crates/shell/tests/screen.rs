@@ -341,3 +341,54 @@ fn the_check_catches_a_door_on_only_one_side() {
     assert_eq!(exported(doctored), ["onlyHere"]);
     assert!(!exported(BOOK_WASM).contains(&"onlyHere".to_string()));
 }
+
+/* ── 문서의 제목과 설명 ─────────────────────────────────────────── */
+
+const INDEX_HTML: &str = include_str!("../../../web/index.html");
+const APP_TS: &str = include_str!("../../../web/src/lib/app.ts");
+
+/// 쌍으로 감싼 값 하나를 추출한다.
+fn between<'a>(src: &'a str, open: &str, close: &str) -> Option<&'a str> {
+    let at = src.find(open)? + open.len();
+    let rest = &src[at..];
+    Some(&rest[..rest.find(close)?])
+}
+
+/// 화면이 자신을 호칭하는 명칭(`APP_NAME`).
+fn app_name(src: &str) -> Option<&str> {
+    between(src, "export const APP_NAME = \"", "\"")
+}
+
+/// **탭의 제목이 화면의 명칭과 분기하지 않는가.**
+///
+/// 제목은 `index.html` 에 기재한다 — 탐색기와 공유 카드는 기동 이전의 문서를
+/// 판독하므로 켠 뒤에 부여하면 공백으로 수집된다. 그 대신 명칭이 두 곳에
+/// 존재하게 되고, `APP_NAME` 만 변경하면 머리글과 탭이 상이한 명칭을 묘사하는데
+/// **어디에서도 오류가 발생하지 않는다.**
+#[test]
+fn the_tab_title_carries_the_name_the_screen_uses() {
+    let name = app_name(APP_TS).expect("APP_NAME 을 탐색하지 못했습니다 — 검사가 실명한 것입니다");
+    let title = between(INDEX_HTML, "<title>", "</title>")
+        .expect("<title> 을 탐색하지 못했습니다 — 검사가 실명한 것입니다");
+    assert!(title.contains(name), "탭의 제목 '{title}' 에 화면의 명칭 '{name}' 이 부재합니다");
+}
+
+/// 설명이 부재하면 공유 카드와 탐색 결과가 공백이다. 화면은 정상적으로
+/// 묘사되므로 실행하는 시험으로는 발견하지 못한다.
+#[test]
+fn the_document_states_what_this_is() {
+    let meta = between(INDEX_HTML, "name=\"description\"", "/>")
+        .expect("설명을 탐색하지 못했습니다 — 검사가 실명한 것입니다");
+    let text = between(meta, "content=\"", "\"").unwrap_or("").trim();
+    assert!(text.len() > 40, "설명이 지나치게 단축되었습니다: '{text}'");
+}
+
+/// 그 검사들이 실제로 차단하는지 판정한다.
+#[test]
+fn the_check_catches_a_title_that_lost_the_name() {
+    assert_eq!(app_name("export const APP_NAME = \"Other\";\n"), Some("Other"));
+    let doctored = "<title>Something else</title>";
+    let title = between(doctored, "<title>", "</title>").expect("훼손한 입력의 제목");
+    assert!(!title.contains("SheetSift"));
+    assert!(between(doctored, "name=\"description\"", "/>").is_none());
+}
