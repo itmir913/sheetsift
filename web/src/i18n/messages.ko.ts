@@ -78,6 +78,7 @@ export const ui = {
   "app.sheets": "시트 목록",
   "app.sheets.show.tip": "시트 목록 보기 (Ctrl+B)",
   "app.sheets.hide.tip": "시트 목록 숨기기 (Ctrl+B)",
+  "app.sheets.empty": "파일을 열면 시트 목록이 여기에 나옵니다",
   "app.sheet.noheader.tip": "{title} — 헤더 행을 찾지 못했습니다",
   "app.group.none": "묶음 없음",
   "app.group.missing.tip": "'{group}' 묶음이 목록에 없습니다",
@@ -90,8 +91,8 @@ export const ui = {
 
   /* 파일 수령 */
   "pick.drop": "xlsx·xls·csv 파일을 선택하거나 여기에 끌어다 놓으십시오",
-  "pick.safe.web": "파일은 이 브라우저 안에서만 열립니다",
-  "pick.safe.desktop": "파일은 이 컴퓨터 안에서만 열립니다",
+  "pick.safe": "파일은 이 기기 안에서만 열립니다",
+  "pick.choose": "파일 선택",
   "pick.reading": "읽는 중…",
   "pick.change": "다른 파일 열기",
   "pick.change.tip": "다른 파일을 선택하거나 이 단추에 끌어다 놓으십시오",
@@ -197,6 +198,32 @@ export const ui = {
   "print.excluded": "{list} 제외",
   "print.selected.none": "선택 없음",
   "print.more": "{list} 외 {n}개",
+
+  /* 시작 화면. 양식을 개방하기 이전의 판이다 — 여기서만 이 도구가 무엇인지,
+     무엇을 개방할 수 있는지, 자료가 어디로 가지 않는지를 진술한다. */
+  "start.title": "엑셀 파일에서 원하는 자료만 빠르게 찾습니다",
+  "start.lede":
+    "큰 xlsx·csv 를 엑셀 없이 열어, 정렬과 필터로 필요한 행만 추려 봅니다. 읽기 전용이라 원본은 수정되지 않습니다.",
+  "start.formats.title": "열 수 있는 파일",
+  "start.formats.1": "xlsx·xls·csv 를 엽니다. 시트가 여럿이면 왼쪽 목록에서 선택합니다.",
+  "start.formats.2":
+    "헤더가 여러 행인 양식은 조작부에서 시작 행과 행 수를 지정합니다. 찾지 못하면 찾지 못했다고 알립니다.",
+  "start.formats.3":
+    "아주 큰 파일은 메모리가 먼저 한계에 도달합니다. 그 지점에서는 문구 없이 멈출 수 있습니다.",
+  "start.usage.title": "표를 다루는 방법",
+  "start.usage.1": "열 제목을 클릭하면 정렬합니다. 여러 열을 차례로 지정할 수 있습니다.",
+  "start.usage.2": "열마다 검색어를 입력하거나 값을 선택해 걸러 냅니다.",
+  "start.usage.3": "경계선을 끌어 폭을, 제목을 끌어 순서를 바꿉니다. 왼쪽 몇 열은 고정할 수 있습니다.",
+  "start.usage.4": "Shift+휠로 좌우로 이동하고, 보고 있는 그대로 인쇄합니다.",
+  "start.privacy.title": "개인정보",
+  "start.privacy.1.lead": "어디로도 보내지 않습니다.",
+  "start.privacy.1.text": "전송하는 곳이 없습니다. 파일을 읽는 것도 조회하는 것도 이 기기 안에서 끝납니다.",
+  "start.privacy.2.lead": "원본을 수정하지 않습니다.",
+  "start.privacy.2.text": "읽기만 합니다. 연 파일에 다시 기록하는 경로가 없습니다.",
+  "start.privacy.3.lead": "자료를 보관하지 않습니다.",
+  "start.privacy.3.text":
+    "새로고침하면 불러온 파일이 사라집니다. 언어·테마·열 배치 같은 화면 설정만 이 기기에 남습니다.",
+  "foot.repo": "GitHub 저장소",
 } as const;
 
 /** 화면 문구의 열쇠. **한국어 벌이 정본이다.** */

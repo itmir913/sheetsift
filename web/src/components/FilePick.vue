@@ -67,10 +67,10 @@ function onDrop(ev: DragEvent) {
     {{ t(busy ? "pick.reading" : "pick.change") }}
   </component>
 
-  <div v-else class="flex flex-col gap-3">
+  <div v-else class="flex h-full flex-col gap-3">
     <component
       :is="native ? 'div' : 'label'"
-      class="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-line bg-surface px-6 py-10 text-center text-fg-muted transition-colors hover:border-accent hover:text-fg"
+      class="flex h-full cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-line bg-surface px-6 py-12 text-center text-fg-muted transition-colors hover:border-accent hover:text-fg"
       :class="over ? 'border-accent bg-accent-surface text-fg' : ''"
       @dragover.prevent="over = true"
       @dragleave="over = false"
@@ -78,10 +78,13 @@ function onDrop(ev: DragEvent) {
       @click="native ? onPickNative() : undefined"
     >
       <input v-if="!native" type="file" class="hidden" accept=".xlsx,.xls,.csv" @change="onInput" />
-      <span class="font-medium">{{ t("pick.drop") }}</span>
+      <span class="text-lg font-medium text-fg">{{ t("pick.drop") }}</span>
       <span class="text-fg-subtle">
-        {{ busy ? t("pick.reading") : t(native ? "pick.safe.desktop" : "pick.safe.web") }}
+        {{ busy ? t("pick.reading") : t("pick.safe") }}
       </span>
+      <!-- 상자 전체가 수령하는 위치이나, **단추가 1개 존재해야 한다** — 끌어다
+           놓는 조작을 인지하지 못하는 사람에게는 상자가 안내 문구로만 보인다. -->
+      <span class="app-btn" aria-hidden="true">{{ t("pick.choose") }}</span>
     </component>
 
     <p v-if="note" role="status" aria-live="polite" :class="danger ? 'text-danger' : 'text-fg-muted'">

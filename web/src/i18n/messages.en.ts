@@ -57,6 +57,7 @@ export const ui: Record<UiKey, string> = {
   "app.sheets": "Sheets",
   "app.sheets.show.tip": "Show sheets (Ctrl+B)",
   "app.sheets.hide.tip": "Hide sheets (Ctrl+B)",
+  "app.sheets.empty": "Open a file and its sheets appear here",
   "app.sheet.noheader.tip": "{title} — no header row was found",
   "app.group.none": "Ungrouped",
   "app.group.missing.tip": "The group '{group}' is not in the list",
@@ -69,8 +70,8 @@ export const ui: Record<UiKey, string> = {
     "No header was found in '{sheet}', so the first row is being used as one. Set it in the toolbar above.",
 
   "pick.drop": "Choose an xlsx, xls or csv file, or drop one here",
-  "pick.safe.web": "The file is opened inside this browser only",
-  "pick.safe.desktop": "The file is opened on this computer only",
+  "pick.safe": "The file is opened on this device only",
+  "pick.choose": "Choose a file",
   "pick.reading": "Reading…",
   "pick.change": "Open another file",
   "pick.change.tip": "Choose another file, or drop one on this button",
@@ -169,4 +170,28 @@ export const ui: Record<UiKey, string> = {
   "print.excluded": "except {list}",
   "print.selected.none": "nothing selected",
   "print.more": "{list} and {n} more",
+
+  "start.title": "Find what you need in a spreadsheet, fast",
+  "start.lede":
+    "Open a large xlsx or csv without Excel and narrow it to the rows you want by sorting and filtering. Read-only — the original is never written to.",
+  "start.formats.title": "What it opens",
+  "start.formats.1": "xlsx, xls and csv. When a file holds several sheets, pick one from the list on the left.",
+  "start.formats.2":
+    "For a multi-row header, set the starting row and the row count in the toolbar. When detection fails, it says so.",
+  "start.formats.3":
+    "On a very large file memory runs out first, and at that point it can stop with no message.",
+  "start.usage.title": "Working with the table",
+  "start.usage.1": "Click a column header to sort. Several columns can be set in turn.",
+  "start.usage.2": "Filter by typing in a column's search box or by picking values.",
+  "start.usage.3": "Drag an edge to resize, drag a header to reorder. The leftmost columns can be frozen.",
+  "start.usage.4": "Shift+wheel pans sideways, and printing gives you what you see.",
+  "start.privacy.title": "Privacy",
+  "start.privacy.1.lead": "Nothing is sent anywhere.",
+  "start.privacy.1.text": "There is nowhere to send it. Reading the file and querying it both end on this device.",
+  "start.privacy.2.lead": "The original is never changed.",
+  "start.privacy.2.text": "It is read only. There is no path that writes back to the file you opened.",
+  "start.privacy.3.lead": "Your data is not kept.",
+  "start.privacy.3.text":
+    "Reload and the file is gone. Only screen settings - language, theme, column layout - stay on this device.",
+  "foot.repo": "GitHub repository",
 };

@@ -159,6 +159,14 @@
     transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
   }
 
+  /* 도형 하나뿐인 단추. 좌우 여백을 그대로 두면 **정사각형이 아니라 가로로
+     누운 상자**가 된다 — 문자를 수용하는 여백이라 2~3자를 전제한다. */
+  .app-head-icon {
+    width: 3rem;
+    justify-content: center;
+    padding-inline: 0;
+  }
+
   .app-head-btn:hover {
     background-color: var(--c-surface-hover);
     color: var(--c-fg);
@@ -253,6 +261,78 @@
     width: 100%;
     max-width: 44rem;
   }
+
+  /* 시작 화면. 조각 사이의 간극을 **한 곳에서** 부여한다 — 조각마다 여백을
+     부착하면 하나를 수정할 때 타 조각과 괴리한다. */
+  .app-start {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    width: 100%;
+    max-width: 48rem;
+    margin-inline: auto;
+    padding-top: 1.5rem;
+  }
+
+  /* 광폭에서만 두 칸이다. 협소한 폭에서 두 칸으로 분할하면 카드의 글줄이
+     4~5자가 된다. */
+  @media (min-width: 64rem) {
+    .app-start {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      align-items: start;
+      max-width: 80rem;
+    }
+  }
+
+  .app-card {
+    border: 1px solid var(--c-border);
+    border-radius: 0.75rem;
+    background-color: var(--c-surface);
+    padding: 1.25rem 1.5rem;
+  }
+
+  .app-card-list {
+    margin-top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    list-style: disc;
+    padding-left: 1.25rem;
+    color: var(--c-fg-muted);
+    text-wrap: pretty;
+  }
+
+  .app-foot {
+    border-top: 1px solid var(--c-border);
+    padding-top: 1.25rem;
+    padding-bottom: 1.25rem;
+    text-align: center;
+    color: var(--c-fg-muted);
+  }
+
+  /* 수령 영역의 단추. 상자 전체가 수령하므로 **자체 사건을 보유하지 않는다** —
+     상자의 label 이 그것을 담당한다. */
+  .app-btn {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 0.5rem;
+    background-color: var(--c-accent);
+    padding: 0.5rem 1.25rem;
+    font-weight: 500;
+    color: var(--c-accent-fg);
+  }
+
+  .app-link {
+    color: var(--c-accent);
+    font-weight: 500;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .app-link:hover {
+    color: var(--c-accent-hover);
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -326,6 +406,8 @@
 
   /* 상단 영역 — 화면 목록. 여기만 스크롤한다. */
   .app-side-scroll {
+    display: flex;
+    flex-direction: column;
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
@@ -399,6 +481,19 @@
 
   /* 하단 영역 — 항상 노출되는 위치. 협소한 폭에서는 머리글에서 이양된
      설정들이 여기 배열된다. */
+  /* 목록이 부재할 때의 한 행. 상단에 부착하지 않고 중앙에 배치한다 —
+     상단에 두면 하단의 설정과 괴리해 판이 양분된 것처럼 인식된다. */
+  .app-side-empty {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem 1rem;
+    text-align: center;
+    text-wrap: pretty;
+    color: var(--c-fg-subtle);
+  }
+
   .app-side-foot {
     display: flex;
     flex: 0 0 auto;

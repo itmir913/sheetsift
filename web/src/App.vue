@@ -31,6 +31,7 @@ import {
 import { start } from "sheetsift-book";
 import { useFault } from "@/composables/useFault";
 import LocaleToggle from "@/components/LocaleToggle.vue";
+import StartScreen from "@/components/StartScreen.vue";
 import { APP_NAME, storageKey } from "@/lib/app";
 import { formatNumber, t } from "@/i18n";
 
@@ -330,7 +331,7 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
       <button
         v-if="hasNav"
         type="button"
-        class="app-head-btn"
+        class="app-head-btn app-head-icon"
         :aria-expanded="!sideCollapsed"
         aria-controls="app-side"
         :aria-label="t('app.sheets')"
@@ -375,6 +376,13 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
       >
         <div class="app-side-inner">
           <div class="app-side-scroll">
+            <!-- 양식을 개방하기 이전. **공백으로 존치하지 않는다** — 협소한
+                 폭에서는 설정만 하단에 존재하는 빈 판이 되어, 목록이 소멸한
+                 것인지 개방하지 않은 것인지를 판별할 수 없다. -->
+            <p v-if="!groups.length && !orphans.length" class="app-side-empty">
+              {{ t("app.sheets.empty") }}
+            </p>
+
             <template v-for="g in groups" :key="g.name">
               <p class="app-side-group">{{ g.name }}</p>
               <ul class="flex flex-col gap-1">
@@ -441,10 +449,10 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
       <main ref="mainEl" class="app-main" :style="mainVars">
         <p v-if="starting" class="app-fixed pt-5 text-fg-muted">{{ t("app.starting") }}</p>
 
-        <!-- 개방 이전. 수령하는 영역이 본문의 전부다 — 여기서 수행할 작업이
-             그것 하나뿐이라, 상단에 부착하는 대신 중앙에 배치한다. -->
-        <div v-else-if="!fileName" class="app-fixed app-drop">
-          <FilePick
+        <!-- 개방 이전. 본문의 전부가 이 판이다 — 이 도구가 무엇인지와 자료가
+             어디로 가지 않는지를 진술하는 위치가 여기 하나다. -->
+        <div v-else-if="!fileName" class="app-fixed">
+          <StartScreen
             :busy="busy"
             :note="errorMessage ?? note"
             :danger="errorMessage !== null"
