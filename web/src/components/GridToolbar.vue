@@ -350,7 +350,9 @@ function labelOf(key: string): string {
         <!-- 정렬이 전무할 때만 표시된다. 정렬뿐 아니라 표를 취급하는 방법
              전체를 제시하는 위치라, 좌측 표지도 '설명' 으로 전환된다. 2문자로
              길이가 동일해 표지가 전환되어도 문구가 수평 이동하지 않는다. -->
-        <span v-if="!sorts.length" class="truncate text-fg-subtle">
+        <!-- 협소한 폭에서는 절단된다. 말단의 항목이 은폐되므로 전문을 설명으로
+             부착한다 — 절단된 셀과 동일한 처리다. -->
+        <span v-if="!sorts.length" class="truncate text-fg-subtle" :data-tip="t('tools.help.text')">
           {{ t("tools.help.text") }}
         </span>
       </div>

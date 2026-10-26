@@ -142,7 +142,8 @@ export const ui = {
   "tools.grouping.tip": "숫자 칸에 1,000 처럼 쉼표를 넣습니다",
   "tools.sorts": "정렬",
   "tools.help": "도움말",
-  "tools.help.text": "열 제목 클릭: 정렬 · 끌기: 순서 바꾸기 · 경계선 끌기: 폭 조절",
+  "tools.help.text":
+    "열 제목 클릭: 정렬 · 끌기: 순서 바꾸기 · 경계선 끌기: 폭 조절 · Shift+휠: 좌우 이동",
   "tools.sort.remove.tip": "{label} 정렬 해제",
 
   /* 표 */

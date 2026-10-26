@@ -118,7 +118,8 @@ export const ui: Record<UiKey, string> = {
   "tools.grouping.tip": "Show numbers with separators, as in 1,000",
   "tools.sorts": "Sorting",
   "tools.help": "Tips",
-  "tools.help.text": "Click a header to sort · drag to reorder · drag the edge to resize",
+  "tools.help.text":
+    "Click a header to sort · drag to reorder · drag the edge to resize · Shift+wheel to pan",
   "tools.sort.remove.tip": "Remove the sorting on {label}",
 
   "column.letter": "Column {letter}",
