@@ -363,7 +363,7 @@ fn app_name(src: &str) -> Option<&str> {
 ///
 /// 제목은 `index.html` 에 기재한다 — 탐색기와 공유 카드는 기동 이전의 문서를
 /// 판독하므로 켠 뒤에 부여하면 공백으로 수집된다. 그 대신 명칭이 두 곳에
-/// 존재하게 되고, `APP_NAME` 만 변경하면 머리글과 탭이 상이한 명칭을 묘사하는데
+/// 존재하게 되고, `APP_NAME` 만 변경하면 헤더와 탭이 상이한 명칭을 묘사하는데
 /// **어디에서도 오류가 발생하지 않는다.**
 #[test]
 fn the_tab_title_carries_the_name_the_screen_uses() {
