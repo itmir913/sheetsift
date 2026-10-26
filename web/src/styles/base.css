@@ -176,11 +176,20 @@
      동일하면 그것이 여는 단추인지 닫는 단추인지 판별할 수 없고, 목록이 접힌
      것을 인지하지 못한 채 시트를 탐색하게 된다. `aria-expanded` 가 이미 그
      상태를 보유하므로 그것을 그대로 참조한다 — 상태를 두 벌로 보유하면
-     일방만 갱신된다. */
+     일방만 갱신된다.
+
+     **개방한 쪽은 충전해 묘사한다.** 담색 바탕에 윤곽선만 부여했더니 폐쇄한
+     형태와의 차이가 윤곽선 1px 이라, 조작한 이후에도 어느 쪽인지 즉시
+     판별되지 않았다. */
   .app-head-btn[aria-expanded="true"] {
-    border-color: var(--c-accent);
-    background-color: var(--c-accent-surface);
-    color: var(--c-fg);
+    border-color: transparent;
+    background-color: var(--c-accent);
+    color: var(--c-accent-fg);
+  }
+
+  .app-head-btn[aria-expanded="true"]:hover {
+    background-color: var(--c-accent-hover);
+    color: var(--c-accent-fg);
   }
 
   /* 투입이 이 단추 위에 도달한 상태. 수령 가능하다는 것을 표시한다. */
