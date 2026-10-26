@@ -195,14 +195,24 @@ const mainEl = ref<HTMLElement | null>(null);
 const viewportWidth = ref(0);
 const mainVars = computed(() => ({ "--app-vw": `${viewportWidth.value}px` }));
 
+/* 머리의 높이. **고정값으로 기재하지 않는다** — 협소한 폭에서 머리가 2행으로
+   접히고, 언어와 서체에 따라서도 상이해진다. 포개지는 목록이 그 하단에서
+   개시되려면 실측한 값이 필요하다. */
+const headEl = ref<HTMLElement | null>(null);
+const headHeight = ref(0);
+const appVars = computed(() => ({ "--app-head-h": `${headHeight.value}px` }));
+
 let observer: ResizeObserver | null = null;
 onMounted(() => {
   if (!mainEl.value) return;
   viewportWidth.value = mainEl.value.clientWidth;
+  headHeight.value = headEl.value?.offsetHeight ?? 0;
   observer = new ResizeObserver(() => {
     viewportWidth.value = mainEl.value?.clientWidth ?? 0;
+    headHeight.value = headEl.value?.offsetHeight ?? 0;
   });
   observer.observe(mainEl.value);
+  if (headEl.value) observer.observe(headEl.value);
 });
 onBeforeUnmount(() => observer?.disconnect());
 
@@ -330,8 +340,8 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
 
 <template>
   <!-- no-print: 인쇄 시 앱 화면은 은폐하고 인쇄 뷰만 존치한다 -->
-  <div class="no-print flex h-screen flex-col bg-canvas text-fg">
-    <header class="app-head">
+  <div class="no-print flex h-screen flex-col bg-canvas text-fg" :style="appVars">
+    <header ref="headEl" class="app-head">
       <!-- 좌측 목록 개폐. 목록을 배치하는 양식에서만 출현한다 — 조작해도 아무
            작용이 없는 단추를 상주시키지 않는다. -->
       <button

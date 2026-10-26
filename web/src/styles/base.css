@@ -544,9 +544,12 @@
 
   /* 협소한 폭: 목록이 본문을 밀어내지 않고 **본문 위에 포개진다.**
      밀어내면 375px 에서 표에 남는 폭이 100px 대가 된다. */
+  /* 머리의 **하단에서** 개시한다. 화면 전체를 덮으면 개폐하는 단추까지
+     은폐되어, 개방한 상태를 표시할 수도 그 단추로 폐쇄할 수도 없다.
+     높이는 App.vue 가 실측해 전달한다 — 머리가 2행으로 접히는 폭이 존재한다. */
   .app-side[data-overlay="true"] {
     position: fixed;
-    inset-block: 0;
+    inset-block: var(--app-head-h, 3.5rem) 0;
     left: 0;
     z-index: 50;
     width: min(17rem, 85vw);
@@ -567,9 +570,11 @@
   }
 
   /* 포개진 목록의 바깥. 조작하면 폐쇄된다. */
+  /* 바깥. 목록과 동일하게 머리의 하단에서 개시한다 — 머리를 덮으면 그 위의
+     조작이 전부 차단된다. */
   .app-scrim {
     position: fixed;
-    inset: 0;
+    inset: var(--app-head-h, 3.5rem) 0 0;
     z-index: 40;
     background-color: rgb(0 0 0 / 0.45);
   }
