@@ -21,6 +21,14 @@ const placed = ref(false);
 
 const tipVars = computed(() => ({ "--tip-x": `${x.value}px`, "--tip-y": `${y.value}px` }));
 
+/**
+ * 개행으로 분할 기재한 설명은 **첫 행이 대상의 명칭이고 나머지가 안내**다
+ * (`grid.head.tip` 의 열 명칭과 조작 안내). 동일한 농도로 묘사하면 양자가
+ * 한 문장으로 판독되어, 접촉할 때마다 전부를 재판독하게 된다.
+ */
+const head = computed(() => tooltip.text.split("\n")[0]);
+const hint = computed(() => tooltip.text.slice(head.value.length + 1));
+
 onMounted(installTooltip);
 
 watch(
@@ -69,7 +77,8 @@ function place(): void {
       :data-placed="placed"
       :style="tipVars"
     >
-      {{ tooltip.text }}
+      <span class="block">{{ head }}</span>
+      <span v-if="hint" class="tip-hint">{{ hint }}</span>
     </div>
   </Teleport>
 </template>

@@ -137,7 +137,12 @@
   }
 
   /* 머리글의 단추. 목록 개폐와 파일 교체가 동일한 형태다 — 양자가 동급의
-     조작이라, 일방만 강조하면 타방을 조작 불가로 인식한다. */
+     조작이라, 일방만 강조하면 타방을 조작 불가로 인식한다.
+
+     여백은 **분절 선택기의 외곽과 동일한 수치로 합산한다** — 그쪽은 그릇의
+     여백 0.25rem 과 내부 단추의 여백 0.375rem·0.75rem 이 가산되어 0.625rem·
+     1rem 이다. 단추의 여백만 내부 단추와 일치시키면 머리글에 병렬된 조작의
+     높이가 상이해진다. */
   .app-head-btn {
     flex: 0 0 auto;
     display: inline-flex;
@@ -147,7 +152,8 @@
     border: 1px solid var(--c-border);
     border-radius: 0.5rem;
     background-color: var(--c-surface);
-    padding: 0.375rem 0.75rem;
+    padding: 0.625rem 1rem;
+    font-weight: 500;
     color: var(--c-fg-muted);
     white-space: nowrap;
     transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
@@ -218,6 +224,10 @@
 
     .app-seg-btn {
       padding: 0.375rem 0.5rem;
+    }
+
+    .app-head-btn {
+      padding: 0.625rem 0.75rem;
     }
 
     .app-drop {

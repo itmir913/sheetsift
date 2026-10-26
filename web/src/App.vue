@@ -33,12 +33,8 @@ import { useFault } from "@/composables/useFault";
 import LocaleToggle from "@/components/LocaleToggle.vue";
 import { APP_NAME, storageKey } from "@/lib/app";
 import { formatNumber, t } from "@/i18n";
-import { canPickFile } from "sheetsift-book";
 
 const KIND_VIEW = { grid: DataGrid } as const;
-
-/** 창에서 구동 중인가. 문구가 '이 컴퓨터' 인지 '이 브라우저' 인지를 가른다. */
-const native = canPickFile();
 
 const groupNames = ref<string[]>([]);
 const screens = ref<ScreenDef[]>([]);
@@ -345,12 +341,6 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
       </button>
 
       <h1 class="shrink-0 text-xl font-bold tracking-tight">{{ APP_NAME }}</h1>
-
-      <!-- 개방 이전에만 기재한다. 표를 열람하는 중에 상주시키면 그 폭만큼
-           파일 명칭이 절단된다. -->
-      <p v-if="!fileName && !narrow" class="truncate text-fg-subtle">
-        {{ t(native ? "app.tagline.desktop" : "app.tagline.web") }}
-      </p>
 
       <p
         v-if="fileName"

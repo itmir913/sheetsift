@@ -74,8 +74,6 @@ export const errors: Record<ErrorCode, string> = {
  */
 export const ui = {
   /* 앱 전역 */
-  "app.tagline.web": "자료는 이 브라우저 밖으로 나가지 않습니다",
-  "app.tagline.desktop": "자료는 이 컴퓨터 밖으로 나가지 않습니다",
   "app.starting": "시작하는 중…",
   "app.sheets": "시트 목록",
   "app.sheets.show.tip": "시트 목록 보기 (Ctrl+B)",

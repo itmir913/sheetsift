@@ -30,6 +30,14 @@
     pointer-events: none;
   }
 
+  /* 명칭 하단의 조작 안내. **농도와 크기로 위계를 분할한다** — 양자가 동일
+     하면 명칭이 안내 문장의 일부로 판독된다. */
+  .tip-hint {
+    display: block;
+    color: var(--c-fg-muted);
+    @apply text-base;
+  }
+
   /* 측정 이전. 위치 확정 이후에 노출된다. */
   .tip[data-placed="false"] {
     opacity: 0;

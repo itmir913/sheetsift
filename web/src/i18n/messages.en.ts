@@ -53,8 +53,6 @@ export const errors: Record<ErrorCode, string> = {
 };
 
 export const ui: Record<UiKey, string> = {
-  "app.tagline.web": "Your data never leaves this browser",
-  "app.tagline.desktop": "Your data never leaves this computer",
   "app.starting": "Starting…",
   "app.sheets": "Sheets",
   "app.sheets.show.tip": "Show sheets (Ctrl+B)",
