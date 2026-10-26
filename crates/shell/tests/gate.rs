@@ -23,6 +23,26 @@ const PACKAGE: &str = include_str!("../../../package.json");
 /// 배포하는 잡. 관문이 아니라 반출하는 위치다.
 const DEPLOY_JOB: &str = "pages";
 
+/// 굽는 잡. 이것도 관문이 아니라 산출물을 생성하는 위치다.
+const BAKE_JOB: &str = "bake";
+
+/// 관문 잡에 기재하면 안 되는 도구들.
+///
+/// 조각을 호출하는 대신 검사를 직접 기재하면 두 벌이 되고, 한쪽만 수정된다.
+/// `package.json` 의 조각이 실행하는 것이 전부 여기 포함되어야 한다 — 신규
+/// 도구를 조각에 도입하면 이 목록에도 한 행을 증가시킨다.
+const CHECK_TOOLS: &[&str] = &[
+    "cargo test",
+    "cargo clippy",
+    "cargo fmt",
+    "vue-tsc",
+    "eslint",
+    "npm run check",
+    "npm run build",
+    "npm run test",
+    "npm test",
+];
+
 /* ── 판독 ────────────────────────────────────────────────────────── */
 
 /// `package.json` 의 `"<명칭>":` 로 기재된 스크립트 명칭들.
@@ -304,4 +324,113 @@ fn the_check_tells_a_job_from_what_is_inside_one() {
         jobs(doctored).iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(),
         ["gate", "wasm"]
     );
+}
+
+/* ── 조각과 잡이 분기하지 않는가 ────────────────────────────────── */
+
+/// 관문을 담당하는 잡들의 문서. 배포도 굽기도 관문이 아니다.
+fn gate_blocks(src: &str) -> Vec<(String, String)> {
+    jobs(src).into_iter().filter(|(n, _)| n != DEPLOY_JOB && n != BAKE_JOB).collect()
+}
+
+/// **`npm run ci` 가 부재하는 조각을 호출하지 않는가.**
+///
+/// 조각의 명칭을 오기하면 `npm` 이 그 시점에 중단하므로 입력한 사람은 인지한다.
+/// 그러나 **기존 조각 하나를 오기로 치환**하면, 그 조각이 호출되지 않는 채로
+/// 남은 조각들이 전부 통과한다 — 액션은 전부 실행하므로 전송한 이후에야
+/// 발현된다.
+#[test]
+fn the_one_command_calls_nothing_that_is_not_a_part() {
+    let declared = parts_declared(PACKAGE);
+    let called = parts_called(script_body(PACKAGE, "ci").expect("`ci` 스크립트가 부재합니다"));
+    let unknown: Vec<String> = called.into_iter().filter(|p| !declared.contains(p)).collect();
+    assert!(unknown.is_empty(), "`npm run ci` 가 부재하는 조각을 호출합니다: {unknown:?}");
+}
+
+/// **조각마다 관문 잡이 존재하는가.**
+///
+/// 액션 전체를 판독하면, 배포하는 잡이 호출하기만 해도 통과한다. 그 잡은
+/// `main` 에서만 작동하므로 병합을 요청하는 판은 **그 조각을 경과하지 않는다.**
+#[test]
+fn every_part_runs_in_a_gate_job() {
+    let in_gates: Vec<String> =
+        gate_blocks(ACTION).into_iter().flat_map(|(_, b)| parts_called(&b)).collect();
+    let missing: Vec<String> =
+        parts_declared(PACKAGE).into_iter().filter(|p| !in_gates.contains(p)).collect();
+    assert!(missing.is_empty(), "관문 잡이 실행하지 않는 조각이 존재합니다: {missing:?}");
+}
+
+/// **관문 잡이 검사를 직접 기재하지 않는가.**
+///
+/// `cargo test` 만 차단하면 타 도구로 치환된 시점에 통과한다 — 화면의 타입
+/// 검사를 액션에 직접 기재하면 `package.json` 의 조각과 두 벌이 되고, 로컬에서
+/// 입력하는 명령과 반출되는 것이 상이한 행을 경유한다.
+#[test]
+fn a_gate_job_spells_out_no_check_of_its_own() {
+    let mut spelled: Vec<String> = Vec::new();
+    for (name, block) in gate_blocks(ACTION) {
+        for line in block.lines().map(str::trim) {
+            if line.starts_with('#') || line.contains("npm run ci:") {
+                continue;
+            }
+            if let Some(tool) = CHECK_TOOLS.iter().find(|t| line.contains(**t)) {
+                spelled.push(format!("{name}: `{tool}`"));
+            }
+        }
+    }
+    assert!(
+        spelled.is_empty(),
+        "관문 잡이 검사를 직접 기재했습니다 — package.json 의 조각을 호출하십시오: {spelled:?}"
+    );
+}
+
+/// 그 판정들이 실제로 차단하는지 확인한다.
+#[test]
+fn the_check_catches_a_misspelled_part_in_the_one_command() {
+    let doctored = concat!(
+        "{\n  \"scripts\": {\n",
+        "    \"ci\": \"npm run ci:gate && npm run ci:wsam\",\n",
+        "    \"ci:gate\": \"cargo test --workspace\",\n",
+        "    \"ci:wasm\": \"cargo test --target wasm32-unknown-unknown\"\n",
+        "  }\n}\n"
+    );
+    let declared = parts_declared(doctored);
+    let called = parts_called(script_body(doctored, "ci").expect("`ci` 가 부재합니다"));
+    let unknown: Vec<&String> = called.iter().filter(|p| !declared.contains(p)).collect();
+    assert_eq!(unknown, [&"ci:wsam".to_string()]);
+}
+
+#[test]
+fn the_check_catches_a_part_that_only_the_deploy_runs() {
+    let doctored = concat!(
+        "\njobs:\n",
+        "  gate:\n    steps:\n      - run: npm run ci:gate\n",
+        "  pages:\n    needs: [gate]\n    steps:\n      - run: npm run ci:web\n",
+        "      - uses: actions/deploy-pages@v5\n"
+    );
+    let in_gates: Vec<String> =
+        gate_blocks(doctored).into_iter().flat_map(|(_, b)| parts_called(&b)).collect();
+    assert_eq!(in_gates, ["ci:gate"]);
+    assert!(!in_gates.contains(&"ci:web".to_string()));
+}
+
+#[test]
+fn the_check_catches_a_type_check_written_into_a_gate_job() {
+    let doctored = concat!(
+        "\njobs:\n",
+        "  web:\n    steps:\n      - run: npx vue-tsc -b\n",
+        "  pages:\n    needs: [web]\n    steps:\n      - uses: actions/deploy-pages@v5\n"
+    );
+    let mut spelled: Vec<String> = Vec::new();
+    for (name, block) in gate_blocks(doctored) {
+        for line in block.lines().map(str::trim) {
+            if line.starts_with('#') || line.contains("npm run ci:") {
+                continue;
+            }
+            if let Some(tool) = CHECK_TOOLS.iter().find(|t| line.contains(**t)) {
+                spelled.push(format!("{name}: `{tool}`"));
+            }
+        }
+    }
+    assert_eq!(spelled, ["web: `vue-tsc`"]);
 }

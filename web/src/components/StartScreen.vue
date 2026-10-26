@@ -18,6 +18,14 @@ const emit = defineEmits<{ pick: [file: File]; pickAt: [path: string, name: stri
 
 /** 열쇠를 산출하지 않고 **기재한다.** 문자열을 조립하면 열쇠가 실재하는지를
     타입이 판정하지 못해, 오기가 화면에 열쇠 그대로 표시된다. */
+const USAGE = [
+  ["start.usage.1.lead", "start.usage.1.text"],
+  ["start.usage.2.lead", "start.usage.2.text"],
+  ["start.usage.3.lead", "start.usage.3.text"],
+  ["start.usage.4.lead", "start.usage.4.text"],
+  ["start.usage.5.lead", "start.usage.5.text"],
+] as const;
+
 const PRIVACY = [
   ["start.privacy.1.lead", "start.privacy.1.text"],
   ["start.privacy.2.lead", "start.privacy.2.text"],
@@ -52,31 +60,33 @@ const MAIL = "hello@luminousky.com";
 
     <section class="app-card lg:col-start-2 lg:row-start-2">
       <h3 class="text-lg font-medium text-fg">{{ t("start.formats.title") }}</h3>
-      <ul class="app-card-list">
-        <li>{{ t("start.formats.1") }}</li>
-        <li>{{ t("start.formats.2") }}</li>
-        <li>{{ t("start.formats.3") }}</li>
-      </ul>
+      <!-- 문장으로 기재한다. 항목으로 분절하면 **조건을 나열한 목록**으로
+           판독되는데, 여기 기재하는 것은 개방 가능한 범위와 그 한계다. -->
+      <div class="app-card-text">
+        <p>{{ t("start.formats.1") }}</p>
+        <p>{{ t("start.formats.2") }}</p>
+        <p>{{ t("start.formats.3") }}</p>
+      </div>
     </section>
 
     <section class="app-card lg:col-start-2 lg:row-start-3">
       <h3 class="text-lg font-medium text-fg">{{ t("start.usage.title") }}</h3>
-      <ul class="app-card-list">
-        <li>{{ t("start.usage.1") }}</li>
-        <li>{{ t("start.usage.2") }}</li>
-        <li>{{ t("start.usage.3") }}</li>
-        <li>{{ t("start.usage.4") }}</li>
-      </ul>
+      <div class="app-card-text">
+        <p v-for="[lead, text] in USAGE" :key="lead">
+          <strong class="block font-semibold text-fg">{{ t(lead) }}</strong>
+          {{ t(text) }}
+        </p>
+      </div>
     </section>
 
     <section class="app-card lg:col-span-2">
       <h3 class="text-lg font-medium text-fg">{{ t("start.privacy.title") }}</h3>
-      <ul class="app-card-list">
-        <li v-for="[lead, text] in PRIVACY" :key="lead">
-          <strong class="font-semibold text-fg">{{ t(lead) }}</strong>
+      <div class="app-card-text">
+        <p v-for="[lead, text] in PRIVACY" :key="lead">
+          <strong class="block font-semibold text-fg">{{ t(lead) }}</strong>
           {{ t(text) }}
-        </li>
-      </ul>
+        </p>
+      </div>
     </section>
 
     <!-- 만든 사람을 탐색하는 것도 최초 1회라 여기에만 존치한다.

@@ -171,27 +171,45 @@ export const ui: Record<UiKey, string> = {
   "print.selected.none": "nothing selected",
   "print.more": "{list} and {n} more",
 
-  "start.title": "Find what you need in a spreadsheet, fast",
+  "start.title": "Find just the data you need in a spreadsheet",
   "start.lede":
-    "Open a large xlsx or csv without Excel and narrow it to the rows you want by sorting and filtering. Read-only — the original is never written to.",
-  "start.formats.title": "What it opens",
-  "start.formats.1": "xlsx, xls and csv. When a file holds several sheets, pick one from the list on the left.",
+    "Open large XLSX, XLS and CSV files without Excel and narrow them down by sorting and filtering. A read-only viewer that never writes to your file, available as an offline app and on the web.",
+
+  "start.formats.title": "Supported file formats",
+  "start.formats.1":
+    "XLSX, XLS and CSV files can be opened. When a workbook holds several sheets, pick the one you want from the list on the left.",
   "start.formats.2":
-    "For a multi-row header, set the starting row and the row count in the toolbar. When detection fails, it says so.",
+    "Files whose column titles span several rows are fine too. Set the row the header starts on and how many rows it spans, and when no header is found you are told so.",
   "start.formats.3":
-    "On a very large file memory runs out first, and at that point it can stop with no message.",
-  "start.usage.title": "Working with the table",
-  "start.usage.1": "Click a column header to sort. Several columns can be set in turn.",
-  "start.usage.2": "Filter by typing in a column's search box or by picking values.",
-  "start.usage.3": "Drag an edge to resize, drag a header to reorder. The leftmost columns can be frozen.",
-  "start.usage.4": "Shift+wheel pans sideways, and printing gives you what you see.",
-  "start.privacy.title": "Privacy",
-  "start.privacy.1.lead": "Nothing is sent anywhere.",
-  "start.privacy.1.text": "There is nowhere to send it. Reading the file and querying it both end on this device.",
-  "start.privacy.2.lead": "The original is never changed.",
-  "start.privacy.2.text": "It is read only. There is no path that writes back to the file you opened.",
-  "start.privacy.3.lead": "Your data is not kept.",
+    "If a file is very large, the device may run out of memory, and opening it can fail or stop partway.",
+
+  "start.usage.title": "Reading, sorting and filtering",
+  "start.usage.1.lead": "Sorting",
+  "start.usage.1.text":
+    "Click a column title to sort by it. Set several columns in turn to order the rows exactly as you want.",
+  "start.usage.2.lead": "Finding just the rows you need",
+  "start.usage.2.text":
+    "Type into a column's search box or pick values from its list to filter. Even in a large sheet, only the rows you want remain.",
+  "start.usage.3.lead": "Column width and order",
+  "start.usage.3.text":
+    "Drag a column edge to resize it, and drag a column title to move it where you want.",
+  "start.usage.4.lead": "Freezing key columns",
+  "start.usage.4.text":
+    "Freeze the leftmost columns and they stay in view while you move sideways through the table.",
+  "start.usage.5.lead": "Panning and printing",
+  "start.usage.5.text":
+    "Shift+mouse wheel moves the table sideways. What is on screen is what prints.",
+
+  "start.privacy.title": "Privacy and your files",
+  "start.privacy.1.lead": "Your file is never sent anywhere.",
+  "start.privacy.1.text":
+    "Opening the file and querying the data both happen on the device you are using. Nothing is uploaded to a server.",
+  "start.privacy.2.lead": "The original file is left as it is.",
+  "start.privacy.2.text":
+    "SheetSift is read-only. It never edits the contents of a file and never saves changes back to it.",
+  "start.privacy.3.lead": "The contents are not kept.",
   "start.privacy.3.text":
-    "Reload and the file is gone. Only screen settings - language, theme, column layout - stay on this device.",
+    "The data you opened is gone when you reload. Only screen settings — language, theme, column layout — are stored on the device.",
+
   "foot.repo": "GitHub repository",
 };
