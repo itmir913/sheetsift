@@ -119,7 +119,7 @@ export const ui: Record<UiKey, string> = {
   "tools.sorts": "Sorting",
   "tools.help": "Tips",
   "tools.help.text":
-    "Click a header to sort · drag to reorder · drag the edge to resize · Shift+wheel to pan",
+    "Click a header to sort | drag to reorder | drag the edge to resize | Shift+wheel to pan",
   "tools.sort.remove.tip": "Remove the sorting on {label}",
 
   "column.letter": "Column {letter}",
@@ -127,7 +127,7 @@ export const ui: Record<UiKey, string> = {
   "grid.rows_one": "{n} row",
   "grid.rows_other": "{n} rows",
   "grid.empty": "No rows match. Try loosening the filters.",
-  "grid.head.tip": "{label}\nClick: ascending → descending → none · drag to reorder",
+  "grid.head.tip": "{label}\nClick: ascending → descending → none | drag to reorder",
   "grid.sort.asc.aria": "sorted ascending",
   "grid.sort.desc.aria": "sorted descending",
   "grid.resize.aria": "Resize {label}",

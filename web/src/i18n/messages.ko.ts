@@ -143,7 +143,7 @@ export const ui = {
   "tools.sorts": "정렬",
   "tools.help": "도움말",
   "tools.help.text":
-    "열 제목 클릭: 정렬 · 끌기: 순서 바꾸기 · 경계선 끌기: 폭 조절 · Shift+휠: 좌우 이동",
+    "열 제목 클릭: 정렬 | 끌기: 순서 바꾸기 | 경계선 끌기: 폭 조절 | Shift+휠: 좌우 이동",
   "tools.sort.remove.tip": "{label} 정렬 해제",
 
   /* 표 */
@@ -152,7 +152,7 @@ export const ui = {
   "grid.rows_one": "{n}행",
   "grid.rows_other": "{n}행",
   "grid.empty": "조건에 맞는 행이 없습니다. 필터를 풀어 보십시오.",
-  "grid.head.tip": "{label}\n클릭: 오름차순 → 내림차순 → 해제 · 끌기: 순서 바꾸기",
+  "grid.head.tip": "{label}\n클릭: 오름차순 → 내림차순 → 해제 | 끌기: 순서 바꾸기",
   "grid.sort.asc.aria": "오름차순으로 정렬됨",
   "grid.sort.desc.aria": "내림차순으로 정렬됨",
   "grid.resize.aria": "{label} 폭 조절",
