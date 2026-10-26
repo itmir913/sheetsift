@@ -204,7 +204,11 @@ function labelOf(key: string): string {
           >
             −
           </button>
-          <span class="w-4 text-center tabular-nums text-fg">{{ pinned }}</span>
+          <span
+            class="min-w-4 shrink-0 whitespace-nowrap text-center tabular-nums text-fg"
+          >
+            {{ pinned }}
+          </span>
           <button
             type="button"
             class="gx-pin-btn"
@@ -261,7 +265,11 @@ function labelOf(key: string): string {
           >
             −
           </button>
-          <span class="w-4 text-center tabular-nums text-fg">{{ header.rows }}</span>
+          <span
+            class="min-w-4 shrink-0 whitespace-nowrap text-center tabular-nums text-fg"
+          >
+            {{ header.rows }}
+          </span>
           <button
             type="button"
             class="gx-pin-btn"
