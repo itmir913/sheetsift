@@ -32,19 +32,28 @@
 #
 # Triggers. The gate runs on every branch push and on anything asking to be
 # merged: a check that waits for a pull request is a check you work without.
-# Releasing is a separate trigger -- **pushing a tag** is the one manual act
-# that says "this revision goes out", and the tag pattern takes no `v` prefix
-# because the tags in this repository are plain versions (`0.0.0`).
-# Running the workflow by hand deploys the screen and bakes the app without
-# publishing anything, which is how the bundling config gets exercised without
-# spending a tag on it.
+#
+# **Nothing goes out on its own.** Releasing takes two things at once -- the
+# workflow **run by hand**, on a **tag**. Either alone does nothing: a tag
+# pushed on its own starts no run at all (there is no `tags:` filter below, and
+# `crates/shell/tests/gate.rs` stops the gate if one reappears), and running it
+# by hand on a branch gets the gate and nothing else.
+#
+# Two conditions rather than one because they fail in opposite directions. A tag
+# that deploys by itself means a tag can never be pushed to mark a revision
+# without also publishing it. A by-hand run that deploys from anywhere means the
+# published thing has no name. Requiring both leaves the act of publishing
+# deliberate and the published thing named.
+#
+# Tags here carry no `v`; they are plain versions (`0.0.0`), and `ship` refuses
+# a tag that disagrees with `tauri.conf.json`.
 name: ci
 
 on:
   push:
-    # Every branch, slash-separated names included.
+    # Every branch, slash-separated names included. **No `tags:` here** -- see
+    # above.
     branches: ['**']
-    tags: ['[0-9]+.[0-9]+.[0-9]+']
   pull_request:
   workflow_dispatch:
 
@@ -62,12 +71,12 @@ permissions:
 # run. `head_ref || ref` does not -- the two strings differ, neither cancels the
 # other, and **the whole gate runs twice on every push**, Windows included.
 #
-# **What goes out is never cancelled.** A tag run and a run started by hand each
-# get a group of their own (`run_id` is unique per run): those two are what is
-# published, and cutting one off halfway leaves nobody knowing what is actually
+# **A run started by hand is never cancelled.** It gets a group of its own
+# (`run_id` is unique per run), because that is the only kind of run that
+# publishes, and cutting one off halfway leaves nobody knowing what is actually
 # out there.
 concurrency:
-  group: ${{ github.workflow }}-${{ (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch') && github.run_id || github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
@@ -191,10 +200,13 @@ jobs:
   # `sheetsift-wasm` alias in `web/vite.config.ts`.
   pages:
     needs: [gate, wasm, tauri, web]
-    # A tag is what goes out. Running it by hand also deploys -- that is the
-    # only way to look at a change on a machine that cannot compile wasm
-    # locally (`docs/web.md`), so it stays.
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    # By hand, on a tag. Both, or nothing -- see the top of this file.
+    #
+    # So **a push to `main` no longer refreshes the site**: what is deployed is
+    # the last thing someone released, deliberately. A machine that cannot
+    # compile wasm locally therefore has no way to look at a change on the
+    # deployed site without releasing it (`docs/web.md`).
+    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
 
     # Keep two runs from landing on the same place at once. Do not cancel one in
@@ -321,7 +333,7 @@ jobs:
   # unsigned and nobody here can start it. See `docs/desktop.md`.
   bake:
     needs: [gate, wasm, tauri, web]
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/')
     strategy:
       fail-fast: false
       matrix:
@@ -493,7 +505,7 @@ jobs:
   # person looks before it is public.
   ship:
     needs: [gate, wasm, tauri, web, bake]
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
 
     # Never two at once on one tag, and never cancel one in flight -- cut off

@@ -864,3 +864,114 @@ fn the_check_catches_a_second_pin_that_moved() {
     assert_eq!(found, ["2.9.1", "2.8.0"]);
     assert!(!found.iter().all(|v| v == &found[0]));
 }
+
+/* ── 태그가 단독으로 기동하지 않는가 ────────────────────────────── */
+
+/// 전원 하나가 기재한 문서 (`on:` 하단의 2칸 들여쓴 명칭).
+///
+/// `jobs` 와 동일한 판독이다 — 행을 글자로 탐색하지 않고 들여쓰기로 산정한다.
+fn trigger(src: &str, name: &str) -> Option<String> {
+    let mut inside = false;
+    let mut mine = false;
+    let mut out = String::new();
+    for line in src.lines() {
+        if !inside {
+            // `on:` 은 YAML 에서 참으로 판독되는 열쇠라 인용하는 판도 존재한다.
+            let t = line.trim_end();
+            inside = t == "on:" || t == "\"on\":" || t == "'on':";
+            continue;
+        }
+        if !line.trim().is_empty() && !line.starts_with(' ') {
+            break;
+        }
+        let head = line.starts_with("  ")
+            && !line.starts_with("   ")
+            && line.trim_end().ends_with(':')
+            && !line.trim_start().starts_with('#');
+        if head {
+            if mine {
+                break;
+            }
+            mine = line.trim().trim_end_matches(':') == name;
+            continue;
+        }
+        if mine && !line.trim_start().starts_with('#') {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    mine.then_some(out)
+}
+
+/// **태그를 푸시하는 것이 단독으로 반출을 기동하지 않는가.**
+///
+/// 반출하는 잡은 수동 기동과 태그를 동시에 요구한다. 그런데 `on.push` 에
+/// `tags:` 를 기재하면 **태그를 푸시하는 순간 그 조건이 충족되고**, 판을 표식하려
+/// 붙인 태그가 그대로 게시된다 — 아무것도 그것을 진술하지 않는다. 그 한 행이
+/// 소재하지 않는 것이 수호 대상이다.
+#[test]
+fn a_pushed_tag_starts_nothing_on_its_own() {
+    let push = trigger(ACTION, "push").expect("`push` 전원을 탐색하지 못했습니다 — 검사가 실명한 것입니다");
+    assert!(
+        push.contains("branches:"),
+        "`push` 가 분기를 기재하지 않았습니다 — 검사가 실명한 것입니다"
+    );
+    assert!(
+        !push.contains("tags:"),
+        "`on.push` 가 태그를 기재했습니다 — 태그를 푸시하는 것만으로 반출됩니다"
+    );
+    assert!(
+        trigger(ACTION, "workflow_dispatch").is_some(),
+        "수동 기동을 기재하지 않았습니다 — 반출할 수단이 부재합니다"
+    );
+}
+
+/// **반출하는 잡이 수동 기동까지 요구하는가.**
+///
+/// 태그만 판정하면 `on.push` 에 `tags:` 가 재기재되는 시점에 자동으로 반출된다.
+/// 두 조건을 양측에서 수호한다.
+#[test]
+fn what_goes_out_requires_a_hand() {
+    let all = jobs(ACTION);
+    for (name, _) in OUTBOUND {
+        let job = all
+            .iter()
+            .find(|(n, _)| n == name)
+            .unwrap_or_else(|| panic!("`{name}` 잡을 탐색하지 못했습니다 — 검사가 실명한 것입니다"));
+        assert!(
+            job.1.contains("github.event_name == 'workflow_dispatch'"),
+            "`{name}` 이 수동 기동을 요구하지 않습니다"
+        );
+    }
+}
+
+/// 태그를 기재한 전원을 투입한다.
+#[test]
+fn the_check_catches_a_tag_filter_that_came_back() {
+    let doctored = concat!(
+        "name: ci\n",
+        "on:\n",
+        "  push:\n    branches: ['**']\n    tags: ['[0-9]+.[0-9]+.[0-9]+']\n",
+        "  workflow_dispatch:\n",
+        "jobs:\n",
+    );
+    let push = trigger(doctored, "push").expect("push 가 부재합니다");
+    assert!(push.contains("tags:"));
+    assert!(trigger(doctored, "workflow_dispatch").is_some());
+    assert!(trigger(doctored, "pull_request").is_none());
+}
+
+/// 전원을 판별하는 판정이 그 내부와 타 전원을 혼동하지 않는가.
+#[test]
+fn the_check_tells_one_trigger_from_the_next() {
+    let doctored = concat!(
+        "on:\n",
+        "  push:\n    branches: ['**']\n",
+        "  pull_request:\n",
+        "jobs:\n  gate:\n    steps:\n      - run: npm run ci:gate\n"
+    );
+    let push = trigger(doctored, "push").expect("push 가 부재합니다");
+    assert_eq!(push.trim(), "branches: ['**']");
+    assert!(!push.contains("pull_request"));
+    assert!(!push.contains("jobs"));
+}

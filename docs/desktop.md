@@ -152,35 +152,50 @@ would have said so. The dmg carries it whole.
 
 ```bash
 # Raise the version in crates/tauri/tauri.conf.json, commit it, let the gate
-# pass, and then:
+# pass, and then tag that commit:
 git tag 0.1.0
 git push origin 0.1.0
+
+# Nothing has happened yet. Release it:
+gh workflow run ci --ref 0.1.0
 ```
 
-**Pushing a tag is the one manual act that releases.** Tags here are plain
-versions with no `v`, and the pattern in the workflow takes no `v` either.
+**Releasing takes two things, and neither does anything alone.** The workflow has
+to be **run by hand**, and it has to be run **on a tag**.
 
-The tag starts `pages` (the screen) and `bake` (the app) side by side, both after
-the gate, and then `ship` attaches what came out to a **draft** release. Draft,
-because a green bake does not say the app opens — someone looks before it is
-public.
+- **A pushed tag starts nothing.** There is no `tags:` filter in the workflow's
+  triggers, so a tag can be pushed to mark a revision without publishing it.
+  `crates/shell/tests/gate.rs` stops the gate if such a filter reappears.
+- **A by-hand run on a branch gets the gate and nothing else.** `pages`, `bake`
+  and `ship` each require the ref to be a tag.
+
+The two fail in opposite directions, which is why both are required. If a tag
+deployed by itself, a tag could never mean "this is the revision" without also
+meaning "and it is now public". If a by-hand run deployed from anywhere, the
+published thing would have no name.
+
+Tags carry no `v`; they are plain versions. On a tag, `pages` (the screen) and
+`bake` (the app) run side by side after the gate, and then `ship` attaches what
+came out to a **draft** release. Draft, because a green bake does not say the app
+opens — someone looks before it is public.
 
 `ship` stops if the tag and the version in `tauri.conf.json` are not the same
 string. The version is what every file name is built out of, so a tag that
 disagrees would attach one version's files to another version's release, and
 nothing else would ever say so.
 
-**One thing to check before the first tag, because it is not in this
+**One thing to check before the first release, because it is not in this
 repository.** The `github-pages` environment carries a "deployment branches and
-tags" rule, and it is commonly set to the default branch only. If it is, a
-tag-triggered `pages` run stops at that rule with a message that has nothing to
-do with the code. Allow the tag pattern there, or expect to lose a tag finding
-out.
+tags" rule, and it is commonly set to the default branch only. If it is, the
+`pages` job stops at that rule with a message that has nothing to do with the
+code. Allow the tag pattern there first.
 
-Running the workflow by hand deploys the screen and bakes the app **without
-publishing**. That is how the bundling config is exercised without spending a tag
-on it — worth doing after changing anything in `tauri.conf.json` or in the icons,
-because `ci:tauri` compiles the crate on every push but never bakes it.
+**There is no way to exercise the bake without releasing.** `ci:tauri` compiles
+the crate on every push, but nothing bundles it until a tag is released, so a
+break in the bundling config — the icons, `tauri.conf.json`, a bundler argument
+— first appears in the run that publishes. That is the price of nothing going
+out by accident. After changing any of those, expect to spend a tag on finding
+out; the release is a draft, so a bad one is deleted rather than seen.
 
 ## The Mac build is unsigned
 

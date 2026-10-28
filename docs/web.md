@@ -47,20 +47,21 @@ npm run dev:web
 above produces `web/pkg` and lets you work with the UI locally — rerun
 `npm run pkg` only when the kernel changes; Vite picks up UI files immediately.
 
-Where clang is absent, change the UI, push, and **work with the deployed build.**
-Cumbersome, but better than guessing at changes you cannot compile.
+Where clang is absent, **there is no deployed build to work with either.**
+Deploying is releasing — it takes a tag, run by hand (`docs/desktop.md`) — so the
+site is the last thing someone released, and a change on a branch is not on it.
+Pushing used to refresh it; that path is gone, deliberately, because a site that
+refreshed on every push also meant nobody could tell what was released.
 
-**A push no longer deploys by itself.** Deploying is for what goes out, and what
-goes out is a tag (`docs/desktop.md`). To refresh the site from a branch, run the
-`ci` workflow **by hand** on it — that deploys the screen and bakes the app
-without publishing anything. Without that step the site stays on whatever was
-last released.
+So on such a machine the UI is judged by `vue-tsc` (`ci:web`), by the screen
+tests, and by reading the diff. Install clang instead where you can: the
+alternative is spending a release to look at a change.
 
 ## Where it is deployed
 
 The UI is deployed to GitHub Pages — the `pages` job in `ci.yml` compiles and
-deploys it, **when a tag is pushed or the workflow is run by hand**, never on an
-ordinary push. **It runs only after every piece of the gate has passed**
+deploys it, **only when the workflow is run by hand on a tag** — never on an
+ordinary push, and never on a by-hand run on a branch. **It runs only after every piece of the gate has passed**
 (`needs`).
 Dropping one from that line would deploy a revision whose tests fail, and the
 deployment would still succeed, so whether one is missing is read textually by
