@@ -73,8 +73,7 @@ fn backend_codes_with(src: &str, enabled: &[String]) -> Vec<String> {
         None => return Vec::new(),
     };
     let body = &src[from..];
-    let to = body.find("
-}").unwrap_or(body.len());
+    let to = body.find("\n}").unwrap_or(body.len());
     let mut out = Vec::new();
     // 직전에 부착된 기능. 변종 하나에만 작용한다.
     let mut gate: Option<String> = None;
