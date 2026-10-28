@@ -11,7 +11,7 @@
 #
 # The same holds a layer down: locally the whole gate is one command,
 # `npm run ci`, which is a sequence of parts (`ci:gate`, `ci:wasm`, `ci:tauri`,
-# `ci:web`). The jobs here run those same parts, one per job, so they go at
+# `ci:webview`, `ci:web`). The jobs here run those same parts, one per job, so they go at
 # once -- **nothing here spells a check out again.** Add a part and forget this
 # file, or run something here that no part contains, and the gate stops.
 #
@@ -131,3 +131,22 @@ jobs:
           workspaces: crates/tauri
 
       - run: npm run ci:tauri
+
+  # The webview hardening crate. It takes tauri, so it sits outside the
+  # workspace like the desktop shell does. Windows, because the code it guards
+  # compiles only there.
+  webview:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: webview
+          workspaces: crates/webview
+
+      - run: npm run ci:webview

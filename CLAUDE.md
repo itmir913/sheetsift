@@ -101,6 +101,7 @@ npm run ci
 | `ci:gate` | `cargo test --workspace` 와 워크스페이스 clippy |
 | `ci:wasm` | wasm 타깃의 시험 둘과 껍질 clippy |
 | `ci:tauri` | 워크스페이스 외부인 tauri 앱의 시험과 clippy |
+| `ci:webview` | 워크스페이스 외부인 webview 단축키 차단 상자의 시험과 clippy |
 | `ci:web` | 화면의 타입 검사(`vue-tsc`) |
 
 **조각을 증가시켜도 입력하는 명령은 동일하다.** 한동안 관문이라 호칭하는 행이

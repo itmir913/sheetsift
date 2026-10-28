@@ -15,6 +15,7 @@ files is the caller's job.
 | `crates/wasm` | The shell that attaches the core to the browser. `wasm_bindgen` exists only in this crate |
 | `crates/desk` | The commands the window calls, plus **file reading and writing**. Ordinary Rust, so the full gate covers it |
 | `crates/tauri` | The tauri app that attaches those commands to a window. Outside the workspace, so `ci:tauri` owns it |
+| `crates/webview` | Turns off the webview's own browser shortcuts (`harden`). Not used by the viewer here; an application that wants it takes it as a git dependency. Takes tauri, so it is outside the workspace too and `ci:webview` owns it |
 | `web/` | The Vite + Vue viewer. Table, sorting, filtering and printing |
 
 ## No human-readable text, no keys
