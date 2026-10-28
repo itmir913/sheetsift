@@ -496,15 +496,23 @@ jobs:
   # Publishing. The only job that writes to the repository, and the only one a
   # tag alone starts.
   #
-  # It waits for every gate job by name as well as for `bake`. Waiting through
-  # `bake` would satisfy GitHub, but the check that holds this file to the gate
-  # reads the line as text and cannot follow one job through another
-  # (`crates/shell/tests/gate.rs`) -- so the line names all of them.
+  # It waits for every gate job by name as well as for `bake` and `pages`.
+  # Waiting through `bake` would satisfy GitHub, but the check that holds this
+  # file to the gate reads the line as text and cannot follow one job through
+  # another (`crates/shell/tests/gate.rs`) -- so the line names all of them.
+  #
+  # **`pages` is in that line because going out is one act.** A release whose
+  # screen never deployed is a release that half happened, and once it is
+  # attached nothing goes back and says so. It costs no time: `pages` and `bake`
+  # still run side by side, and `pages` finishes first by minutes -- waiting for
+  # both is waiting for the slower one, which is the bake either way. If a day
+  # comes when the screen is the slower one, that is itself a reason not to
+  # publish yet.
   #
   # **The release is a draft.** A green bake does not say the app opens, so a
   # person looks before it is public.
   ship:
-    needs: [gate, wasm, tauri, web, bake]
+    needs: [gate, wasm, tauri, web, bake, pages]
     if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
 

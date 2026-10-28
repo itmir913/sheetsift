@@ -184,11 +184,20 @@ string. The version is what every file name is built out of, so a tag that
 disagrees would attach one version's files to another version's release, and
 nothing else would ever say so.
 
-**One thing to check before the first release, because it is not in this
-repository.** The `github-pages` environment carries a "deployment branches and
-tags" rule, and it is commonly set to the default branch only. If it is, the
-`pages` job stops at that rule with a message that has nothing to do with the
-code. Allow the tag pattern there first.
+**One setting lives outside this repository, and it stopped the first release.**
+The `github-pages` environment carries a "deployment branches and tags" rule.
+It held `main` alone, so on a tag the `pages` job failed **before a single step
+ran** — no step was red, no log said why, and nothing in the code could have
+said so. The rule now also holds the tag pattern `*.*.*`:
+
+```bash
+gh api repos/<owner>/<repo>/environments/github-pages/deployment-branch-policies \
+  --jq '.branch_policies[] | "\(.type)\t\(.name)"'
+```
+
+That pattern is the environment's own glob syntax, not the workflow's — `*`
+only, no `+`. The `main` entry is left in place; nothing deploys from a branch
+any more, so it is unused rather than wrong.
 
 **There is no way to exercise the bake without releasing.** `ci:tauri` compiles
 the crate on every push, but nothing bundles it until a tag is released, so a

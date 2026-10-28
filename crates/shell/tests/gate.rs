@@ -975,3 +975,55 @@ fn the_check_tells_one_trigger_from_the_next() {
     assert!(!push.contains("pull_request"));
     assert!(!push.contains("jobs"));
 }
+
+/* ── 반출은 한 행위인가 ─────────────────────────────────────────── */
+
+/// 게시하는 잡. 반출하는 잡들 중 **최종**이다.
+const PUBLISH: &str = "ship";
+
+/// **게시가 반출하는 것 전부를 대기하는가.**
+///
+/// 화면이 송출되지 않은 판에서 Release 가 부착되면 그것은 절반만 발생한
+/// 반출이고, 부착된 이후에 그것을 진술하는 위치는 부재하다. 그래서 게시는
+/// 타 반출 잡 전부를 대기한다.
+///
+/// **시간을 소모하지 않는다.** `needs` 는 순차 실행이 아니다 — 송출과 굽기는
+/// 그대로 병렬로 작동하고, 게시는 지연된 쪽이 종료된 시점에 시작한다. 송출이
+/// 굽기보다 지연되는 날이 도래하면, 그 사실 자체가 게시를 보류할 사유다.
+#[test]
+fn publishing_waits_for_everything_else_that_goes_out() {
+    assert!(outbound(PUBLISH), "`{PUBLISH}` 가 `OUTBOUND` 에 미등재입니다 — 검사가 실명한 것입니다");
+    let all = jobs(ACTION);
+    let job = all
+        .iter()
+        .find(|(n, _)| n == PUBLISH)
+        .unwrap_or_else(|| panic!("`{PUBLISH}` 잡을 탐색하지 못했습니다 — 검사가 실명한 것입니다"));
+    let waits = needs(&job.1);
+    assert!(!waits.is_empty(), "`{PUBLISH}` 가 대기하는 잡이 부재합니다 — 검사가 실명한 것입니다");
+    let missing: Vec<&str> = OUTBOUND
+        .iter()
+        .map(|(n, _)| *n)
+        .filter(|n| *n != PUBLISH && !waits.contains(&n.to_string()))
+        .collect();
+    assert!(missing.is_empty(), "게시가 대기하지 않는 반출 잡이 존재합니다: {missing:?}");
+}
+
+/// 굽기만 대기하는 게시를 투입한다.
+#[test]
+fn the_check_catches_a_publish_that_leaves_the_screen_behind() {
+    let doctored = concat!(
+        "\njobs:\n",
+        "  pages:\n    needs: [gate]\n    steps:\n      - uses: actions/deploy-pages@v5\n",
+        "  bake:\n    needs: [gate]\n    steps:\n      - run: npm run bake\n",
+        "  ship:\n    needs: [gate, bake]\n    steps:\n      - run: gh release create x\n"
+    );
+    let all = jobs(doctored);
+    let ship = all.iter().find(|(n, _)| n == PUBLISH).expect("ship 가 부재합니다");
+    let waits = needs(&ship.1);
+    let missing: Vec<&str> = OUTBOUND
+        .iter()
+        .map(|(n, _)| *n)
+        .filter(|n| *n != PUBLISH && !waits.contains(&n.to_string()))
+        .collect();
+    assert_eq!(missing, ["pages"]);
+}
