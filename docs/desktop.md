@@ -113,7 +113,7 @@ What the commands do is exercised by the tests in `crates/desk`.
 npm run build:tauri
 ```
 
-The workflow's `bake` job calls **that same script** after the gate passes, and
+`publish.yml`'s `bake` job calls **that same script** after the gate passes, and
 keeps what came out. It differs in its arguments: the script takes the bundles
 from `tauri.conf.json`, while the job names them, and names the target too
 (below). The tool's version is
@@ -157,26 +157,28 @@ git tag 0.1.0
 git push origin 0.1.0
 
 # Nothing has happened yet. Release it:
-gh workflow run ci --ref 0.1.0
+gh workflow run publish --ref 0.1.0
 ```
 
 **Releasing takes two things, and neither does anything alone.** The workflow has
 to be **run by hand**, and it has to be run **on a tag**.
 
-- **A pushed tag starts nothing.** There is no `tags:` filter in the workflow's
-  triggers, so a tag can be pushed to mark a revision without publishing it.
-  `crates/shell/tests/gate.rs` stops the gate if such a filter reappears.
-- **A by-hand run on a branch gets the gate and nothing else.** `pages`, `bake`
-  and `ship` each require the ref to be a tag.
+- **A pushed tag starts nothing.** `publish.yml` has no `push` trigger at all,
+  so a tag can be pushed to mark a revision without publishing it.
+  `crates/shell/tests/gate.rs` stops the gate if another trigger appears there.
+- **A branch is refused, not skipped.** The `tag-only` job fails the run on
+  anything that is not a tag, and the gate waits for it, so nothing downstream
+  starts. It fails rather than skipping: a run that quietly did nothing is a run
+  you believe published something.
 
 The two fail in opposite directions, which is why both are required. If a tag
 deployed by itself, a tag could never mean "this is the revision" without also
 meaning "and it is now public". If a by-hand run deployed from anywhere, the
 published thing would have no name.
 
-Tags carry no `v`; they are plain versions. On a tag, `pages` (the screen) and
-`bake` (the app) run side by side after the gate, and then `ship` attaches what
-came out to a **draft** release. Draft, because a green bake does not say the app
+Tags carry no `v`; they are plain versions. The gate is the same file `ci.yml`
+calls (`gate.yml`); after it, `pages` (the screen) and `bake` (the app) run side
+by side, and then `ship` attaches what came out to a **draft** release. Draft, because a green bake does not say the app
 opens — someone looks before it is public.
 
 `ship` stops if the tag and the version in `tauri.conf.json` are not the same

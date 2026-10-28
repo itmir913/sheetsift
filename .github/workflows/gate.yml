@@ -1,0 +1,133 @@
+# **The gate is defined here, once.**
+#
+# `ci.yml` (pushes and pull requests) and `publish.yml` (releasing) both call
+# this file. Neither spells a check of its own.
+#
+# Why one file: when the gate was written out in two places, one copy got
+# edited and the other did not, and from then on what shipped and what you
+# looked at every day went through different lines -- with the deploy the more
+# forgiving of the two. Nothing reports that. So there is one definition, and
+# `crates/shell/tests/gate.rs` holds the callers to it.
+#
+# The same holds a layer down: locally the whole gate is one command,
+# `npm run ci`, which is a sequence of parts (`ci:gate`, `ci:wasm`, `ci:tauri`,
+# `ci:web`). The jobs here run those same parts, one per job, so they go at
+# once -- **nothing here spells a check out again.** Add a part and forget this
+# file, or run something here that no part contains, and the gate stops.
+#
+# Why jobs rather than one job running `npm run ci`: they go in parallel, and a
+# failure says which part failed without opening the log.
+name: gate
+
+on:
+  workflow_call:
+
+# **No `permissions` here.** A called workflow cannot widen what the caller
+# gave it, so narrowing here would only break the caller that needs more.
+# Narrowing is the calling file's business.
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The desktop part. What the author runs before every commit.
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: gate
+
+      - run: npm run ci:gate
+
+  # What the desktop part cannot see.
+  #
+  # The `tests/wasm.rs` files start with `#![cfg(target_arch = "wasm32")]`, so
+  # `cargo test --workspace` on a desktop reads them as empty files. Change the
+  # shape of a public function, leave those call sites alone, and `ci:gate`
+  # still goes green. The layer that talks to the browser (`bindings.rs`) is
+  # compiled only for that target too, so the same holds for it.
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # SQLite is C. Without this line we would be leaning on whatever clang the
+      # runner image happens to carry, and the day the image changes it breaks
+      # somewhere far from the cause.
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+
+      - name: Add the wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm
+
+      # Do not write the version here. `wasm-bindgen-cli` must match the
+      # `wasm-bindgen` crate -- when they differ the tool says so and stops.
+      # A number written here would go stale the day the crate is bumped, so
+      # read it from the lock file.
+      - name: Read the wasm-bindgen version from Cargo.lock
+        id: bindgen
+        run: |
+          v=$(awk '$0=="name = \"wasm-bindgen\"" {f=1; next} f && /^version = / {gsub(/[",]/,"",$3); print $3; exit}' Cargo.lock)
+          if [ -z "$v" ]; then
+            echo "could not find the wasm-bindgen version in Cargo.lock" >&2
+            exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "wasm-bindgen $v"
+
+      # Take the prebuilt one. `cargo install` would spend minutes every run.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@${{ steps.bindgen.outputs.version }}
+
+      # Clippy on the shell is in here too: it compiles only for this target,
+      # so the desktop part never sees it.
+      - run: npm run ci:wasm
+
+  # The screen. `vue-tsc` is the only thing that reads it against the shape
+  # written in `web/src/pkg.d.ts`, and it needs no wasm and no clang -- so it
+  # is its own part and runs beside the others.
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm run ci:web
+
+  # The desktop shell. Outside the workspace, so the part above never sees it.
+  tauri:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: tauri
+          workspaces: crates/tauri
+
+      - run: npm run ci:tauri

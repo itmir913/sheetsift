@@ -59,9 +59,9 @@ alternative is spending a release to look at a change.
 
 ## Where it is deployed
 
-The UI is deployed to GitHub Pages — the `pages` job in `ci.yml` compiles and
-deploys it, **only when the workflow is run by hand on a tag** — never on an
-ordinary push, and never on a by-hand run on a branch. **It runs only after every piece of the gate has passed**
+The UI is deployed to GitHub Pages — the `pages` job in `publish.yml` compiles
+and deploys it, and that workflow only runs **by hand, on a tag** (it refuses a
+branch). Never on a push. **It runs only after every piece of the gate has passed**
 (`needs`).
 Dropping one from that line would deploy a revision whose tests fail, and the
 deployment would still succeed, so whether one is missing is read textually by

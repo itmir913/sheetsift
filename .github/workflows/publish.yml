@@ -1,0 +1,448 @@
+# Releasing. **By hand, on a tag.**
+#
+# ```bash
+# gh workflow run publish --ref 0.1.0
+# ```
+#
+# Two conditions, and they fail in opposite directions:
+#
+# - **By hand.** There is no `push` trigger here at all, so a pushed tag starts
+#   nothing. A tag can therefore be pushed to mark a revision without also
+#   publishing it. `crates/shell/tests/gate.rs` stops the gate if a trigger
+#   other than this one appears.
+# - **On a tag.** `tag-only` below fails the run on anything else, so what is
+#   published always has a name. It **fails** rather than skipping: a run that
+#   quietly did nothing is a run you believe published something.
+#
+# What happens, in order: the gate (`gate.yml`, the same file `ci.yml` calls),
+# then the screen and the app side by side, then the release.
+#
+# Tags carry no `v`; they are plain versions (`0.0.0`), and `ship` refuses a tag
+# that disagrees with `tauri.conf.json`.
+name: publish
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never two releases of one tag at once, and **never cancel one in flight** --
+# cut off halfway, nobody knows what is actually out there.
+concurrency:
+  group: publish-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # **A branch is not something to publish.** Run on one and this stops the run
+  # here, with the command to use instead.
+  tag-only:
+    name: Tag only
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$REF_TYPE" != "tag" ]; then
+            echo "::error::'$REF_NAME' is a $REF_TYPE, not a tag. Release a tag: gh workflow run publish --ref <tag>"
+            exit 1
+          fi
+          echo "releasing $REF_NAME"
+
+  # **The same gate `ci.yml` runs.** One line, one file, so the release can
+  # never be the more forgiving of the two.
+  gate:
+    name: Gate
+    needs: tag-only
+    uses: ./.github/workflows/gate.yml
+
+  # The screen. A Vite + Vue app in `web/` (see `docs/web.md`); Vite writes it
+  # to `web/dist`, and that folder is what goes up -- not `web/` itself, which
+  # holds the sources and `node_modules`.
+  #
+  # The wasm layer is built first, into `web/pkg`. Vite reaches it through the
+  # `sheetsift-wasm` alias in `web/vite.config.ts`.
+  pages:
+    needs: gate
+    runs-on: ubuntu-latest
+
+    # Keep two runs from landing on the same place at once. Do not cancel one in
+    # flight: if it is cut off, nobody knows what is actually deployed.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Building needs the C compiler too, for the same reason as the tests.
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+
+      - name: Add the wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      # Reuse what the gate's `wasm` job warmed. Saving is that job's business
+      # -- two jobs saving under one key overwrite each other.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm
+          save-if: false
+
+      - name: Read the wasm-bindgen version from Cargo.lock
+        id: bindgen
+        run: |
+          v=$(awk '$0=="name = \"wasm-bindgen\"" {f=1; next} f && /^version = / {gsub(/[",]/,"",$3); print $3; exit}' Cargo.lock)
+          if [ -z "$v" ]; then
+            echo "could not find the wasm-bindgen version in Cargo.lock" >&2
+            exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "wasm-bindgen $v"
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@${{ steps.bindgen.outputs.version }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install the screen's dependencies
+        working-directory: web
+        run: npm ci
+
+      # `npm run pkg` is the one command that builds the wasm layer; it lives
+      # in `package.json` so this file and `docs/wasm.md` cannot drift apart.
+      # The built output (`web/pkg`) is not kept in the repository -- keeping
+      # it would let the source and the build drift apart.
+      - name: Build the wasm layer
+        run: npm run pkg
+
+      - name: Build the screen
+        working-directory: web
+        run: npm run build
+
+      # Check the build is actually there. If it is not, what ships is a blank
+      # page -- and the deploy looks like a success.
+      - name: Check what is about to ship
+        run: |
+          for f in web/dist/index.html web/pkg/sheetsift_wasm.js web/pkg/sheetsift_wasm_bg.wasm; do
+            if [ ! -s "$f" ]; then
+              echo "$f is missing or empty" >&2
+              exit 1
+            fi
+          done
+          # The wasm has to have been carried into the bundle. Without it the
+          # page loads and then does nothing, and nothing here would say so.
+          if ! ls web/dist/assets/*.wasm >/dev/null 2>&1; then
+            echo "no wasm in web/dist/assets -- the page would load and do nothing" >&2
+            exit 1
+          fi
+          ls -lR web/dist
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: web/dist
+
+      - id: deploy
+        uses: actions/deploy-pages@v5
+
+  # The desktop app. **Not a check** -- it runs no test of its own. When a build
+  # and a check share one command, a red line does not say which of the two
+  # broke, and the same command cannot be carried to a second operating system.
+  #
+  # Two operating systems, one job with two legs. `fail-fast` is off so the leg
+  # that did build is still there to look at -- but `ship` waits for the whole
+  # job, so one failed leg publishes nothing. A release missing an operating
+  # system is worse than a release that is late.
+  #
+  # **The bundles are named, not `all`.** `tauri.conf.json` says `all` for
+  # whoever bakes on their own machine; what goes out is one installer per
+  # operating system, and the flag on the command line overrides that file.
+  #
+  # The screen is built in `--mode tauri`, so `web/src/lib/book.tauri.ts` is the
+  # boundary and no wasm is involved. `beforeBuildCommand` in `tauri.conf.json`
+  # does that -- it is not spelled out here, and it runs once per bake.
+  #
+  # **A green leg does not say the app opens.** The Mac bundle above all: it is
+  # unsigned and nobody here can start it. See `docs/desktop.md`.
+  bake:
+    needs: gate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows
+            bundles: nsis
+            # Windows takes the runner's own target, so nothing to add.
+            targets: ''
+            extra: ''
+            bundle_dir: target/release/bundle/nsis
+          - os: macos-latest
+            label: macos
+            bundles: dmg
+            # The runner is Apple silicon. Intel Macs are served by building
+            # for both and letting `universal` hold the two.
+            targets: 'aarch64-apple-darwin x86_64-apple-darwin'
+            extra: '--target universal-apple-darwin'
+            bundle_dir: target/universal-apple-darwin/release/bundle/dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Add the targets this leg builds for
+        if: matrix.targets != ''
+        run: rustup target add ${{ matrix.targets }}
+
+      # A key of its own per leg. `rust-cache` puts the operating system in the
+      # key anyway, so the gate's Windows cache would never be found here.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: bake-${{ matrix.label }}
+          workspaces: crates/tauri
+
+      - name: Install the screen's dependencies
+        working-directory: web
+        run: npm ci
+
+      # **Through the `bake` script, not the tool.** The tool's version is
+      # pinned, and it is pinned in `package.json` -- an unpinned tool changes
+      # under you on a day you changed nothing, and a version written here as
+      # well would be a second copy of the one that matters, with the local
+      # entrance left on whatever it said before.
+      #
+      # One build per leg. The bundling step leaves the bare executable in
+      # `target/release` on the way past, so the no-install edition costs
+      # nothing extra -- a second build with `--no-bundle` would recompile
+      # nothing and rebuild the screen again.
+      - name: Bake
+        run: npm run bake -- --bundles ${{ matrix.bundles }} ${{ matrix.extra }}
+
+      # Read, never written. `tauri.conf.json` is the one place the version
+      # lives, and every file name below is built out of it.
+      - name: Read the version
+        id: v
+        shell: bash
+        run: |
+          version=$(node -p "require('./crates/tauri/tauri.conf.json').version")
+          if [ -z "$version" ]; then
+            echo "could not read the version out of crates/tauri/tauri.conf.json" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "version $version"
+
+      # Name the file after the version and put it in a zip. Both, so neither
+      # the file sitting in a downloads folder nor the one inside the archive
+      # leaves the person guessing which build they have.
+      #
+      # A zip of the wrong thing is still a zip, so count what went in.
+      - name: Stage what goes out (Windows)
+        if: matrix.label == 'windows'
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          function Confirm-Zip($p) {
+            $z = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $p))
+            $n = $z.Entries.Count
+            $z.Dispose()
+            if ($n -lt 1) { Write-Error "$p holds nothing"; exit 1 }
+            Write-Host "$p -- $n file(s)"
+          }
+          $version = "${{ steps.v.outputs.version }}"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          New-Item -ItemType Directory -Force stage | Out-Null
+
+          $setup = Get-ChildItem "crates/tauri/${{ matrix.bundle_dir }}" -Filter *.exe |
+                   Select-Object -First 1
+          if (-not $setup) {
+            Write-Error "no installer in crates/tauri/${{ matrix.bundle_dir }}"; exit 1
+          }
+          $setupZip = "dist/sheetsift-$version-windows-setup.zip"
+          Compress-Archive -Path $setup.FullName -DestinationPath $setupZip
+          Confirm-Zip $setupZip
+
+          # **The bare executable is named after the crate, not after
+          # `productName`** -- that name only reaches the bundle. Inside the zip
+          # it is given the name a person expects to double-click.
+          $exe = "crates/tauri/target/release/sheetsift-tauri.exe"
+          if (-not (Test-Path $exe)) { Write-Error "$exe is missing"; exit 1 }
+          Copy-Item $exe "stage/sheetsift.exe"
+          $portableZip = "dist/sheetsift-$version-windows-portable.zip"
+          Compress-Archive -Path "stage/sheetsift.exe" -DestinationPath $portableZip
+          Confirm-Zip $portableZip
+
+      # **The `.app` is not zipped.** It is a directory holding symbolic links,
+      # and an archive of it arrives with those links flattened -- the app then
+      # does not start, and nothing here would have said so. The dmg carries it
+      # whole.
+      - name: Stage what goes out (Mac)
+        if: matrix.label == 'macos'
+        shell: bash
+        run: |
+          version="${{ steps.v.outputs.version }}"
+          mkdir -p dist
+          dmg=$(ls crates/tauri/${{ matrix.bundle_dir }}/*.dmg 2>/dev/null | head -1)
+          if [ -z "$dmg" ]; then
+            echo "no dmg in crates/tauri/${{ matrix.bundle_dir }}" >&2
+            exit 1
+          fi
+          # A dmg that is not a readable image is still a file of the right size.
+          # This is the Windows side's "count what went into the zip", for the one
+          # format that cannot be counted that way.
+          if ! hdiutil imageinfo "$dmg" >/dev/null; then
+            echo "$dmg is not a readable image" >&2
+            exit 1
+          fi
+          cp "$dmg" "dist/sheetsift-$version-macos.dmg"
+
+      # An empty file uploads fine and looks like a success.
+      - name: Check what came out
+        shell: bash
+        run: |
+          if [ -z "$(ls -A dist 2>/dev/null)" ]; then
+            echo "dist is empty -- nothing was staged" >&2
+            exit 1
+          fi
+          for f in dist/*; do
+            if [ ! -s "$f" ]; then
+              echo "$f is empty" >&2
+              exit 1
+            fi
+          done
+          ls -l dist
+
+      # A name per leg. Two legs uploading under one name is an error, and the
+      # run would stop here with nothing kept.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bundle-${{ matrix.label }}
+          path: dist
+          if-no-files-found: error
+
+  # The release. The only job that writes to the repository.
+  #
+  # **It waits for the screen as well as the app, because going out is one
+  # act.** A release whose screen never deployed is a release that half
+  # happened, and once it is attached nothing goes back and says so. It costs no
+  # time: the two run side by side and the screen finishes first by minutes, so
+  # waiting for both is waiting for the bake either way. If a day comes when the
+  # screen is the slower one, that is itself a reason not to publish yet.
+  #
+  # **The release is a draft.** A green bake does not say the app opens, so a
+  # person looks before it is public.
+  ship:
+    needs: [gate, pages, bake]
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # **The tag and the version have to be the same string.** The version is
+      # what every file name above was built out of. A tag that disagrees would
+      # attach `0.0.0` files to a `0.1.0` release and nothing would say so, so
+      # stop here instead.
+      - name: Check the tag against the version
+        run: |
+          version=$(node -p "require('./crates/tauri/tauri.conf.json').version")
+          tag="${{ github.ref_name }}"
+          if [ "$version" != "$tag" ]; then
+            echo "the tag is $tag but crates/tauri/tauri.conf.json says $version" >&2
+            echo "raise the version, commit it, and tag that commit" >&2
+            exit 1
+          fi
+          echo "version $version"
+
+      # **The pair, not the same number.** `download-artifact@v8` is what reads
+      # what `upload-artifact@v7` wrote; raise one without the other and the
+      # download brings back nothing. Here that stops at the check below rather
+      # than publishing an empty release.
+      #
+      # **`pattern` is not optional.** Without it this takes every artifact the
+      # run produced -- and `pages` produces one too, the screen as a tar. It
+      # was attached to a release before this line existed, and the check below
+      # did not notice: it asked whether each edition was present, not whether
+      # anything else was. The prefix is the one `bake` uploads under, and
+      # `crates/shell/tests/gate.rs` holds the two together.
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: bundle-*
+          merge-multiple: true
+
+      - name: Check what is about to be published
+        run: |
+          if [ ! -d artifacts ] || [ -z "$(ls -A artifacts)" ]; then
+            echo "artifacts is missing or empty" >&2
+            exit 1
+          fi
+          # Every edition has to be there. A release quietly missing one is the
+          # kind of gap nobody reports.
+          for want in windows-setup windows-portable macos; do
+            if ! ls artifacts/*"$want"* >/dev/null 2>&1; then
+              echo "nothing for $want" >&2
+              exit 1
+            fi
+          done
+          # And **nothing else.** Asking only whether each edition is present
+          # let the screen's own artifact ride along onto a release once. What
+          # is attached is what people download, so an extra file is as wrong
+          # as a missing one.
+          for f in artifacts/*; do
+            case "$(basename "$f")" in
+              *windows-setup*|*windows-portable*|*macos*) ;;
+              *)
+                echo "$f is not one of the editions -- it would be attached to the release" >&2
+                exit 1
+                ;;
+            esac
+          done
+          ls -l artifacts
+
+      # The wording lives in `.github/release-notes.md`, not here -- whoever
+      # downloads it reads that, so it is worth reading before it goes out.
+      # `{version}` is the only thing filled in.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ github.ref_name }}"
+          sed "s/{version}/$tag/g" .github/release-notes.md > notes.md
+          # A re-run of a half-finished publish must not stop on "it exists".
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" artifacts/* --clobber
+          else
+            gh release create "$tag" --title "$tag" --notes-file notes.md --draft artifacts/*
+          fi
