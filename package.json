@@ -11,7 +11,7 @@
     "dev:tauri": "cd crates/tauri && npx --yes @tauri-apps/cli@2.9.1 dev",
     "build:web": "npm run pkg && npm --prefix web install && npm --prefix web run build",
     "bake": "cd crates/tauri && npx --yes @tauri-apps/cli@2.9.1 build",
-    "build:tauri": "npm run bake",
+    "build:tauri": "npm run bake --",
     "pkg": "cargo build -p sheetsift-wasm --target wasm32-unknown-unknown --release && wasm-bindgen --target web --no-typescript --out-dir web/pkg target/wasm32-unknown-unknown/release/sheetsift_wasm.wasm"
   }
 }

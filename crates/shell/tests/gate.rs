@@ -33,9 +33,10 @@ const NOTES: &str = include_str!("../../../.github/release-notes.md");
 /// 시점에 **판정 대상이 소거된 채로 통과**한다 — 표지가 부재하면 실명한 것으로
 /// 간주해 정지시킨다.
 ///
-/// 잡을 하나 증가시키면 여기 한 행을 증가시킨다. 누락하면 그 잡은 관문 잡으로
-/// 오판되고, 그 시점에 타 반출 잡이 그것을 대기하지 않아 정지한다 — 묵시적으로
-/// 경과하지는 않는다.
+/// 잡을 하나 증가시키면 여기 한 행을 증가시킨다. 누락한 것은
+/// `every_job_is_either_a_gate_or_registered_as_outbound` 가 차단한다 — 조각을
+/// 호출하지도 않고 여기 미등재인 잡은 **이 파일의 어떤 판정에도 포착되지
+/// 않으므로**, 그 상태 자체를 불통과로 판정한다.
 const OUTBOUND: &[(&str, &str)] = &[
     // 화면을 송출한다.
     ("pages", "actions/deploy-pages"),
@@ -143,6 +144,14 @@ fn jobs(src: &str) -> Vec<(String, String)> {
             && !line.trim_start().starts_with('#');
         if head {
             out.push((line.trim().trim_end_matches(':').to_string(), String::new()));
+        } else if line.trim_start().starts_with('#') {
+            // **주석은 잡의 문서가 아니다.**
+            //
+            // 잡 하단의 판정들은 글자를 탐색한다. 그런데 `bake:` 상단의 주석은
+            // 그 직전의 잡(`pages`)에 부착되므로, 주석을 수용하면 **산문으로
+            // 판정을 충족시킬 수 있다** — 태그로 한정하는 `if` 를 삭제해도
+            // 상단의 주석이 `refs/tags/` 를 기재하고 있으면 통과한다.
+            continue;
         } else if let Some(last) = out.last_mut() {
             last.1.push_str(line);
             last.1.push('\n');
@@ -670,32 +679,24 @@ fn the_check_tells_an_asset_from_the_crates_own_executable() {
 /// 임의의 문서가 **뿌리의** `package.json` 에서 호출하는 스크립트들.
 ///
 /// `working-directory` 를 기재한 단계는 제외한다 — 그 단계의 `npm run build` 는
-/// `web/package.json` 의 것이고, 뿌리에는 부재하는 것이 정상이다. 그 행이 `run`
-/// 보다 하단에 기재되면 이 판정은 그 단계를 뿌리로 오판하는데, 그것은 **정지로
-/// 발현되므로** 묵시적으로 경과하지 않는다.
+/// `web/package.json` 의 것이고, 뿌리에는 부재하는 것이 정상이다.
+///
+/// **단계를 적립해서 판정한다.** 행을 순차 판정하면 `working-directory` 가 `run`
+/// 보다 하단에 기재된 단계를 뿌리로 오판하므로, 단계가 종료된 시점에 그 단계
+/// 전체를 판독한다 — 기재 순서를 가정하지 않는다.
 ///
 /// 주석은 산정하지 않는다. 호출하는 위치만 판별한다.
 fn scripts_called(src: &str) -> Vec<String> {
     const LEAD: &str = "npm run ";
     let mut out: Vec<String> = Vec::new();
-    let mut elsewhere = false;
-    for line in src.lines() {
-        let t = line.trim();
-        if t.starts_with("- ") {
-            elsewhere = false;
+    let mut step = String::new();
+
+    let take = |step: &str, out: &mut Vec<String>| {
+        if step.contains("working-directory:") {
+            return;
         }
-        if t.starts_with('#') {
-            continue;
-        }
-        if t.contains("working-directory:") {
-            elsewhere = true;
-            continue;
-        }
-        if elsewhere {
-            continue;
-        }
-        for (i, _) in line.match_indices(LEAD) {
-            let name: String = line[i + LEAD.len()..]
+        for (i, _) in step.match_indices(LEAD) {
+            let name: String = step[i + LEAD.len()..]
                 .chars()
                 .take_while(|c| c.is_ascii_alphanumeric() || *c == ':' || *c == '-')
                 .collect();
@@ -704,7 +705,22 @@ fn scripts_called(src: &str) -> Vec<String> {
             }
             out.push(name);
         }
+    };
+
+    for line in src.lines() {
+        let t = line.trim_start();
+        if t.starts_with('#') {
+            continue;
+        }
+        // 단계의 선두. `- name:` · `- run:` · `- uses:` 가 그것이다.
+        if t.starts_with("- ") && (t.contains(':')) {
+            take(&step, &mut out);
+            step.clear();
+        }
+        step.push_str(line);
+        step.push('\n');
     }
+    take(&step, &mut out);
     out
 }
 
@@ -745,4 +761,98 @@ fn the_check_tells_the_root_scripts_from_the_screens_own() {
         "        run: npm run bake -- --bundles nsis\n"
     );
     assert_eq!(scripts_called(doctored), ["bake"]);
+}
+
+/// 기재 순서를 가정하지 않는가. `working-directory` 가 `run` 보다 하단에
+/// 기재되어도 타 그릇의 것으로 판별해야 한다.
+#[test]
+fn the_check_tells_them_apart_whatever_order_the_step_is_written_in() {
+    let doctored = concat!(
+        "      - name: Build the screen\n",
+        "        run: npm run build\n",
+        "        working-directory: web\n",
+        "      - name: Bake\n",
+        "        run: npm run bake -- --bundles nsis\n"
+    );
+    assert_eq!(scripts_called(doctored), ["bake"]);
+}
+
+/// 주석이 잡의 문서에 수용되지 않는가.
+///
+/// `bake:` 상단의 주석은 그 직전의 잡에 부착된다. 수용하면 태그로 한정하는
+/// `if` 를 삭제해도 **상단의 주석이 판정을 충족시킨다.**
+#[test]
+fn the_check_does_not_let_a_comment_stand_in_for_a_job() {
+    let doctored = concat!(
+        "\njobs:\n",
+        "  pages:\n    if: github.ref == 'refs/heads/main'\n    steps:\n      - uses: actions/deploy-pages@v5\n",
+        "  # 반출은 refs/tags/ 가 기동한다\n",
+        "  bake:\n    steps:\n      - run: npm run bake\n"
+    );
+    let all = jobs(doctored);
+    let pages = all.iter().find(|(n, _)| n == "pages").expect("pages 가 부재합니다");
+    assert!(
+        !pages.1.contains("refs/tags/"),
+        "상단의 주석이 `pages` 의 문서에 수용되었습니다 — 산문으로 판정이 충족됩니다"
+    );
+    assert_eq!(all.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["pages", "bake"]);
+}
+
+/* ── 도구의 판이 한 값인가 ──────────────────────────────────────── */
+
+/// `package.json` 이 기재한 `@tauri-apps/cli@<판>` 의 판들.
+fn cli_versions(src: &str) -> Vec<String> {
+    const LEAD: &str = "@tauri-apps/cli@";
+    src.match_indices(LEAD)
+        .map(|(i, _)| {
+            src[i + LEAD.len()..]
+                .chars()
+                .take_while(|c| c.is_ascii_digit() || *c == '.')
+                .collect::<String>()
+        })
+        .collect()
+}
+
+/// **굽는 쪽과 구동하는 쪽이 동일한 도구를 경유하는가.**
+///
+/// 판을 고정하지 않은 도구는 아무것도 변경하지 않은 날에 변동한다. 그래서
+/// 고정하는데, 고정한 값이 두 곳에 기재되면 **한쪽만 상승한다** — 그 시점부터
+/// 구워지는 것과 창을 개방해 판독하는 것이 상이한 도구를 경유하고, 그것은
+/// 어디에서도 오류로 출현하지 않는다.
+#[test]
+fn the_tool_is_pinned_to_one_version() {
+    let found = cli_versions(PACKAGE);
+    assert!(
+        found.len() >= 2,
+        "`package.json` 에서 도구의 판을 탐색하지 못했습니다 — 검사가 실명한 것입니다: {found:?}"
+    );
+    assert!(found.iter().all(|v| !v.is_empty()), "판을 고정하지 않은 위치가 존재합니다: {found:?}");
+    let first = &found[0];
+    assert!(found.iter().all(|v| v == first), "도구의 판이 복수입니다: {found:?}");
+}
+
+/// **액션이 도구의 판을 기재하지 않는가.**
+///
+/// 기재하면 `package.json` 의 것과 두 벌이 되고, 반출되는 것과 평시 입력하는 것이
+/// 상이한 도구를 경유한다.
+#[test]
+fn the_action_pins_no_version_of_its_own() {
+    assert!(
+        !ACTION.contains("@tauri-apps/cli@"),
+        "액션이 도구의 판을 직접 기재했습니다 — `package.json` 의 스크립트를 호출하십시오"
+    );
+}
+
+/// 상이한 판을 투입한다.
+#[test]
+fn the_check_catches_a_second_pin_that_moved() {
+    let doctored = concat!(
+        "{\n  \"scripts\": {\n",
+        "    \"bake\": \"npx @tauri-apps/cli@2.9.1 build\",\n",
+        "    \"dev:tauri\": \"npx @tauri-apps/cli@2.8.0 dev\"\n",
+        "  }\n}\n"
+    );
+    let found = cli_versions(doctored);
+    assert_eq!(found, ["2.9.1", "2.8.0"]);
+    assert!(!found.iter().all(|v| v == &found[0]));
 }
