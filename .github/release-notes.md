@@ -17,8 +17,8 @@
 The app draws in Microsoft's WebView2 runtime, which Windows 10 and 11 normally
 already carry. **The installer brings it if it is missing; the no-install zip
 cannot.** On a Windows that was shipped without it — LTSC, N and KN editions,
-stripped images — `sheetsift.exe` opens an empty window and says nothing useful.
-If that happens, either use the installer or install the runtime from Microsoft:
+stripped images — `sheetsift.exe` does not start. If that happens, either use the
+installer or install the runtime from Microsoft:
 
 <https://developer.microsoft.com/microsoft-edge/webview2/>
 

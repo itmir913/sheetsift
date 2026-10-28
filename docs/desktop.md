@@ -114,8 +114,9 @@ npm run build:tauri
 ```
 
 The workflow's `bake` job calls **that same script** after the gate passes, and
-keeps what came out. It differs in one argument: the script takes the bundles
-from `tauri.conf.json`, while the job names them (below). The tool's version is
+keeps what came out. It differs in its arguments: the script takes the bundles
+from `tauri.conf.json`, while the job names them, and names the target too
+(below). The tool's version is
 pinned in `package.json` so the two cannot drift — a version written into the
 workflow as well would be a second copy, and the local entrance would stay on
 whatever it said before.
