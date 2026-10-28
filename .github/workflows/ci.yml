@@ -475,7 +475,7 @@ jobs:
 
       # A name per leg. Two legs uploading under one name is an error, and the
       # run would stop here with nothing kept.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: bundle-${{ matrix.label }}
           path: dist
@@ -527,9 +527,11 @@ jobs:
           fi
           echo "version $version"
 
-      # The same major as the upload above. A mismatched pair downloads nothing
-      # and succeeds.
-      - uses: actions/download-artifact@v4
+      # **The pair, not the same number.** `download-artifact@v8` is what reads
+      # what `upload-artifact@v7` wrote; raise one without the other and the
+      # download brings back nothing. Here that stops at the check below rather
+      # than publishing an empty release.
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
