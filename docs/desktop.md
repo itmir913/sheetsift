@@ -113,12 +113,91 @@ What the commands do is exercised by the tests in `crates/desk`.
 npm run build:tauri
 ```
 
-The workflow's `bake` job does the same thing after the gate passes and keeps the
-artifacts. **Baking is not a check** — combining them hides which side broke, and
-the same command cannot be carried to two operating systems.
+The workflow's `bake` job calls **that same script** after the gate passes, and
+keeps what came out. It differs in one argument: the script takes the bundles
+from `tauri.conf.json`, while the job names them (below). The tool's version is
+pinned in `package.json` so the two cannot drift — a version written into the
+workflow as well would be a second copy, and the local entrance would stay on
+whatever it said before.
 
-Windows is currently the only place it is baked. Whether it bakes on a Mac is not
-asked.
+**Baking is not a check** — combining them hides which side broke, and the same
+command cannot be carried to two operating systems.
+
+Two operating systems, as two legs of one job: Windows and macOS. They are legs
+rather than jobs because a second job would have to be named in
+`crates/shell/tests/gate.rs` to be kept out of the gate, and a leg does not.
+
+What each leg produces, and why:
+
+| Leg | Command | Out |
+|---|---|---|
+| Windows | `--bundles nsis` | the installer, and the bare executable left in `target/release` on the way past — the no-install edition |
+| macOS | `--target universal-apple-darwin --bundles dmg` | one dmg for Apple silicon and Intel |
+
+`tauri.conf.json` says `targets: "all"`, which is what you get baking on your own
+machine. The flag on the command line overrides it, so **what goes out is named,
+not whatever `all` happens to mean** on that runner.
+
+The Windows pieces are shipped as zips, each named with the version, and the
+executable inside the no-install zip is renamed to `sheetsift.exe`. **The bare
+executable is called `sheetsift-tauri.exe` in `target/release`** — Cargo names it
+after the crate, and `productName` reaches only the bundle.
+
+**The `.app` is never zipped.** It is a directory holding symbolic links, and an
+archive flattens them; the app then does not start, and nothing in the workflow
+would have said so. The dmg carries it whole.
+
+## Releasing
+
+```bash
+# Raise the version in crates/tauri/tauri.conf.json, commit it, let the gate
+# pass, and then:
+git tag 0.1.0
+git push origin 0.1.0
+```
+
+**Pushing a tag is the one manual act that releases.** Tags here are plain
+versions with no `v`, and the pattern in the workflow takes no `v` either.
+
+The tag starts `pages` (the screen) and `bake` (the app) side by side, both after
+the gate, and then `ship` attaches what came out to a **draft** release. Draft,
+because a green bake does not say the app opens — someone looks before it is
+public.
+
+`ship` stops if the tag and the version in `tauri.conf.json` are not the same
+string. The version is what every file name is built out of, so a tag that
+disagrees would attach one version's files to another version's release, and
+nothing else would ever say so.
+
+**One thing to check before the first tag, because it is not in this
+repository.** The `github-pages` environment carries a "deployment branches and
+tags" rule, and it is commonly set to the default branch only. If it is, a
+tag-triggered `pages` run stops at that rule with a message that has nothing to
+do with the code. Allow the tag pattern there, or expect to lose a tag finding
+out.
+
+Running the workflow by hand deploys the screen and bakes the app **without
+publishing**. That is how the bundling config is exercised without spending a tag
+on it — worth doing after changing anything in `tauri.conf.json` or in the icons,
+because `ci:tauri` compiles the crate on every push but never bakes it.
+
+## The Mac build is unsigned
+
+There is no Apple Developer account, so the app carries no signature and no
+notarization. macOS tells whoever downloads it that the app is **damaged** and
+refuses to open it. That is the missing signature, not a broken download, and one
+command clears it:
+
+```bash
+xattr -cr /Applications/sheetsift.app
+```
+
+That line lives in `.github/release-notes.md` as well as here — the person who
+needs it is reading the release page, not this repository.
+
+**Nobody has opened the Mac build.** The author has no Mac. A green leg says it
+compiled and bundled; it does not say it starts, and that check is still waiting
+for a person with the hardware.
 
 ## Not there yet
 

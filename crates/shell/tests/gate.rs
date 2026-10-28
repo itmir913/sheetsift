@@ -20,11 +20,35 @@
 const ACTION: &str = include_str!("../../../.github/workflows/ci.yml");
 const PACKAGE: &str = include_str!("../../../package.json");
 
-/// 배포하는 잡. 관문이 아니라 반출하는 위치다.
-const DEPLOY_JOB: &str = "pages";
+/// 게시하는 쪽이 부착하는 문구. 여기 수용하는 것으로 **그 파일이 소멸하면
+/// 관문이 정지한다** — 소멸을 태그 시점에 인지하면 1회를 소모한다.
+const NOTES: &str = include_str!("../../../.github/release-notes.md");
 
-/// 굽는 잡. 이것도 관문이 아니라 산출물을 생성하는 위치다.
-const BAKE_JOB: &str = "bake";
+/// **반출하는 잡들과, 그 잡을 탐색한 것을 입증하는 표지.**
+///
+/// 관문이 아니다 — 검사하지 않고 생성하거나 송출한다. 그래서 관문 목록에서
+/// 제외하고, 대신 **조각 전부를 대기하는지**를 여기 등재된 잡마다 판정한다.
+///
+/// 표지는 그 잡의 문서에 출현해야 하는 글자다. 명칭만 탐색하면 잡을 개칭한
+/// 시점에 **판정 대상이 소거된 채로 통과**한다 — 표지가 부재하면 실명한 것으로
+/// 간주해 정지시킨다.
+///
+/// 잡을 하나 증가시키면 여기 한 행을 증가시킨다. 누락하면 그 잡은 관문 잡으로
+/// 오판되고, 그 시점에 타 반출 잡이 그것을 대기하지 않아 정지한다 — 묵시적으로
+/// 경과하지는 않는다.
+const OUTBOUND: &[(&str, &str)] = &[
+    // 화면을 송출한다.
+    ("pages", "actions/deploy-pages"),
+    // 데스크톱을 굽는다.
+    ("bake", "npm run bake"),
+    // 구워진 것을 게시한다.
+    ("ship", "gh release create"),
+];
+
+/// 반출하는 잡인가.
+fn outbound(name: &str) -> bool {
+    OUTBOUND.iter().any(|(n, _)| *n == name)
+}
 
 /// 관문 잡에 기재하면 안 되는 도구들.
 ///
@@ -144,7 +168,7 @@ fn needs(block: &str) -> Vec<String> {
 fn gate_jobs(src: &str) -> Vec<String> {
     jobs(src)
         .into_iter()
-        .filter(|(n, b)| n != DEPLOY_JOB && !parts_called(b).is_empty())
+        .filter(|(n, b)| !outbound(n) && !parts_called(b).is_empty())
         .map(|(n, _)| n)
         .collect()
 }
@@ -227,28 +251,40 @@ fn the_action_spells_out_no_check_of_its_own() {
 
 /* ── 반출되는 것이 관문을 통과했는가 ────────────────────────────── */
 
-/// **배포가 조각 전부를 대기하는가.**
+/// 한 잡이 대기하지 않은 관문 잡들.
+fn unwaited(block: &str, gates: &[String]) -> Vec<String> {
+    let waits = needs(block);
+    gates.iter().filter(|n| !waits.contains(n)).cloned().collect()
+}
+
+/// **반출하는 잡이 조각 전부를 대기하는가.**
 ///
 /// `needs` 한 행이 그것을 보전한다. 관문 잡을 하나 증가시키고 그 행을 증가시키지
 /// 않으면, **그 검사가 중단되는 판이 그대로 반출되고 배포는 정상 성공한다.**
+///
+/// **타 잡을 경유한 대기는 산정하지 않는다.** 이 검사는 글자를 판독하므로
+/// `ship` 이 `bake` 를 대기하고 `bake` 가 관문을 대기하는 것을 추적할 수 없다 —
+/// 추적하는 것으로 가장하면 `bake` 의 그 행이 소거된 시점에 묵시적으로 통과한다.
+/// 그래서 반출하는 잡은 **관문 잡 전부를 자기 행에 기재해야 한다.**
 #[test]
 fn what_goes_out_has_passed_every_part() {
     let all = jobs(ACTION);
-    let deploy = all
-        .iter()
-        .find(|(n, _)| n == DEPLOY_JOB)
-        .unwrap_or_else(|| panic!("`{DEPLOY_JOB}` 잡을 탐색하지 못했습니다 — 검사가 실명한 것입니다"));
-    assert!(
-        deploy.1.contains("actions/deploy-pages"),
-        "배포하는 위치를 탐색하지 못했습니다 — 검사가 실명한 것입니다"
-    );
-
     let gates = gate_jobs(ACTION);
     assert!(!gates.is_empty(), "관문 잡을 탐색하지 못했습니다 — 검사가 실명한 것입니다");
 
-    let waits = needs(&deploy.1);
-    let unwaited: Vec<&String> = gates.iter().filter(|n| !waits.contains(n)).collect();
-    assert!(unwaited.is_empty(), "배포가 대기하지 않는 관문 잡이 존재합니다: {unwaited:?}");
+    for (name, marker) in OUTBOUND {
+        let job = all
+            .iter()
+            .find(|(n, _)| n == name)
+            .unwrap_or_else(|| panic!("`{name}` 잡을 탐색하지 못했습니다 — 검사가 실명한 것입니다"));
+        assert!(
+            job.1.contains(marker),
+            "`{name}` 에서 `{marker}` 를 탐색하지 못했습니다 — 검사가 실명한 것입니다"
+        );
+
+        let missing = unwaited(&job.1, &gates);
+        assert!(missing.is_empty(), "`{name}` 이 대기하지 않는 관문 잡이 존재합니다: {missing:?}");
+    }
 }
 
 /* ── 그 검사들이 실제로 차단하는지 ──────────────────────────────── */
@@ -296,10 +332,48 @@ fn the_check_catches_a_deploy_that_does_not_wait_for_a_part() {
         "  wasm:\n    steps:\n      - run: npm run ci:wasm\n",
         "  pages:\n    needs: [gate]\n    steps:\n      - uses: actions/deploy-pages@v4\n"
     );
-    assert_eq!(gate_jobs(doctored), ["gate", "wasm"]);
+    let gates = gate_jobs(doctored);
+    assert_eq!(gates, ["gate", "wasm"]);
     let all = jobs(doctored);
-    let deploy = all.iter().find(|(n, _)| n == DEPLOY_JOB).expect("pages 가 부재합니다");
-    assert_eq!(needs(&deploy.1), ["gate"]);
+    let deploy = all.iter().find(|(n, _)| n == "pages").expect("pages 가 부재합니다");
+    assert_eq!(unwaited(&deploy.1, &gates), ["wasm"]);
+}
+
+/// **타 반출 잡을 경유해 대기한 것을 통과시키지 않는가.**
+///
+/// `ship` 이 `bake` 하나만 대기하면 GitHub 은 그것으로 관문을 경과시킨다. 그러나
+/// `bake` 의 행이 축소되는 시점에 `ship` 은 아무것도 대기하지 않게 되고, 글자를
+/// 판독하는 이 검사는 그 경유를 추적할 수 없다. 그래서 경유를 불통과로 판정하는지
+/// 확인한다.
+#[test]
+fn the_check_catches_a_ship_that_waits_only_through_the_bake() {
+    let doctored = concat!(
+        "\njobs:\n",
+        "  gate:\n    steps:\n      - run: npm run ci:gate\n",
+        "  wasm:\n    steps:\n      - run: npm run ci:wasm\n",
+        "  bake:\n    needs: [gate, wasm]\n    steps:\n      - run: npx @tauri-apps/cli build\n",
+        "  ship:\n    needs: [bake]\n    steps:\n      - run: gh release create x\n"
+    );
+    let gates = gate_jobs(doctored);
+    assert_eq!(gates, ["gate", "wasm"]);
+    let all = jobs(doctored);
+    let bake = all.iter().find(|(n, _)| n == "bake").expect("bake 가 부재합니다");
+    assert_eq!(unwaited(&bake.1, &gates), Vec::<String>::new());
+    let ship = all.iter().find(|(n, _)| n == "ship").expect("ship 가 부재합니다");
+    assert_eq!(unwaited(&ship.1, &gates), ["gate", "wasm"]);
+}
+
+/// **표지를 탐색하지 못하면 실명한 것으로 판정하는가.**
+///
+/// 반출하는 잡을 개칭하면 `OUTBOUND` 의 명칭은 어떤 잡과도 합치하지 않는다. 그
+/// 시점에 판정 대상이 소거된 채로 통과하면 안 된다 — 표지가 그것을 차단한다.
+#[test]
+fn the_check_catches_an_outbound_job_that_lost_its_marker() {
+    let doctored = "\njobs:\n  ship:\n    needs: [gate]\n    steps:\n      - run: echo nothing\n";
+    let all = jobs(doctored);
+    let ship = all.iter().find(|(n, _)| n == "ship").expect("ship 가 부재합니다");
+    let marker = OUTBOUND.iter().find(|(n, _)| *n == "ship").expect("ship 가 미등재입니다").1;
+    assert!(!ship.1.contains(marker));
 }
 
 /// **행 종단이 `\r\n` 이어도 판독하는가.**
@@ -328,9 +402,9 @@ fn the_check_tells_a_job_from_what_is_inside_one() {
 
 /* ── 조각과 잡이 분기하지 않는가 ────────────────────────────────── */
 
-/// 관문을 담당하는 잡들의 문서. 배포도 굽기도 관문이 아니다.
+/// 관문을 담당하는 잡들의 문서. 반출하는 잡은 관문이 아니다.
 fn gate_blocks(src: &str) -> Vec<(String, String)> {
-    jobs(src).into_iter().filter(|(n, _)| n != DEPLOY_JOB && n != BAKE_JOB).collect()
+    jobs(src).into_iter().filter(|(n, _)| !outbound(n)).collect()
 }
 
 /// **`npm run ci` 가 부재하는 조각을 호출하지 않는가.**
@@ -433,4 +507,242 @@ fn the_check_catches_a_type_check_written_into_a_gate_job() {
         }
     }
     assert_eq!(spelled, ["web: `vue-tsc`"]);
+}
+
+/* ── 반출하는 잡이 전부 판별되었는가 ────────────────────────────── */
+
+/// **잡은 관문이거나 반출하는 것이거나 둘 중 하나다.**
+///
+/// `gate_jobs` 는 조각을 호출하는 잡을 관문으로 판별한다. 그래서 조각을 호출하지
+/// 않고 `OUTBOUND` 에도 미등재인 잡은 **이 파일의 어떤 판정에도 포착되지
+/// 않는다** — 대기하는 행이 전무해도 녹색이다. 반출하는 잡이 그 부류라, 가장
+/// 수호해야 하는 것이 누락된다.
+#[test]
+fn every_job_is_either_a_gate_or_registered_as_outbound() {
+    let all = jobs(ACTION);
+    assert!(!all.is_empty(), "워크플로에서 잡을 탐색하지 못했습니다 — 검사가 실명한 것입니다");
+    let stray: Vec<String> = all
+        .into_iter()
+        .filter(|(n, b)| !outbound(n) && parts_called(b).is_empty())
+        .map(|(n, _)| n)
+        .collect();
+    assert!(
+        stray.is_empty(),
+        "관문도 아니고 `OUTBOUND` 에 미등재인 잡이 존재합니다 — 등재하십시오: {stray:?}"
+    );
+}
+
+/// 미등재 잡을 투입한다.
+#[test]
+fn the_check_catches_a_job_that_is_neither() {
+    let doctored = concat!(
+        "\njobs:\n",
+        "  gate:\n    steps:\n      - run: npm run ci:gate\n",
+        "  publish:\n    steps:\n      - run: cargo publish\n"
+    );
+    let stray: Vec<String> = jobs(doctored)
+        .into_iter()
+        .filter(|(n, b)| !outbound(n) && parts_called(b).is_empty())
+        .map(|(n, _)| n)
+        .collect();
+    assert_eq!(stray, ["publish"]);
+}
+
+/* ── 반출을 태그가 기동하는가 ───────────────────────────────────── */
+
+/// **반출하는 잡은 태그로 한정된다.**
+///
+/// 그 행이 소거되면 분기에 푸시하는 것마다 화면이 송출되고 앱이 구워진다 —
+/// 그것은 오류로 출현하지 않는다. 정상 성공하는 채로 반출하는 사유가 소멸할
+/// 뿐이다.
+#[test]
+fn what_goes_out_starts_only_on_a_tag() {
+    let all = jobs(ACTION);
+    for (name, _) in OUTBOUND {
+        let job = all
+            .iter()
+            .find(|(n, _)| n == name)
+            .unwrap_or_else(|| panic!("`{name}` 잡을 탐색하지 못했습니다 — 검사가 실명한 것입니다"));
+        assert!(job.1.contains("refs/tags/"), "`{name}` 이 태그로 한정되지 않았습니다");
+    }
+}
+
+/// 한정하지 않은 잡을 투입한다.
+#[test]
+fn the_check_catches_an_outbound_job_that_any_push_starts() {
+    let doctored = "\njobs:\n  pages:\n    if: github.ref == 'refs/heads/main'\n    steps:\n      - uses: actions/deploy-pages@v5\n";
+    let all = jobs(doctored);
+    let job = all.iter().find(|(n, _)| n == "pages").expect("pages 가 부재합니다");
+    assert!(!job.1.contains("refs/tags/"));
+}
+
+/* ── 산출물의 명칭이 한 벌인가 ──────────────────────────────────── */
+
+/// 임의의 문서가 기재한 산출물의 명칭들.
+///
+/// 판을 기재하는 자리는 쪽마다 상이하다(`$version` 과 `{version}`). 그것을 하나로
+/// 통일해 비교한다. **판을 기재하지 않은 것은 산출물이 아니다** —
+/// `sheetsift-tauri.exe` 는 상자의 실행 파일이고 반출하지 않는다.
+fn asset_names(src: &str) -> Vec<String> {
+    const LEAD: &str = "sheetsift-";
+    let mut out: Vec<String> = Vec::new();
+    for (i, _) in src.match_indices(LEAD) {
+        let raw: String = src[i..]
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || "-._${}".contains(*c))
+            .collect();
+        let name = raw.replace("$version", "{}").replace("{version}", "{}");
+        if !name.contains("{}") || out.contains(&name) {
+            continue;
+        }
+        out.push(name);
+    }
+    out.sort();
+    out
+}
+
+/// 게시하는 잡이 존재를 확인하는 조각들 (`for want in …`).
+fn wants(src: &str) -> Vec<String> {
+    let Some(at) = src.find("for want in ") else { return Vec::new() };
+    let Some(line) = src[at + "for want in ".len()..].lines().next() else { return Vec::new() };
+    line.trim().trim_end_matches("; do").split_whitespace().map(str::to_string).collect()
+}
+
+/// **구운 것과 게시 문구가 동일한 명칭을 기재하는가.**
+///
+/// 명칭이 세 곳에 기재된다 — 굽는 단계, 게시 직전의 확인, 그리고 사람이 판독하는
+/// 문구. 한쪽만 수정되면 **게시 쪽은 부존재하는 파일을 안내하고**, 그것은
+/// 어디에서도 오류로 출현하지 않는다. 내려받는 사람만 인지한다.
+#[test]
+fn the_release_page_names_what_was_baked() {
+    let made = asset_names(ACTION);
+    assert!(
+        !made.is_empty(),
+        "워크플로에서 산출물의 명칭을 탐색하지 못했습니다 — 검사가 실명한 것입니다"
+    );
+    let told = asset_names(NOTES);
+    assert!(
+        !told.is_empty(),
+        "게시 문구에서 산출물의 명칭을 탐색하지 못했습니다 — 검사가 실명한 것입니다"
+    );
+    assert_eq!(made, told, "구운 것과 게시 문구가 기재한 명칭이 상이합니다");
+    assert!(NOTES.contains("{version}"), "게시 문구에 판을 기재하는 자리가 부재합니다");
+
+    // 게시 직전의 확인도 동일한 명칭을 가리켜야 한다.
+    let wants = wants(ACTION);
+    assert!(
+        !wants.is_empty(),
+        "게시 직전에 확인하는 조각을 탐색하지 못했습니다 — 검사가 실명한 것입니다"
+    );
+    for want in &wants {
+        assert!(
+            made.iter().any(|m| m.contains(want.as_str())),
+            "`{want}` 를 확인하는데 그런 명칭의 산출물이 부재합니다"
+        );
+    }
+    for m in &made {
+        assert!(
+            wants.iter().any(|w| m.contains(w.as_str())),
+            "`{m}` 이 게시 직전에 확인되지 않습니다"
+        );
+    }
+}
+
+/// 한쪽만 개칭한 것을 투입한다.
+#[test]
+fn the_check_catches_an_asset_the_release_page_does_not_name() {
+    let action = "          Compress-Archive -DestinationPath \"dist/sheetsift-$version-windows-setup.zip\"\n";
+    let notes = "| `sheetsift-{version}-windows-portable.zip` | zip |\n";
+    assert_eq!(asset_names(action), ["sheetsift-{}-windows-setup.zip"]);
+    assert_eq!(asset_names(notes), ["sheetsift-{}-windows-portable.zip"]);
+    assert_ne!(asset_names(action), asset_names(notes));
+}
+
+/// 판을 기재하지 않은 것을 산출물로 오판하지 않는가.
+#[test]
+fn the_check_tells_an_asset_from_the_crates_own_executable() {
+    let doctored = "$exe = \"crates/tauri/target/release/sheetsift-tauri.exe\"\n";
+    assert_eq!(asset_names(doctored), Vec::<String>::new());
+}
+
+/* ── 부재하는 스크립트를 호출하지 않는가 ────────────────────────── */
+
+/// 임의의 문서가 **뿌리의** `package.json` 에서 호출하는 스크립트들.
+///
+/// `working-directory` 를 기재한 단계는 제외한다 — 그 단계의 `npm run build` 는
+/// `web/package.json` 의 것이고, 뿌리에는 부재하는 것이 정상이다. 그 행이 `run`
+/// 보다 하단에 기재되면 이 판정은 그 단계를 뿌리로 오판하는데, 그것은 **정지로
+/// 발현되므로** 묵시적으로 경과하지 않는다.
+///
+/// 주석은 산정하지 않는다. 호출하는 위치만 판별한다.
+fn scripts_called(src: &str) -> Vec<String> {
+    const LEAD: &str = "npm run ";
+    let mut out: Vec<String> = Vec::new();
+    let mut elsewhere = false;
+    for line in src.lines() {
+        let t = line.trim();
+        if t.starts_with("- ") {
+            elsewhere = false;
+        }
+        if t.starts_with('#') {
+            continue;
+        }
+        if t.contains("working-directory:") {
+            elsewhere = true;
+            continue;
+        }
+        if elsewhere {
+            continue;
+        }
+        for (i, _) in line.match_indices(LEAD) {
+            let name: String = line[i + LEAD.len()..]
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == ':' || *c == '-')
+                .collect();
+            if name.is_empty() || out.contains(&name) {
+                continue;
+            }
+            out.push(name);
+        }
+    }
+    out
+}
+
+/// **액션이 부재하는 스크립트를 호출하지 않는가.**
+///
+/// 조각(`ci:…`)은 이미 판정한다. 그런데 굽는 잡은 조각이 아닌 스크립트를
+/// 호출하고(`bake`), 그 명칭을 오기하거나 `package.json` 에서 개칭하면 **태그를
+/// 1회 소모한 이후에** 발현된다.
+#[test]
+fn the_action_calls_no_script_that_is_not_declared() {
+    let declared = script_names(PACKAGE);
+    let called = scripts_called(ACTION);
+    assert!(
+        !called.is_empty(),
+        "액션에서 스크립트를 호출하는 위치를 탐색하지 못했습니다 — 검사가 실명한 것입니다"
+    );
+    let unknown: Vec<String> = called.into_iter().filter(|s| !declared.contains(s)).collect();
+    assert!(unknown.is_empty(), "package.json 에 부재하는 스크립트를 액션이 호출합니다: {unknown:?}");
+}
+
+/// 오기한 액션을 투입한다.
+#[test]
+fn the_check_catches_a_misspelled_script_in_the_action() {
+    let doctored = "      - run: npm run bkae -- --bundles nsis\n";
+    assert_eq!(scripts_called(doctored), ["bkae"]);
+    assert!(!script_names(PACKAGE).contains(&"bkae".to_string()));
+}
+
+/// 타 그릇의 스크립트를 뿌리의 것으로 오판하지 않는가. 그리고 그 제외가
+/// 과도해 **전부를 소거하지는 않는가** — 소거하면 이 판정은 실명한다.
+#[test]
+fn the_check_tells_the_root_scripts_from_the_screens_own() {
+    let doctored = concat!(
+        "      - name: Build the screen\n",
+        "        working-directory: web\n",
+        "        run: npm run build\n",
+        "      - name: Bake\n",
+        "        run: npm run bake -- --bundles nsis\n"
+    );
+    assert_eq!(scripts_called(doctored), ["bake"]);
 }

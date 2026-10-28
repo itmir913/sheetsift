@@ -50,10 +50,18 @@ above produces `web/pkg` and lets you work with the UI locally — rerun
 Where clang is absent, change the UI, push, and **work with the deployed build.**
 Cumbersome, but better than guessing at changes you cannot compile.
 
+**A push no longer deploys by itself.** Deploying is for what goes out, and what
+goes out is a tag (`docs/desktop.md`). To refresh the site from a branch, run the
+`ci` workflow **by hand** on it — that deploys the screen and bakes the app
+without publishing anything. Without that step the site stays on whatever was
+last released.
+
 ## Where it is deployed
 
 The UI is deployed to GitHub Pages — the `pages` job in `ci.yml` compiles and
-deploys it. **It runs only after every piece of the gate has passed** (`needs`).
+deploys it, **when a tag is pushed or the workflow is run by hand**, never on an
+ordinary push. **It runs only after every piece of the gate has passed**
+(`needs`).
 Dropping one from that line would deploy a revision whose tests fail, and the
 deployment would still succeed, so whether one is missing is read textually by
 `ci:gate` (`crates/shell/tests/gate.rs`).
