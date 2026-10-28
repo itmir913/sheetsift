@@ -551,9 +551,17 @@ jobs:
       # what `upload-artifact@v7` wrote; raise one without the other and the
       # download brings back nothing. Here that stops at the check below rather
       # than publishing an empty release.
+      #
+      # **`pattern` is not optional.** Without it this takes every artifact the
+      # run produced -- and `pages` produces one too, the screen as a tar. It
+      # was attached to a release before this line existed, and the check below
+      # did not notice: it asked whether each edition was present, not whether
+      # anything else was. The prefix is the one `bake` uploads under, and
+      # `crates/shell/tests/gate.rs` holds the two together.
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
+          pattern: bundle-*
           merge-multiple: true
 
       - name: Check what is about to be published
@@ -569,6 +577,19 @@ jobs:
               echo "nothing for $want" >&2
               exit 1
             fi
+          done
+          # And **nothing else.** Asking only whether each edition is present
+          # let the screen's own artifact ride along onto a release once. What
+          # is attached is what people download, so an extra file is as wrong
+          # as a missing one.
+          for f in artifacts/*; do
+            case "$(basename "$f")" in
+              *windows-setup*|*windows-portable*|*macos*) ;;
+              *)
+                echo "$f is not one of the editions -- it would be attached to the release" >&2
+                exit 1
+                ;;
+            esac
           done
           ls -l artifacts
 

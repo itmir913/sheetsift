@@ -1027,3 +1027,66 @@ fn the_check_catches_a_publish_that_leaves_the_screen_behind() {
         .collect();
     assert_eq!(missing, ["pages"]);
 }
+
+/* ── 수령하는 것이 구운 것뿐인가 ────────────────────────────────── */
+
+/// `upload-artifact` 가 기재한 명칭들.
+fn artifact_names(src: &str) -> Vec<String> {
+    const LEAD: &str = "name: bundle-";
+    src.match_indices(LEAD)
+        .map(|(i, _)| format!("bundle-{}", src[i + LEAD.len()..].lines().next().unwrap_or("").trim()))
+        .collect()
+}
+
+/// `download-artifact` 가 기재한 패턴.
+fn artifact_pattern(src: &str) -> Option<String> {
+    let at = src.find("pattern: ")?;
+    Some(src[at + "pattern: ".len()..].lines().next()?.trim().to_string())
+}
+
+/// **수령하는 것을 한정했는가, 그리고 그 한정이 올린 것과 합치하는가.**
+///
+/// 명칭을 한정하지 않으면 그 판이 산출한 것 **전부**를 수령한다 — 화면을 송출
+/// 하는 잡도 산출물을 하나 생성하므로, 그것이 Release 에 부착된다. 실제
+/// 발생했고, 존재를 확인하는 쪽은 **각 판이 소재하는지만 판정해 그것을 포착하지
+/// 못했다.**
+///
+/// 접두가 두 곳에 기재되는 것이라, 한쪽만 수정되면 수령하는 것이 공집합이
+/// 되거나 무관한 것이 혼입된다.
+#[test]
+fn what_is_published_is_what_was_baked() {
+    let names = artifact_names(ACTION);
+    assert!(
+        !names.is_empty(),
+        "올리는 산출물의 명칭을 탐색하지 못했습니다 — 검사가 실명한 것입니다"
+    );
+    let pattern =
+        artifact_pattern(ACTION).expect("내려받는 패턴을 기재하지 않았습니다 — 그 판의 산출물 전부를 수령합니다");
+    let prefix = pattern
+        .strip_suffix('*')
+        .unwrap_or_else(|| panic!("패턴 `{pattern}` 이 접두로 한정하지 않습니다"));
+    let stray: Vec<&String> = names.iter().filter(|n| !n.starts_with(prefix)).collect();
+    assert!(stray.is_empty(), "패턴 `{pattern}` 이 수령하지 못하는 산출물이 존재합니다: {stray:?}");
+}
+
+/// 한정하지 않은 내려받기를 투입한다.
+#[test]
+fn the_check_catches_a_download_that_takes_everything() {
+    let doctored = "      - uses: actions/download-artifact@v8\n        with:\n          path: artifacts\n          merge-multiple: true\n";
+    assert!(artifact_pattern(doctored).is_none());
+}
+
+/// 접두가 상이한 것을 투입한다.
+#[test]
+fn the_check_catches_a_pattern_that_misses_what_was_uploaded() {
+    let doctored = concat!(
+        "          name: bundle-windows\n",
+        "          name: bundle-macos\n",
+        "          pattern: dist-*\n"
+    );
+    let names = artifact_names(doctored);
+    assert_eq!(names, ["bundle-windows", "bundle-macos"]);
+    let pattern = artifact_pattern(doctored).expect("패턴이 부재합니다");
+    let prefix = pattern.strip_suffix('*').expect("접두가 부재합니다");
+    assert_eq!(names.iter().filter(|n| !n.starts_with(prefix)).count(), names.len());
+}
