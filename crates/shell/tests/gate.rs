@@ -823,8 +823,16 @@ fn cli_versions(src: &str) -> Vec<String> {
 fn the_tool_is_pinned_to_one_version() {
     let found = cli_versions(PACKAGE);
     assert!(
-        found.len() >= 2,
-        "`package.json` 에서 도구의 판을 탐색하지 못했습니다 — 검사가 실명한 것입니다: {found:?}"
+        !found.is_empty(),
+        "`package.json` 에서 도구의 판을 탐색하지 못했습니다 — 검사가 실명한 것입니다"
+    );
+    // **판을 전치하지 않은 위치까지 산정한다.** `cli_versions` 는 `@` 가 후속하는
+    // 것만 탐색하므로, `@` 자체가 부재한 `npx @tauri-apps/cli build` 는 계수되지
+    // 않은 채로 통과한다 — 고정하지 않은 것이 그 형태다.
+    assert_eq!(
+        PACKAGE.matches("@tauri-apps/cli").count(),
+        found.len(),
+        "판을 고정하지 않고 도구를 호출하는 위치가 존재합니다"
     );
     assert!(found.iter().all(|v| !v.is_empty()), "판을 고정하지 않은 위치가 존재합니다: {found:?}");
     let first = &found[0];
