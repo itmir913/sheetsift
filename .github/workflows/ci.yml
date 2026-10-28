@@ -53,19 +53,21 @@ permissions:
 
 # One run per branch; a newer push cancels the older run.
 #
-# **The branch name, not the event.** A push to a branch that has a pull request
-# open fires twice -- once as `push`, once as `pull_request` -- and on a pull
-# request `github.ref` is `refs/pull/N/merge`, so `head_ref` is what makes the
-# two land in one group and collapse into a single run. Putting the event in the
-# group instead separates them, and then **the whole gate runs twice on every
-# push**, Windows included.
+# **The branch's short name, not the event, and not `github.ref`.** A push to a
+# branch that has a pull request open fires twice -- once as `push`, once as
+# `pull_request` -- and the two name the branch differently: on a pull request
+# `github.ref` is `refs/pull/N/merge` and `head_ref` is the branch, while on a
+# push `head_ref` is **empty** and `github.ref` is `refs/heads/<branch>`. So
+# `head_ref || ref_name` is what makes both say `<branch>` and collapse into one
+# run. `head_ref || ref` does not -- the two strings differ, neither cancels the
+# other, and **the whole gate runs twice on every push**, Windows included.
 #
 # **What goes out is never cancelled.** A tag run and a run started by hand each
 # get a group of their own (`run_id` is unique per run): those two are what is
 # published, and cutting one off halfway leaves nobody knowing what is actually
 # out there.
 concurrency:
-  group: ${{ github.workflow }}-${{ (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch') && github.run_id || github.head_ref || github.ref }}
+  group: ${{ github.workflow }}-${{ (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch') && github.run_id || github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
