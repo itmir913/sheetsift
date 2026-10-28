@@ -26,6 +26,8 @@ pub mod vault;
 
 #[cfg(feature = "infer")]
 pub mod infer;
+#[cfg(feature = "keyring")]
+pub mod keyring;
 #[cfg(feature = "migrate")]
 pub mod migrate;
 #[cfg(feature = "sift")]

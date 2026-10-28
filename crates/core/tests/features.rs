@@ -1,9 +1,10 @@
 //! **활성화하지 않은 층이 누락되어도 컴파일이 되는가.**
 //!
-//! 이 바탕에는 활성화해야 포함되는 층이 존재한다(`sift`·`infer`·`migrate`). 활성화하지
+//! 이 바탕에는 활성화해야 포함되는 층이 존재한다(`sift`·`infer`·`migrate`·`keyring`). 활성화하지
 //! 않는 앱이 실재하므로, **그 조합이 컴파일되는지**가 보전되어야 한다. 그런데
 //! 그것은 `cargo test --workspace` 가 확인할 수 없다 — 시험은 기본 기능으로
-//! 동작하고, 기본은 전부 활성화한 상태다.
+//! 동작하고, 시험할 때는 전부 활성화한 상태다(기본에 부재하는 층은 자기 참조
+//! dev-dependency 가 활성화한다).
 //!
 //! 비활성화해 재차 빌드하는 명령을 외부에 배치하는 경로도 존재하나, 실행 명령을
 //! 신규 생성하지 않는다. 외부에 배치하면 일부 환경에서만 동작하고 일부
@@ -21,7 +22,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 /// 활성화해야 포함되는 층. 명칭이 곧 파일 명칭이고 모듈 명칭이다.
-const GATED: [&str; 3] = ["sift", "infer", "migrate"];
+const GATED: [&str; 4] = ["sift", "infer", "migrate", "keyring"];
 
 fn src() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")
