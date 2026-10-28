@@ -181,6 +181,14 @@ calls (`gate.yml`); after it, `pages` (the screen) and `bake` (the app) run side
 by side, and then `ship` attaches what came out to a **draft** release. Draft, because a green bake does not say the app
 opens — someone looks before it is public.
 
+**A tag that has been released is immutable.** This repository is not only an
+app: the crates in it are a dependency, pulled in over git by another repository
+that pins a tag or a revision. Moving a tag therefore changes what someone else
+already pinned, and their build either picks up a different tree or stops
+finding the one it recorded. Delete and re-cut a tag only while nothing depends
+on it — and a released one has been downloadable, so assume something does. To
+correct a release, raise the version and release again.
+
 `ship` stops if the tag and the version in `tauri.conf.json` are not the same
 string. The version is what every file name is built out of, so a tag that
 disagrees would attach one version's files to another version's release, and
