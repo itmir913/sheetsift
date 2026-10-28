@@ -66,12 +66,27 @@ pub fn too_large(path: &Path, size: u64) -> crate::error::Fault {
 ///
 /// 그래서 임시 명칭으로 기록하고 완료된 이후에 교체한다. 교체는 동일한
 /// 디렉터리 내부라 이전이 아니라 개명이다.
+///
+/// **알맹이가 디스크에 도달한 이후에** 개명한다. 개명은 파일 시스템이 보장하나
+/// 알맹이는 보장하지 않는다 — 동기화하지 않고 개명하면, 전원이 차단되었을 때
+/// 명칭만 존치되고 내용이 공백인 파일이 될 수 있고, 구 파일은 이미 소멸한 이후다.
+/// USB 로 수수하는 흐름에서는 분리하기 이전에 뽑는 일이 실제로 발생한다.
 pub fn write(path: &Path, bytes: &[u8]) -> Result<()> {
     let failed = |e: std::io::Error| -> crate::error::Fault {
         ShellError::new(ErrorCode::FileWriteFailed).with("name", name_of(path)).detail(e).into()
     };
     let temp = temp_beside(path);
-    std::fs::write(&temp, bytes).map_err(failed)?;
+    let put = || -> std::io::Result<()> {
+        use std::io::Write;
+        let mut f = std::fs::File::create(&temp)?;
+        f.write_all(bytes)?;
+        f.sync_all()
+    };
+    if let Err(e) = put() {
+        // 기록하다 중단된 임시 파일을 존치하지 않는다.
+        let _ = std::fs::remove_file(&temp);
+        return Err(failed(e));
+    }
     if let Err(e) = std::fs::rename(&temp, path) {
         // 교체하지 못했으면 임시 파일을 존치하지 않는다. 존치하면 사용자가
         // 인지하지 못하는 파일이 디렉터리에 적재된다.
@@ -85,6 +100,10 @@ pub fn write(path: &Path, bytes: &[u8]) -> Result<()> {
 /// 동일한 파일 시스템 내부에서만 성립하고, 임시 디렉터리는 상이한 장치일 수 있다.
 ///
 /// 교체 대상과 동일한 명칭으로 개시해, 어느 작업의 잔여물인지 판별 가능하게 한다.
+///
+/// **확장자를 교체하지 않고 후미에 부가한다.** `with_extension("tmp")` 는 `표.sift`
+/// 를 `표.tmp` 로 만드는데, 동일한 위치에 사용자가 배치한 `표.tmp` 가 존재하면 그것을
+/// 묵시적으로 덮어쓴다.
 fn temp_beside(path: &Path) -> std::path::PathBuf {
     let mut name = std::ffi::OsString::from(".");
     name.push(path.file_name().unwrap_or_default());

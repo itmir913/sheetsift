@@ -129,6 +129,51 @@ fn a_path_that_cannot_be_written_is_thrown() {
     assert_eq!(code_of(&fault), "FILE_WRITE_FAILED");
 }
 
+/// **임시 명칭이 인접한 파일을 덮어쓰지 않는다.** 확장자를 교체하는 명명
+/// (`표.tmp`)이나 단순 부가(`표.sift.tmp`)는 사용자가 배치한 파일과 중복할 수 있다.
+#[test]
+fn the_temporary_name_does_not_eat_a_neighbours_file() {
+    let dir = scratch("neighbour");
+    let neighbours = ["표.tmp", "표.sift.tmp", "표"];
+    for n in neighbours {
+        std::fs::write(dir.join(n), "사용자가 배치한 파일").expect("인접 파일을 기록하지 못했습니다");
+    }
+    let target = dir.join("표.sift");
+    file::write(&target, "새로 기록한 것".as_bytes()).expect("기록하지 못했습니다");
+
+    for n in neighbours {
+        assert_eq!(
+            std::fs::read(dir.join(n)).expect("인접 파일을 판독하지 못했습니다"),
+            "사용자가 배치한 파일".as_bytes(),
+            "인접한 {n} 를 덮어썼습니다"
+        );
+    }
+    assert_eq!(std::fs::read(&target).expect("판독하지 못했습니다"), "새로 기록한 것".as_bytes());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// **교체하지 못해도 임시 파일을 존치하지 않는다.** 디렉터리를 지시하면 임시
+/// 파일은 기록되고 개명에서 중단된다. 치환 값에는 명칭 하나만 기재한다.
+#[test]
+fn a_failed_write_leaves_nothing_behind() {
+    let dir = scratch("failed");
+    let blocked = dir.join("점유.sift");
+    std::fs::create_dir_all(blocked.join("내부")).expect("디렉터리를 생성하지 못했습니다");
+
+    let fault = file::write(&blocked, b"sealed").expect_err("디렉터리 위에 기록되었습니다");
+    let json = serde_json::to_value(&fault).expect("오류를 직렬화하지 못했습니다");
+    assert_eq!(json["code"], "FILE_WRITE_FAILED");
+    assert_eq!(json["params"]["name"], "점유.sift", "치환 값에 전체 경로가 기재되었습니다");
+
+    let left: Vec<String> = std::fs::read_dir(&dir)
+        .expect("디렉터리를 판독하지 못했습니다")
+        .map(|e| e.expect("항목을 판독하지 못했습니다").file_name().to_string_lossy().into_owned())
+        .filter(|n| n != "점유.sift")
+        .collect();
+    assert!(left.is_empty(), "잔여물이 존재합니다: {left:?}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// 교체 대상이 이미 존재하면 **교체한다.** 재기록하는 경로가 그것이다.
 #[test]
 fn an_existing_file_is_replaced() {
