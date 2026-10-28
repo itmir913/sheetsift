@@ -8,9 +8,10 @@
     "ci:web": "npm --prefix web ci && npm --prefix web run check",
     "ci:tauri": "cargo clippy --manifest-path crates/tauri/Cargo.toml --all-targets -- -D warnings && cargo test --manifest-path crates/tauri/Cargo.toml",
     "dev:web": "npm run pkg && npm --prefix web install && npm --prefix web run dev",
-    "dev:tauri": "cd crates/tauri && npx @tauri-apps/cli@2 dev",
+    "dev:tauri": "cd crates/tauri && npx --yes @tauri-apps/cli@2.9.1 dev",
     "build:web": "npm run pkg && npm --prefix web install && npm --prefix web run build",
-    "build:tauri": "cd crates/tauri && npx @tauri-apps/cli@2 build",
+    "bake": "cd crates/tauri && npx --yes @tauri-apps/cli@2.9.1 build",
+    "build:tauri": "npm run bake",
     "pkg": "cargo build -p sheetsift-wasm --target wasm32-unknown-unknown --release && wasm-bindgen --target web --no-typescript --out-dir web/pkg target/wasm32-unknown-unknown/release/sheetsift_wasm.wasm"
   }
 }
