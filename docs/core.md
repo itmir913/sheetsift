@@ -9,7 +9,7 @@ files is the caller's job.
 
 | Crate | Responsibility |
 |---|---|
-| `crates/core` | Sheet conversion (`sheet`), structure detection (`infer`), the stored format (`sift`), the query engine (`grid`), the password envelope (`vault`), the signed container (`seal`) |
+| `crates/core` | Sheet conversion (`sheet`), structure detection (`infer`), the stored format (`sift`), the query engine (`grid`), the password envelope (`vault`), the signed container (`seal`), schema versioning (`migrate`) |
 | `crates/aead` | One layer of AES-256-GCM. Kept separate so it is compiled with optimizations even in debug builds |
 | `crates/shell` | The platform-neutral kernel (`Viewer`). Binds the converted connection, column definitions and requests in one place |
 | `crates/wasm` | The shell that attaches the core to the browser. `wasm_bindgen` exists only in this crate |
@@ -30,8 +30,14 @@ key written here is a key everyone knows.
 
 ## Unused layers are not compiled in
 
-`sift` and `infer` are **feature-gated**. Everything is enabled by default; an
+`sift` and `infer` are **feature-gated**. They are enabled by default; an
 application that wants less opts out.
+
+`migrate` (schema versioning and the schema fingerprint) is gated too, but
+**off by default**: the viewer in this repository does not use it, and turning
+it on by default would make the viewer write text for an error code it can never
+show. An application that uses it opts in. The crate's own tests turn it on
+through a dev-dependency on itself, so `ci:gate` still runs them.
 
 ```toml
 sheetsift-core = { git = "…", rev = "…", default-features = false }

@@ -69,6 +69,9 @@ pub enum ErrorCode {
     /// 봉인한 바이트를 기록하지 못했다. 기록은 앱이 수행하지만, 비밀번호 변경처럼
     /// 기록이 그릇의 약정에 포함되는 위치가 존재해 코드는 여기 배치한다.
     VaultWriteFailed,
+    /// 구 판 파일을 상승시키는 조각이 실패했다. 그 판은 전부 철회된다.
+    #[cfg(feature = "migrate")]
+    VaultMigrationFailed,
 }
 
 #[derive(Debug, Clone, Serialize)]

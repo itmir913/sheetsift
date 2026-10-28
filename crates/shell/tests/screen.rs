@@ -45,25 +45,53 @@ fn screaming(variant: &str) -> String {
     out
 }
 
+/// 바탕의 상자 파일. **기본에 포함되는 기능**을 판독한다.
+const CORE_TOML: &str = include_str!("../../core/Cargo.toml");
+
+/// 바탕의 `default = [...]` 에 기재된 기능들.
+fn default_features(toml: &str) -> Vec<String> {
+    let Some(line) = toml.lines().find(|l| l.trim_start().starts_with("default = [")) else {
+        return Vec::new();
+    };
+    line.split('"').skip(1).step_by(2).map(str::to_string).collect()
+}
+
 /// `error.rs` 의 `ErrorCode` 변종들을 탐색한다.
 ///
-/// `#[cfg(feature = ...)]` 이 부착된 것도 산정한다. 이 저장소의 기본은 전부
-/// 활성화한 상태이고, **비활성화하는 앱도 그 코드의 문구를 기재해야 한다** —
-/// 코드가 단일 enum 이라서다.
+/// `#[cfg(feature = ...)]` 이 부착된 것은 **그 기능이 기본에 포함될 때만** 산정한다.
+/// 이 저장소의 앱은 기본으로 수령하므로 기본에 포함되는 층의 코드는 화면에 도달할
+/// 수 있고, 그 문구를 기재해야 한다. 기본에 부재하는 층은 이 앱이 활성화하지
+/// 않으므로 그 코드가 enum 에 애초에 부재하다 — 문구를 요구하면 영영 출현할 수 없는
+/// 문구를 기재하게 된다.
 fn backend_codes(src: &str) -> Vec<String> {
+    backend_codes_with(src, &default_features(CORE_TOML))
+}
+
+fn backend_codes_with(src: &str, enabled: &[String]) -> Vec<String> {
     let from = match src.find("pub enum ErrorCode {") {
         Some(at) => at,
         None => return Vec::new(),
     };
     let body = &src[from..];
-    let to = body.find("\n}").unwrap_or(body.len());
-    body[..to]
-        .lines()
-        .skip(1)
-        .map(str::trim)
-        .filter(|l| l.ends_with(','))
-        .map(|l| screaming(l.trim_end_matches(',')))
-        .collect()
+    let to = body.find("
+}").unwrap_or(body.len());
+    let mut out = Vec::new();
+    // 직전에 부착된 기능. 변종 하나에만 작용한다.
+    let mut gate: Option<String> = None;
+    for line in body[..to].lines().skip(1).map(str::trim) {
+        if let Some(rest) = line.strip_prefix("#[cfg(feature = \"") {
+            gate = rest.split('"').next().map(str::to_string);
+            continue;
+        }
+        if !line.ends_with(',') {
+            continue;
+        }
+        let on = gate.take().is_none_or(|f| enabled.contains(&f));
+        if on {
+            out.push(screaming(line.trim_end_matches(',')));
+        }
+    }
+    out
 }
 
 /// `codes.ts` 의 `ERROR_CODES` 에 기재된 문자들.
@@ -178,6 +206,26 @@ fn the_check_catches_a_code_the_screen_never_heard_of() {
     let found = backend_codes(doctored);
     assert_eq!(found, ["DB_QUERY_FAILED", "BRAND_NEW_THING"]);
     assert!(!listed_codes(CODES_TS).contains(&found[1]));
+}
+
+/// 기본에 포함되는 층의 코드는 산정하고, 기본에 부재하는 층의 코드는 산정하지 않는다.
+#[test]
+fn the_check_counts_only_what_the_default_build_can_send() {
+    let doctored = "pub enum ErrorCode {
+    DbQueryFailed,
+    #[cfg(feature = \"on\")]
+    Gated,
+                        #[cfg(feature = \"off\")]
+    Hidden,
+    After,
+}
+";
+    let found = backend_codes_with(doctored, &["on".to_string()]);
+    assert_eq!(found, ["DB_QUERY_FAILED", "GATED", "AFTER"]);
+    assert!(
+        !default_features(CORE_TOML).is_empty(),
+        "바탕의 기본 기능을 탐색하지 못했습니다 — 검사가 실명한 것입니다"
+    );
 }
 
 #[test]

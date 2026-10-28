@@ -15,17 +15,19 @@ pub mod seal;
 pub mod sheet;
 pub mod vault;
 
-/* 아래 둘은 **활성화해야 포함된다.** 사유는 상자 파일에 기재했다 — 요약하면,
+/* 아래 층들은 **활성화해야 포함된다.** 사유는 상자 파일에 기재했다 — 요약하면,
    오류 코드가 단일 enum 이라 사용하지 않는 층의 코드까지 앱이 문구를 작성해야
    한다.
 
-   **이 둘로 향하는 경로는 외부에서만 진입한다.** 활성화하지 않은 조합이
+   **이 층들로 향하는 경로는 외부에서만 진입한다.** 활성화하지 않은 조합이
    컴파일되는지를 이 저장소의 `cargo test` 가 확인할 수 없으므로, 대신 내부
-   코드가 이 둘을 호출하지 않는다는 것을 시험이 글자로 대조한다
+   코드가 이 층들을 호출하지 않는다는 것을 시험이 글자로 대조한다
    (`tests/features.rs`). */
 
 #[cfg(feature = "infer")]
 pub mod infer;
+#[cfg(feature = "migrate")]
+pub mod migrate;
 #[cfg(feature = "sift")]
 pub mod sift;
 

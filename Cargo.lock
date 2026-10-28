@@ -994,6 +994,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sheetsift-aead",
+ "sheetsift-core",
  "unicode-normalization",
  "wasm-bindgen-test",
  "web-time",
