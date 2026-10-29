@@ -7,7 +7,7 @@
  * 이동하는 것이 노출되지 않게 한다.
  */
 import { computed, nextTick, onMounted, ref, watch } from "vue";
-import { installTooltip, tooltip } from "@/composables/useTooltip";
+import { installTooltip, tooltip } from "../composables/useTooltip";
 
 /** 지시 대상과 설명 사이 간격(px). */
 const GAP = 8;

@@ -259,8 +259,8 @@ fn the_check_does_not_count_a_code_with_nothing_after_it() {
 
 /* ── 고정 가능한 열 수 ──────────────────────────────────────────── */
 
-const LAYOUT_TS: &str = include_str!("../../../web/src/composables/useColumnLayout.ts");
-const GRID_CSS: &str = include_str!("../../../web/src/styles/grid.css");
+const LAYOUT_TS: &str = include_str!("../../../packages/sheetsift-ui/src/composables/useColumnLayout.ts");
+const GRID_CSS: &str = include_str!("../../../packages/sheetsift-ui/src/styles/grid.css");
 
 /// 화면이 고정 가능하다고 판단하는 열 수(`MAX_PIN`).
 fn max_pin(src: &str) -> Option<usize> {

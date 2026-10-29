@@ -17,11 +17,11 @@ import {
   type ColumnValue,
   type ColumnValuesResult,
   type ValuePick,
-} from "@/lib/grid";
-import { limits } from "sheetsift-book";
-import { useFault } from "@/composables/useFault";
-import { formatNumber, t, tn } from "@/i18n";
-import { fontEpoch } from "@/lib/colWidth";
+  valueText,
+} from "../lib/grid";
+import { useFault } from "../composables/useFault";
+import { formatNumber, source, t, tn } from "../lib/inject";
+import { fontEpoch } from "../lib/colWidth";
 
 const props = defineProps<{
   column: ColumnDef;
@@ -48,7 +48,7 @@ const emit = defineEmits<{
    공백 표식과 목록 상한은 **바탕이 제공한다.** 여기 기재하면 바탕이 그것을
    변경하는 시점에, 공백이 정상 값으로 인식되고 안내문만 구 수치를 제시한다 —
    양자 모두 오류가 발생하지 않는다. */
-const { blankToken, maxValues } = limits();
+const { blankToken, maxValues } = source().limits();
 
 const root = ref<HTMLElement | null>(null);
 
@@ -371,7 +371,7 @@ onBeforeUnmount(() => {
         <label v-for="c in view.rows" :key="c.value" class="dg-pop-row">
           <input type="checkbox" :checked="picked(c.value)" @change="toggle(c.value)" />
           <span class="dg-pop-val" :data-blank="c.value === blankToken">
-            {{ c.value === blankToken ? t("filter.blank") : c.value }}
+            {{ valueText(c.value) }}
           </span>
           <span class="dg-pop-count">{{ formatNumber(c.count) }}</span>
         </label>

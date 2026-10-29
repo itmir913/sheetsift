@@ -101,7 +101,9 @@ jobs:
 
   # The screen. `vue-tsc` is the only thing that reads it against the shape
   # written in `web/src/pkg.d.ts`, and it needs no wasm and no clang -- so it
-  # is its own part and runs beside the others.
+  # is its own part and runs beside the others. It checks the shared screen
+  # package (`packages/sheetsift-ui`) on its own as well, so a file the app does
+  # not import is still read.
   web:
     runs-on: ubuntu-latest
     steps:
@@ -111,7 +113,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - run: npm run ci:web
 

@@ -121,10 +121,11 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: package-lock.json
 
+      # At the root: the screen and the shared screen package (`packages/sheetsift-ui`)
+      # are npm workspaces with one lock file there.
       - name: Install the screen's dependencies
-        working-directory: web
         run: npm ci
 
       # `npm run pkg` is the one command that builds the wasm layer; it lives
@@ -213,7 +214,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Add the targets this leg builds for
         if: matrix.targets != ''
@@ -226,8 +227,9 @@ jobs:
           key: bake-${{ matrix.label }}
           workspaces: crates/tauri
 
+      # At the root: the screen and the shared screen package (`packages/sheetsift-ui`)
+      # are npm workspaces with one lock file there.
       - name: Install the screen's dependencies
-        working-directory: web
         run: npm ci
 
       # **Through the `bake` script, not the tool.** The tool's version is

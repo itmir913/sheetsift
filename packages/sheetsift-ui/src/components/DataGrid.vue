@@ -5,9 +5,9 @@
  * 없다).
  */
 import { computed, onBeforeUnmount, onMounted, ref, toRef, watch } from "vue";
-import GridTable from "@/components/GridTable.vue";
-import GridToolbar from "@/components/GridToolbar.vue";
-import PrintView from "@/components/PrintView.vue";
+import GridTable from "./GridTable.vue";
+import GridToolbar from "./GridToolbar.vue";
+import PrintView from "./PrintView.vue";
 import {
   own,
   columnValues,
@@ -22,10 +22,10 @@ import {
   type ScreenDef,
   type Sort,
   type ValuePick,
-} from "@/lib/grid";
-import { useFault } from "@/composables/useFault";
-import { useColumnLayout } from "@/composables/useColumnLayout";
-import { formatNumber, t, tn } from "@/i18n";
+} from "../lib/grid";
+import { useFault } from "../composables/useFault";
+import { useColumnLayout } from "../composables/useColumnLayout";
+import { formatNumber, t, tn } from "../lib/inject";
 
 const props = defineProps<{ screen: ScreenDef }>();
 

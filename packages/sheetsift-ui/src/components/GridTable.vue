@@ -11,11 +11,11 @@
  * 메모리에서 처리한다.
  */
 import { computed, ref } from "vue";
-import ColumnFilter from "@/components/ColumnFilter.vue";
-import { cellText, isBlank, own } from "@/lib/grid";
-import { t } from "@/i18n";
-import type { ColumnValuesResult, Row, Sort, ValuePick } from "@/lib/grid";
-import type { LaidOutColumn } from "@/composables/useColumnLayout";
+import ColumnFilter from "./ColumnFilter.vue";
+import { cellText, isBlank, own } from "../lib/grid";
+import { t } from "../lib/inject";
+import type { ColumnValuesResult, Row, Sort, ValuePick } from "../lib/grid";
+import type { LaidOutColumn } from "../composables/useColumnLayout";
 
 const props = withDefaults(
   defineProps<{

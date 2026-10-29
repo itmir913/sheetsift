@@ -1,12 +1,13 @@
 /**
  * 표를 취급하는 화면이 사용하는 것 전부. **경계는 여기 하나다.**
  *
- * goe-navi 의 동일한 파일에서 이전했다. 거기서는 `invoke("query_rows", …)` 를
- * 호출했고 여기서는 개방한 `Book` 을 호출하는데, 요청의 항목 명칭이 동일한
- * 벌이라 **변경된 것은 그 한 행뿐**이다.
+ * 자료를 수령하는 문은 이 패키지가 보유하지 않는다 — 받는 앱이 주입한
+ * [`GridSource`] 를 호출한다(`inject.ts`). sheetsift 는 개방한 `Book` 을,
+ * goe-navi 는 tauri 명령을 경유하는데, 요청의 항목 명칭이 동일한 벌이라
+ * 화면은 어느 쪽인지 인지하지 않는다.
  */
-import { ref, shallowRef } from "vue";
-import { Book, limits } from "sheetsift-book";
+import { ref } from "vue";
+import { source, t } from "./inject";
 
 export type ColumnKind = "text" | "number";
 export type SortDir = "asc" | "desc";
@@ -139,7 +140,7 @@ export interface ColumnValuesResult {
 export type Cell = string | number | null;
 export type Row = Cell[];
 
-interface QueryResponse {
+export interface QueryResponse {
   total: number;
   offset: number;
   rows: Row[];
@@ -159,62 +160,6 @@ export interface ScreenCatalog {
    */
   decimals: number | null;
   screens: ScreenDef[];
-}
-
-/* ── 개방한 양식 ──────────────────────────────────────────────── */
-
-/**
- * 현재 개방된 양식.
- *
- * **단일 위치에 배치한다.** goe-navi 는 자료가 앱 내부에 존재해 임의 시점에
- * 호출 가능했으나, 여기서는 사람이 파일을 선택한 이후에야 바탕이 구성된다.
- * 화면마다 책을 보유하게 하면 일부 화면은 수령하고 일부 화면은 수령하지 못하는
- * 식으로 분기한다.
- */
-// `shallowRef` 다. `ref` 는 내부를 순회하며 포장하는데, 포장한 것은 더 이상
-// `Book` 이 아니다 — 경계를 은폐한 위치가 함께 제거된다.
-const open = shallowRef<Book | null>(null);
-
-/** 개방한 양식이 아직 부재하는데 호출한 위치. **묵시적으로 공백 페이지를 반환하지 않는다.** */
-function book(): Book {
-  const b = open.value;
-  if (!b) throw new Error("no workbook is open");
-  return b;
-}
-
-/** 양식 바이트를 수용해 개방한다. 기존에 개방한 것은 폐기한다. */
-export async function openBook(bytes: Uint8Array, name: string): Promise<ScreenCatalog> {
-  return received(await Book.open(bytes, name));
-}
-
-/**
- * **경로로 개방한다.** 선택 대화상자가 반환한 것이 그것이다.
- *
- * 바이트로 개방하는 쪽과 동일한 위치로 귀착시킨다 — 개방 이후의 처리가 두 벌이
- * 되면 일방만 수정된다.
- */
-export async function openBookAt(path: string): Promise<ScreenCatalog> {
-  return received(await Book.openAt(path));
-}
-
-async function received(b: Book): Promise<ScreenCatalog> {
-  open.value = b;
-  const catalog = await b.listScreens<ScreenCatalog>({});
-  setBlankMark(catalog.blank);
-  setCellDecimals(catalog.decimals);
-  return catalog;
-}
-
-/**
- * 화면 목록. 시트별 헤더 지정을 지참한다.
- *
- * 기재하지 않은 시트는 바탕이 추정한 것을 적용한다. 사용자가 한 시트의 지정을
- * 변경하면 그 시트를 기재해 재요청하고, 열 정의 전체를 교체한다.
- */
-export function listScreens(
-  headers: Record<string, HeaderSpec> = {},
-): Promise<ScreenCatalog> {
-  return book().listScreens<ScreenCatalog>({ headers });
 }
 
 /* ── 공백과 자릿수 ─────────────────────────────────────────────── */
@@ -247,6 +192,20 @@ export function own<T>(map: Record<string, T>, key: string): T | undefined {
 /** 값이 공백인가. NULL·공백 문자·양식의 "없음" 표기. */
 export function isBlank(v: unknown): boolean {
   return v === null || v === undefined || v === "" || v === blankMark;
+}
+
+/**
+ * 값 선택 목록의 한 항목을 사람이 판독할 문자로.
+ *
+ * 공백 표식(`limits().blankToken`)은 **수수하는 값이지 묘사하는 문구가 아니다.**
+ * 자료에서 유래할 수 없는 문자라, 그대로 묘사하면 판독할 수 없는 문자가 출현한다.
+ * 묘사만 받는 앱의 문구(`filter.blank`)로 치환한다.
+ *
+ * **화면 각처에서 표식을 대조하지 않는다.** 값 목록과 인쇄가 동일한 문자를
+ * 제시해야 하는데, 두 곳에 개별 기재하면 한 곳만 수정된다(goe-navi `65f4137`).
+ */
+export function valueText(v: string): string {
+  return v === source().limits().blankToken ? t("filter.blank") : v;
 }
 
 /**
@@ -352,7 +311,7 @@ export function cellText(col: CellShape, value: unknown): string {
 
 /** 한 페이지에 수용하는 행 수. 바탕의 상한을 초과하지 않는다. */
 export function pageSize(): number {
-  return limits().maxPage;
+  return source().limits().maxPage;
 }
 
 /**
@@ -386,7 +345,7 @@ export async function fetchPage(
   size: number = pageSize(),
 ): Promise<PageResult> {
   const limit = Math.min(size, pageSize());
-  const res = await book().queryRows<QueryResponse>({
+  const res = await source().queryRows({
     screenId,
     header,
     sorts,
@@ -420,7 +379,7 @@ export async function fetchRows(
   const rows: Row[] = [];
   let total = 0;
   for (let offset = 0; offset < max; offset += page) {
-    const res = await book().queryRows<QueryResponse>({
+    const res = await source().queryRows({
       screenId,
       header,
       sorts,
@@ -450,7 +409,7 @@ export function columnValues(
   filters: Filter[],
   needle: string,
 ): Promise<ColumnValuesResult> {
-  return book().columnValues<ColumnValuesResult>({
+  return source().columnValues({
     screenId,
     header,
     columnKey,

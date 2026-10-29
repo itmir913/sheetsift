@@ -1,0 +1,25 @@
+{
+  "name": "sheetsift-ui",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./components/*": "./src/components/*",
+    "./composables/*": "./src/composables/*.ts",
+    "./lib/*": "./src/lib/*.ts",
+    "./styles/*": "./src/styles/*"
+  },
+  "scripts": {
+    "check": "vue-tsc --noEmit -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@vue/tsconfig": "^0.9.1",
+    "typescript": "~6.0.2",
+    "vue": "^3.5.42",
+    "vue-tsc": "^3.3.11"
+  }
+}

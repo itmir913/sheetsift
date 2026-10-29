@@ -1,3 +1,4 @@
+import type { SharedUiKey } from "sheetsift-ui";
 import type { ErrorCode } from "./codes";
 
 /**
@@ -71,6 +72,10 @@ export const errors: Record<ErrorCode, string> = {
  *
  * 여기는 **화면의 어조**다. 주석과 문서의 한자어 문체를 유입시키지 않는다 —
  * 읽는 사람이 상이하다. `개방`이 아니라 `열기`, `부재합니다`가 아니라 `없습니다`.
+ *
+ * **공용 화면(`sheetsift-ui`)의 열쇠도 여기 기재한다.** 그 패키지는 문구를 보유하지
+ * 않고 열쇠만 사용하므로, 하나라도 누락되면 `satisfies` 가 컴파일 시점에
+ * 정지시킨다. 영어 벌은 이 집합 전체를 충족해야 하므로 함께 수호된다.
  */
 export const ui = {
   /* 앱 전역 */
@@ -243,6 +248,10 @@ export const ui = {
 
   "foot.repo": "GitHub 저장소",
 } as const;
+
+/* 공용 화면의 열쇠가 전부 기재되었는가. 객체에 직접 부착하지 않는 사유: 그러면
+   공용 열쇠가 아닌 이 앱의 열쇠가 초과 항목으로 판정된다. */
+ui satisfies Record<SharedUiKey, string>;
 
 /** 화면 문구의 열쇠. **한국어 벌이 정본이다.** */
 export type UiKey = keyof typeof ui;

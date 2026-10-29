@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { themePreference, setTheme, type ThemePreference } from "@/composables/useTheme";
-import { t, type UiKey } from "@/i18n";
+import { themePreference, setTheme, type ThemePreference } from "../composables/useTheme";
+import { t, type SharedUiKey } from "../lib/inject";
 
-const options: { value: ThemePreference; key: UiKey }[] = [
+const options: { value: ThemePreference; key: SharedUiKey }[] = [
   { value: "light", key: "theme.light" },
   { value: "dark", key: "theme.dark" },
   { value: "system", key: "theme.system" },

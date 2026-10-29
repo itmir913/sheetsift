@@ -1,8 +1,16 @@
 @import "tailwindcss";
-@import "./tokens.css";
-@import "./grid.css";
-@import "./tooltip.css";
-@import "./print.css";
+/* 공용 화면의 CSS. 색은 tokens.css 의 기본값을 그대로 사용한다 — 피복할 것이
+   생기면 이 하단에 기재한다. */
+@import "sheetsift-ui/styles/tokens.css";
+@import "sheetsift-ui/styles/grid.css";
+@import "sheetsift-ui/styles/tooltip.css";
+@import "sheetsift-ui/styles/print.css";
+@import "sheetsift-ui/styles/seg.css";
+
+/* **공용 화면의 원본을 탐색하게 한다.** Tailwind 는 이 앱의 위치 하단만 탐색하므로,
+   이 행이 부재하면 공용 부품이 사용하는 유틸리티가 생성되지 않고 빌드는 그대로
+   통과한다. 경로는 이 파일 기준이다. */
+@source "../../../packages/sheetsift-ui/src";
 
 /* 다크 모드는 .dark 클래스 기반 (OS 설정과 수동 전환 모두 지원) */
 @custom-variant dark (&:where(.dark, .dark *));
@@ -197,37 +205,6 @@
     border-color: var(--c-accent);
     background-color: var(--c-accent-surface);
     color: var(--c-fg);
-  }
-
-  /* 분절 선택기. 테마와 언어가 동일한 형태를 사용한다 — 동급의 조작이다. */
-  .app-seg {
-    display: inline-flex;
-    flex: 0 0 auto;
-    align-items: center;
-    gap: 0.25rem;
-    border: 1px solid var(--c-chrome-border);
-    border-radius: 0.5rem;
-    background-color: var(--c-surface-sunken);
-    padding: 0.25rem;
-  }
-
-  .app-seg-btn {
-    border-radius: 0.375rem;
-    padding: 0.375rem 0.75rem;
-    font-weight: 500;
-    color: var(--c-fg-muted);
-    white-space: nowrap;
-    transition: background-color 120ms ease, color 120ms ease;
-  }
-
-  .app-seg-btn:hover {
-    background-color: var(--c-surface-hover);
-    color: var(--c-fg);
-  }
-
-  .app-seg-btn[data-on="true"] {
-    background-color: var(--c-accent);
-    color: var(--c-accent-fg);
   }
 
   /* 협소한 폭. 머리글이 2행으로 접히고 분절 선택기가 축소된다.

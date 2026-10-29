@@ -7,6 +7,9 @@
 
    실제 값은 **PrintView 가 열 수를 참조해 결정하고 피복한다.** 여기 기재된
    것은 열이 소수일 때 사용하는 기본값이다. 열이 다수인 시트는 자동 축소된다.
+
+   지면의 색은 tokens.css 의 `--c-print-*` 다. 화면의 암색 테마를 추종하지 않는다
+   — `.dark` 가 피복하지 않으므로 어느 테마에서 인쇄해도 백지에 흑색이다.
    ───────────────────────────────────────────────────────────── */
 
 :root {
@@ -36,14 +39,14 @@
 
   html,
   body {
-    background: #fff;
-    color: #000;
+    background: var(--c-print-paper);
+    color: var(--c-print-ink);
   }
 
   .pv {
     font-size: var(--pv-font);
     line-height: 1.35;
-    color: #000;
+    color: var(--c-print-ink);
   }
 
   .pv-head {
@@ -58,7 +61,7 @@
 
   .pv-desc {
     margin: 1mm 0 0;
-    color: #444;
+    color: var(--c-print-ink-muted);
   }
 
   .pv-meta {
@@ -67,7 +70,7 @@
     gap: 1mm 4mm;
     margin: 3mm 0 0;
     padding: 2mm 3mm;
-    border: 0.3mm solid #999;
+    border: 0.3mm solid var(--c-print-rule-strong);
     border-radius: 1mm;
   }
 
@@ -88,7 +91,7 @@
     display: inline-block;
     margin: 0 2mm 0 0;
     padding: 0 1mm;
-    border: 0.2mm solid #bbb;
+    border: 0.2mm solid var(--c-print-rule);
     border-radius: 0.8mm;
   }
 
@@ -127,7 +130,7 @@
 
   .pv-table th,
   .pv-table td {
-    border: 0.2mm solid #999;
+    border: 0.2mm solid var(--c-print-rule-strong);
     padding: 0.8mm 1.2mm;
     text-align: left;
     vertical-align: top;
@@ -136,7 +139,7 @@
   }
 
   .pv-table th {
-    background: #eee;
+    background: var(--c-print-head);
     font-size: var(--pv-head-font);
     font-weight: 700;
   }
@@ -151,11 +154,11 @@
   .pv-no {
     width: 8mm;
     text-align: right;
-    color: #666;
+    color: var(--c-print-ink-subtle);
   }
 
   /* 행 식별이 용이하도록 담색 줄무늬 */
   .pv-table tbody tr:nth-child(even) td {
-    background: #f4f4f4;
+    background: var(--c-print-stripe);
   }
 }

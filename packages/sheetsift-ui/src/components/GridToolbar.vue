@@ -8,10 +8,10 @@
  * 않는다.
  */
 import { ref, watch } from "vue";
-import { t, tn } from "@/i18n";
-import { grouping, setGrouping } from "@/composables/useGrouping";
-import type { HeaderSpec, Sort } from "@/lib/grid";
-import type { LaidOutColumn } from "@/composables/useColumnLayout";
+import { t, tn } from "../lib/inject";
+import { grouping, setGrouping } from "../composables/useGrouping";
+import type { HeaderSpec, Sort } from "../lib/grid";
+import type { LaidOutColumn } from "../composables/useColumnLayout";
 
 const props = withDefaults(
   defineProps<{

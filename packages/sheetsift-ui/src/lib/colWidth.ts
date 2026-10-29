@@ -19,7 +19,7 @@
  * 조절할 기회가 존재했다.
  */
 import { ref } from "vue";
-import { cellText, type ColumnKind, type Row } from "@/lib/grid";
+import { cellText, type ColumnKind, type Row } from "./grid";
 
 /** 측정값은 문자마다 1회만 산출한다. 동일한 라벨이 복수의 화면에 출현한다. */
 const cache = new Map<string, number>();
@@ -141,7 +141,7 @@ export function headerWidthRem(label: string): number {
 /** 문자가 광폭인가. 실측할 값을 선별하는 데만 사용한다. */
 function weigh(s: string): number {
   let w = 0;
-  for (const ch of s) w += ch.codePointAt(0)! > 0x1100 ? 2 : 1;
+  for (const ch of s) w += (ch.codePointAt(0) ?? 0) > 0x1100 ? 2 : 1;
   return w;
 }
 

@@ -16,20 +16,14 @@
  * 것이라 판 내부에 잔류하지 않는다.
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import AppTooltip from "@/components/AppTooltip.vue";
-import ThemeToggle from "@/components/ThemeToggle.vue";
+import AppTooltip from "sheetsift-ui/components/AppTooltip.vue";
+import ThemeToggle from "sheetsift-ui/components/ThemeToggle.vue";
 import FilePick from "@/components/FilePick.vue";
-import DataGrid from "@/components/DataGrid.vue";
-import {
-  listScreens,
-  openBook,
-  openBookAt,
-  type HeaderSpec,
-  type ScreenCatalog,
-  type ScreenDef,
-} from "@/lib/grid";
+import DataGrid from "sheetsift-ui/components/DataGrid.vue";
+import { listScreens, openBook, openBookAt } from "@/lib/workbook";
+import type { HeaderSpec, ScreenCatalog, ScreenDef } from "sheetsift-ui/lib/grid";
 import { start } from "sheetsift-book";
-import { useFault } from "@/composables/useFault";
+import { useFault } from "sheetsift-ui/composables/useFault";
 import LocaleToggle from "@/components/LocaleToggle.vue";
 import StartScreen from "@/components/StartScreen.vue";
 import { APP_NAME, storageKey } from "@/lib/app";

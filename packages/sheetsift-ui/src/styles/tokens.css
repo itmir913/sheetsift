@@ -1,9 +1,11 @@
 /* ─────────────────────────────────────────────────────────────
    색상 상수 (Design Tokens)
 
-   이 파일이 앱 전체 색상의 유일한 출처다.
+   이 파일이 공용 화면 색상의 유일한 출처다. 여기 기재하는 것은 토큰의 명칭과
+   **기본값**이고, 제품은 자체 CSS 에서 동일한 명칭을 피복한다.
    컴포넌트에서는 절대 색상값(#fff, rgb(...))을 사용하지 말고
-   Tailwind 유틸리티(bg-surface, text-fg-muted 등)만 사용한다.
+   Tailwind 유틸리티(bg-surface, text-fg-muted 등)만 사용한다 — 공용 패키지의
+   그 규칙은 `crates/shell/tests/shared_ui.rs` 가 확인한다.
 
    다크 모드는 <html class="dark"> 로 전환한다.
    ───────────────────────────────────────────────────────────── */
@@ -74,6 +76,17 @@
 
   /* 부유 요소(팝오버·드롭다운)의 음영 */
   --c-shadow-pop: 0 12px 32px rgb(15 20 30 / 0.18);
+
+  /* 지면(print.css). **`.dark` 에서 피복하지 않는다** — 암색 화면에서 인쇄해도
+     지면은 백지에 흑색이어야 한다. */
+  --c-print-paper: #fff;
+  --c-print-ink: #000;
+  --c-print-ink-muted: #444;
+  --c-print-ink-subtle: #666;
+  --c-print-rule-strong: #999;
+  --c-print-rule: #bbb;
+  --c-print-head: #eee;
+  --c-print-stripe: #f4f4f4;
 }
 
 .dark {

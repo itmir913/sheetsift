@@ -1,9 +1,9 @@
 import { computed, ref, watch, type Ref } from "vue";
-import { storageKey } from "@/lib/app";
-import { autoWidthRem, fontEpoch, headerWidthRem } from "@/lib/colWidth";
-import { own } from "@/lib/grid";
-import { t } from "@/i18n";
-import type { ColumnDef, Row, ScreenDef } from "@/lib/grid";
+import { storageKey } from "../lib/inject";
+import { autoWidthRem, fontEpoch, headerWidthRem } from "../lib/colWidth";
+import { own } from "../lib/grid";
+import { t } from "../lib/inject";
+import type { ColumnDef, Row, ScreenDef } from "../lib/grid";
 
 /** 화면에 실제로 묘사되는 열. `srcIndex` 는 바탕이 전송한 행 배열에서의 원위치다. */
 export interface LaidOutColumn extends ColumnDef {
