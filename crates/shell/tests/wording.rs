@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 const BANNED: &[(&str, &str)] = &[("머리글", "헤더")];
 
 /// 판독하는 위치. 저장소 뿌리 기준이다.
-const ROOTS: &[&str] = &["CLAUDE.md", "README.md", "docs", "crates", "web/src", ".github"];
+const ROOTS: &[&str] = &["CLAUDE.md", "README.md", "docs", "crates", "web/src", "packages", ".github"];
 
 /// 판독하는 확장자. 그 외(바이너리·고정값 양식)는 대상이 아니다.
 const EXTS: &[&str] = &["rs", "ts", "vue", "md", "yml", "json"];
