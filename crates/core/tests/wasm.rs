@@ -226,25 +226,25 @@ fn a_signed_container_opens_in_the_browser() {
     let signing = seal::SigningKey::from_bytes(&[7u8; 32]);
     let verify = vec![signing.verifying_key().to_bytes()];
 
-    let sealed = seal::seal(IMAGE, MAGIC, "260801", [0, 5, 3], &KEY, &signing)
+    let sealed = seal::seal(IMAGE, MAGIC, 8, "26080101", [0, 5, 3], &KEY, &signing)
         .expect("봉인하지 못했습니다");
 
-    let verified = seal::parse(&sealed, MAGIC, &verify).expect("서명을 확인하지 못했습니다");
+    let verified = seal::parse(&sealed, MAGIC, 8, &verify).expect("서명을 확인하지 못했습니다");
     let opened = seal::open(&verified, &KEY).expect("개방하지 못했습니다");
     assert_eq!(opened, IMAGE, "알맹이가 상이합니다");
 
     // **위조 교체를 차단하는가.** 타 열쇠로 서명한 것은 개방되지 않는다.
     let other = seal::SigningKey::from_bytes(&[9u8; 32]);
-    let forged = seal::seal(b"forged", MAGIC, "260801", [0, 5, 3], &KEY, &other)
+    let forged = seal::seal(b"forged", MAGIC, 8, "26080101", [0, 5, 3], &KEY, &other)
         .expect("봉인하지 못했습니다");
-    assert!(seal::parse(&forged, MAGIC, &verify).is_err(), "타 열쇠의 서명이 통과했습니다");
+    assert!(seal::parse(&forged, MAGIC, 8, &verify).is_err(), "타 열쇠의 서명이 통과했습니다");
 
     // **훼손을 차단하는가.** 한 바이트만 변경해도 개방되지 않는다.
     let mut torn = sealed.clone();
     let at = sealed.len() / 2;
     torn[at] ^= 0xFF;
     assert!(
-        seal::parse(&torn, MAGIC, &verify).is_err(),
+        seal::parse(&torn, MAGIC, 8, &verify).is_err(),
         "훼손한 바이트가 통과했습니다"
     );
 }

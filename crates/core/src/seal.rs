@@ -14,7 +14,9 @@
 //! 소재하므로 누구나 검증한다), 봉인은 위조를 차단하지 못한다(대칭키를 취득한
 //! 자는 태그까지 정합해 재봉인한다).
 //!
-//! **열쇠는 여기 부재한다.** 대칭키·공개키·매직을 부르는 곳이 주입한다. 이
+//! **열쇠는 여기 부재한다.** 대칭키·공개키·매직을 부르는 곳이 주입한다. 알맹이 판의 길이도
+//! 부르는 곳이 결정한다 — 판을 어떤 형식(날짜 따위)으로 기재할지는 앱의 계약이고, 이 크레이트는
+//! "그 길이의 ASCII 숫자" 만 확인한다. 이
 //! 크레이트는 공개되어 있어, 여기 기재한 대칭키는 누구나 인지하는 열쇠가 된다.
 //! 그러면 봉인 겹이 아무것도 은닉하지 못한다.
 //!
@@ -24,11 +26,19 @@
 //! offset  size  내용
 //!      0     8  매직 — 부르는 곳이 결정한다
 //!      8     1  container_version — 해제 방법이 변경되면 상승한다
-//!      9     6  data_version (yymmdd, ASCII)
-//!     15     3  min_app — 이 알맹이를 개방 가능한 최저 앱 판
-//!     18    12  AES-GCM 논스 — 그릇마다 신규 생성한다
-//!     30     …  AES-256-GCM(알맹이) + 인증 태그 16 B
+//!      9     V  data_version — ASCII 숫자. 길이 V 는 부르는 곳이 결정한다
+//!    9+V     3  min_app — 이 알맹이를 개방 가능한 최저 앱 판
+//!   12+V    12  AES-GCM 논스 — 그릇마다 신규 생성한다
+//!   24+V     …  AES-256-GCM(알맹이) + 인증 태그 16 B
 //!      …    64  Ed25519 서명 — 전단의 **전부**를 포괄한다
+//! ```
+//!
+//! 그릇 판 1 은 V 가 6 으로 고정되어 있었다. 판 2 부터 V 를 부르는 곳이 주입한다 — 머리 배치가
+//! 변경되었으므로 그릇 판을 상승시켰다. 판 1 의 그릇은 서명 확인 뒤 "미지의 그릇" 으로 중단한다.
+//! 동일한 그릇을 봉인하고 개방하는 곳은 동일한 V 를 주입해야 한다 — 상이하면 서명은 통과해도
+//! 판 항목이 숫자가 아니거나(형식 오류) AAD 가 불일치해(개방 오류) 중단한다.
+//!
+//! ```text
 //! ```
 //!
 //! **판과 `min_app` 은 평문이다.** 복수의 그릇 중 어느 것을 개방할지 결정하려면
@@ -71,15 +81,16 @@ use crate::{Error, ErrorCode, Result};
 /// **그릇의 판.** 머리 구조나 암호 방식이 변경되면 상승한다. 알맹이의 스키마와
 /// 상이한 것이다 — 그쪽은 표가 변경되는 것이고, 이쪽은 해제 방법이 변경되는
 /// 것이다.
-pub const CONTAINER_VERSION: u8 = 1;
+pub const CONTAINER_VERSION: u8 = 2;
 
 /// 매직의 길이. 머리 배치가 이 값에 결속되어 있다.
 pub const MAGIC_LEN: usize = 8;
-const DATA_VERSION_LEN: usize = 6;
 pub const NONCE_LEN: usize = 12;
 const SIGNATURE_LEN: usize = 64;
-/// 매직부터 논스 종단까지. AAD 로 전체를 결속하는 범위다.
-const HEAD_LEN: usize = MAGIC_LEN + 1 + DATA_VERSION_LEN + 3 + NONCE_LEN;
+/// 매직부터 논스 종단까지. AAD 로 전체를 결속하는 범위다. 알맹이 판의 길이에 따라 변동한다.
+const fn head_len(version_len: usize) -> usize {
+    MAGIC_LEN + 1 + version_len + 3 + NONCE_LEN
+}
 /// GCM 태그. 알맹이가 공백이어도 이만큼은 존재한다.
 const TAG_LEN: usize = 16;
 
@@ -92,7 +103,7 @@ pub fn starts_with_magic(bytes: &[u8], magic: &[u8; MAGIC_LEN]) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Head {
     pub container: u8,
-    /// 알맹이의 판. `yymmdd` 6자리.
+    /// 알맹이의 판. 부르는 곳이 결정한 길이의 ASCII 숫자.
     pub data_version: String,
     /// 이 알맹이를 개방 가능한 최저 앱 판. 판독 방법은 앱이 인지한다.
     pub min_app: [u8; 3],
@@ -110,6 +121,8 @@ pub struct Head {
 pub struct Verified<'a> {
     bytes: &'a [u8],
     head: Head,
+    /// 머리 길이. 알맹이 판의 길이에 따라 변동하므로 [`parse`] 가 확정해 보관한다.
+    head_len: usize,
 }
 
 /// **바이트를 출력하지 않는다.** 대형 알맹이가 로그와 패닉 메시지로 유출된다.
@@ -146,12 +159,15 @@ impl<'a> Verified<'a> {
 ///
 /// **공개키를 복수 수령해 하나라도 일치하면 통과다.** 개발 서명본과 릴리스
 /// 서명본을 함께 신뢰해야 하는 빌드가 존재한다. 무엇을 전달할지는 앱이 결정한다.
+///
+/// `version_len` 은 알맹이 판의 길이다. 봉인한 곳과 동일한 값을 주입한다.
 pub fn parse<'a>(
     bytes: &'a [u8],
     magic: &[u8; MAGIC_LEN],
+    version_len: usize,
     verify: &[[u8; 32]],
 ) -> Result<Verified<'a>> {
-    if bytes.len() < HEAD_LEN + TAG_LEN + SIGNATURE_LEN {
+    if bytes.len() < head_len(version_len) + TAG_LEN + SIGNATURE_LEN {
         return Err(Error::new(ErrorCode::DataSealInvalid)
             .detail(format!("too short: {} bytes", bytes.len())));
     }
@@ -191,18 +207,19 @@ pub fn parse<'a>(
     }
 
     let at = MAGIC_LEN + 1;
-    let data_version = std::str::from_utf8(&bytes[at..at + DATA_VERSION_LEN])
+    let data_version = std::str::from_utf8(&bytes[at..at + version_len])
         .ok()
         .filter(|s| s.bytes().all(|b| b.is_ascii_digit()))
         .ok_or_else(|| {
-            Error::new(ErrorCode::DataSealInvalid).detail("data version is not six digits")
+            Error::new(ErrorCode::DataSealInvalid)
+                .detail(format!("data version is not {version_len} ASCII digits"))
         })?
         .to_string();
 
-    let at = at + DATA_VERSION_LEN;
+    let at = at + version_len;
     let min_app = [bytes[at], bytes[at + 1], bytes[at + 2]];
 
-    Ok(Verified { bytes, head: Head { container, data_version, min_app } })
+    Ok(Verified { bytes, head: Head { container, data_version, min_app }, head_len: head_len(version_len) })
 }
 
 /// 봉인을 해제한다. **[`Verified`] 만 수용한다** — 그 타입의 생성 경로가
@@ -212,20 +229,25 @@ pub fn parse<'a>(
 /// 거절된다. 중첩 배치하는 사유는 서명과 봉인이 상호 독립이기 때문이다.
 pub fn open(verified: &Verified<'_>, key: &[u8; 32]) -> Result<Vec<u8>> {
     let bytes = verified.bytes;
-    let head = &bytes[..HEAD_LEN];
-    let nonce: [u8; NONCE_LEN] = bytes[HEAD_LEN - NONCE_LEN..HEAD_LEN]
+    let head_len = verified.head_len;
+    let head = &bytes[..head_len];
+    let nonce: [u8; NONCE_LEN] = bytes[head_len - NONCE_LEN..head_len]
         .try_into()
         .expect("길이는 parse 가 확인했다");
-    let body = &bytes[HEAD_LEN..bytes.len() - SIGNATURE_LEN];
+    let body = &bytes[head_len..bytes.len() - SIGNATURE_LEN];
 
     sheetsift_aead::open(key, &nonce, head, body)
         .ok_or_else(|| Error::new(ErrorCode::DataSealInvalid).detail("authentication tag mismatch"))
 }
 
 /// 봉인하고 서명한다. 논스는 매회 신규 생성한다.
+///
+/// `version_len` 은 알맹이 판의 길이다. `data_version` 이 그 길이의 ASCII 숫자가 아니면 거절한다.
+#[allow(clippy::too_many_arguments)]
 pub fn seal(
     image: &[u8],
     magic: &[u8; MAGIC_LEN],
+    version_len: usize,
     data_version: &str,
     min_app: [u8; 3],
     key: &[u8; 32],
@@ -233,7 +255,7 @@ pub fn seal(
 ) -> Result<Vec<u8>> {
     let mut nonce = [0u8; NONCE_LEN];
     rand::RngCore::fill_bytes(&mut rand::rng(), &mut nonce);
-    seal_with_nonce(image, magic, data_version, min_app, nonce, key, signing)
+    seal_with_nonce(image, magic, version_len, data_version, min_app, nonce, key, signing)
 }
 
 /// 논스를 외부에서 주입한다. **고정 답안 시험만 이 경로로 호출한다** — 논스가
@@ -242,31 +264,35 @@ pub fn seal(
 ///
 /// 실제 봉인 시에는 [`seal`] 이 매회 신규 논스를 생성한다. 동일한 열쇠에 논스를
 /// 재사용하면 GCM 은 **은닉과 위조 차단이 동시에** 붕괴한다.
+#[allow(clippy::too_many_arguments)]
 pub fn seal_with_nonce(
     image: &[u8],
     magic: &[u8; MAGIC_LEN],
+    version_len: usize,
     data_version: &str,
     min_app: [u8; 3],
     nonce: [u8; NONCE_LEN],
     key: &[u8; 32],
     signing: &SigningKey,
 ) -> Result<Vec<u8>> {
-    if data_version.len() != DATA_VERSION_LEN
+    if version_len == 0
+        || data_version.len() != version_len
         || !data_version.bytes().all(|b| b.is_ascii_digit())
     {
         return Err(Error::new(ErrorCode::DataSealInvalid)
-            .detail(format!("data version must be six digits: '{data_version}'")));
+            .detail(format!("data version must be {version_len} ASCII digits: '{data_version}'")));
     }
 
-    let mut out = Vec::with_capacity(HEAD_LEN + image.len() + TAG_LEN + SIGNATURE_LEN);
+    let head_len = head_len(version_len);
+    let mut out = Vec::with_capacity(head_len + image.len() + TAG_LEN + SIGNATURE_LEN);
     out.extend_from_slice(magic);
     out.push(CONTAINER_VERSION);
     out.extend_from_slice(data_version.as_bytes());
     out.extend_from_slice(&min_app);
     out.extend_from_slice(&nonce);
-    debug_assert_eq!(out.len(), HEAD_LEN);
+    debug_assert_eq!(out.len(), head_len);
 
-    let body = sheetsift_aead::seal(key, &nonce, &out[..HEAD_LEN], image)
+    let body = sheetsift_aead::seal(key, &nonce, &out[..head_len], image)
         .ok_or_else(|| Error::new(ErrorCode::DataSealInvalid).detail("could not seal"))?;
     out.extend_from_slice(&body);
 
@@ -283,6 +309,9 @@ mod tests {
     /// 실제 열쇠도 여기 기재되는 순간 동일한 처지가 된다.
     const MAGIC: &[u8; MAGIC_LEN] = b"TESTSEAL";
     const KEY: [u8; 32] = [5u8; 32];
+    /// 시험의 알맹이 판 길이. 이 크레이트는 형식을 인지하지 않으므로 아무 길이나 무방하다.
+    const VLEN: usize = 8;
+    const VERSION: &str = "26080101";
 
     fn test_key() -> SigningKey {
         SigningKey::from_bytes(&[7u8; 32])
@@ -296,7 +325,7 @@ mod tests {
     const IMAGE: &[u8] = b"SQLite format 3\0-- pretend this is a database --";
 
     fn sealed() -> Vec<u8> {
-        seal_with_nonce(IMAGE, MAGIC, "260801", [0, 5, 3], [3u8; 12], &KEY, &test_key()).unwrap()
+        seal_with_nonce(IMAGE, MAGIC, VLEN, VERSION, [0, 5, 3], [3u8; 12], &KEY, &test_key()).unwrap()
     }
 
     /// **머리 배치·AAD 범위·서명 범위가 단일 값에 결속된다.**
@@ -311,7 +340,8 @@ mod tests {
             .map(|b| format!("{b:02x}"))
             .collect();
         assert_eq!(
-            hex, "2f64d1188a82be7db04cc6b8daa5349b",
+            // 그릇 판 2(알맹이 판 길이를 부르는 곳이 주입)로 머리 배치를 변경하며 재고정했다.
+            hex, "3bebc016c49bbc05898726f00b5b07b8",
             "봉인 방법이 변경되었습니다. 이미 배포된 앱이 신규 그릇을 개방하지 못합니다."
         );
     }
@@ -321,18 +351,18 @@ mod tests {
     fn the_header_layout_is_pinned() {
         let bytes = sealed();
         assert_eq!(&bytes[..8], MAGIC, "매직");
-        assert_eq!(bytes[8], 1, "그릇 판");
-        assert_eq!(&bytes[9..15], b"260801", "알맹이 판");
-        assert_eq!(&bytes[15..18], &[0, 5, 3], "min_app");
-        assert_eq!(&bytes[18..30], &[3u8; 12], "논스");
-        assert_eq!(bytes.len(), 30 + IMAGE.len() + 16 + 64, "전체 길이");
+        assert_eq!(bytes[8], 2, "그릇 판");
+        assert_eq!(&bytes[9..17], VERSION.as_bytes(), "알맹이 판");
+        assert_eq!(&bytes[17..20], &[0, 5, 3], "min_app");
+        assert_eq!(&bytes[20..32], &[3u8; 12], "논스");
+        assert_eq!(bytes.len(), 32 + IMAGE.len() + 16 + 64, "전체 길이");
     }
 
     #[test]
     fn what_was_sealed_comes_back() {
         let bytes = sealed();
-        let verified = parse(&bytes, MAGIC, &test_verify()).unwrap();
-        assert_eq!(verified.head().data_version, "260801");
+        let verified = parse(&bytes, MAGIC, VLEN, &test_verify()).unwrap();
+        assert_eq!(verified.head().data_version, VERSION);
         assert_eq!(verified.head().min_app, [0, 5, 3]);
         assert_eq!(open(&verified, &KEY).unwrap(), IMAGE);
     }
@@ -357,9 +387,9 @@ mod tests {
     fn a_signature_from_another_key_is_rejected() {
         let other = SigningKey::from_bytes(&[9u8; 32]);
         let bytes =
-            seal_with_nonce(IMAGE, MAGIC, "260801", [0, 5, 3], [3u8; 12], &KEY, &other).unwrap();
+            seal_with_nonce(IMAGE, MAGIC, VLEN, VERSION, [0, 5, 3], [3u8; 12], &KEY, &other).unwrap();
         assert_eq!(
-            parse(&bytes, MAGIC, &test_verify()).unwrap_err().code,
+            parse(&bytes, MAGIC, VLEN, &test_verify()).unwrap_err().code,
             ErrorCode::DataSignatureInvalid
         );
     }
@@ -368,7 +398,7 @@ mod tests {
     #[test]
     fn another_data_key_does_not_open_it() {
         let bytes = sealed();
-        let verified = parse(&bytes, MAGIC, &test_verify()).unwrap();
+        let verified = parse(&bytes, MAGIC, VLEN, &test_verify()).unwrap();
         assert_eq!(open(&verified, &[6u8; 32]).unwrap_err().code, ErrorCode::DataSealInvalid);
     }
 
@@ -376,11 +406,11 @@ mod tests {
     #[test]
     fn tampering_anywhere_is_detected() {
         let good = sealed();
-        for at in [8, 9, 15, 18, 31, good.len() - 65] {
+        for at in [8, 9, 17, 20, 33, good.len() - 65] {
             let mut bad = good.clone();
             bad[at] ^= 1;
             assert_eq!(
-                parse(&bad, MAGIC, &test_verify()).unwrap_err().code,
+                parse(&bad, MAGIC, VLEN, &test_verify()).unwrap_err().code,
                 ErrorCode::DataSignatureInvalid,
                 "{at}번째 바이트를 변경했는데 통과했습니다"
             );
@@ -390,14 +420,14 @@ mod tests {
     /// 매직이 상이한 것은 **서명 실패가 아니라** 우리 그릇이 아닌 것이다.
     #[test]
     fn something_that_is_not_ours_says_so_before_the_signature() {
-        let bytes = vec![0u8; HEAD_LEN + TAG_LEN + SIGNATURE_LEN];
+        let bytes = vec![0u8; head_len(VLEN) + TAG_LEN + SIGNATURE_LEN];
         assert_eq!(
-            parse(&bytes, MAGIC, &test_verify()).unwrap_err().code,
+            parse(&bytes, MAGIC, VLEN, &test_verify()).unwrap_err().code,
             ErrorCode::DataSealInvalid
         );
         // 타 앱의 매직을 부착한 그릇도 동일하다.
         assert_eq!(
-            parse(&sealed(), b"OTHERAPP", &test_verify()).unwrap_err().code,
+            parse(&sealed(), b"OTHERAPP", VLEN, &test_verify()).unwrap_err().code,
             ErrorCode::DataSealInvalid
         );
     }
@@ -413,7 +443,7 @@ mod tests {
         let signature = test_key().sign(&bytes[..signed_len]);
         bytes[signed_len..].copy_from_slice(&signature.to_bytes());
         assert_eq!(
-            parse(&bytes, MAGIC, &test_verify()).unwrap_err().code,
+            parse(&bytes, MAGIC, VLEN, &test_verify()).unwrap_err().code,
             ErrorCode::DataContainerUnknown
         );
     }
@@ -422,31 +452,60 @@ mod tests {
     #[test]
     fn a_rewritten_header_does_not_open_even_with_a_fresh_signature() {
         let mut bytes = sealed();
-        bytes[9] = b'9'; // 알맹이 판을 260801 → 960801 로
+        bytes[9] = b'9'; // 알맹이 판의 첫 숫자를 변경한다
         let signed_len = bytes.len() - SIGNATURE_LEN;
         let signature = test_key().sign(&bytes[..signed_len]);
         bytes[signed_len..].copy_from_slice(&signature.to_bytes());
         let verified =
-            parse(&bytes, MAGIC, &test_verify()).expect("서명은 정합했으므로 여기는 통과한다");
+            parse(&bytes, MAGIC, VLEN, &test_verify()).expect("서명은 정합했으므로 여기는 통과한다");
         assert_eq!(open(&verified, &KEY).unwrap_err().code, ErrorCode::DataSealInvalid);
     }
 
     /// 논스가 매회 상이해야 한다. 재사용하면 GCM 이 붕괴한다.
     #[test]
     fn every_sealing_uses_a_fresh_nonce() {
-        let a = seal(IMAGE, MAGIC, "260801", [0, 5, 3], &KEY, &test_key()).unwrap();
-        let b = seal(IMAGE, MAGIC, "260801", [0, 5, 3], &KEY, &test_key()).unwrap();
-        assert_ne!(a[18..30], b[18..30], "논스가 동일합니다");
+        let a = seal(IMAGE, MAGIC, VLEN, VERSION, [0, 5, 3], &KEY, &test_key()).unwrap();
+        let b = seal(IMAGE, MAGIC, VLEN, VERSION, [0, 5, 3], &KEY, &test_key()).unwrap();
+        assert_ne!(a[20..32], b[20..32], "논스가 동일합니다");
         assert_ne!(a, b);
     }
 
     #[test]
-    fn a_data_version_that_is_not_six_digits_is_refused() {
-        for bad in ["26081", "2608011", "26080a", ""] {
+    fn a_data_version_of_another_length_or_not_digits_is_refused() {
+        for bad in ["2608010", "260801011", "2608010a", ""] {
             assert!(
-                seal(IMAGE, MAGIC, bad, [0, 5, 3], &KEY, &test_key()).is_err(),
+                seal(IMAGE, MAGIC, VLEN, bad, [0, 5, 3], &KEY, &test_key()).is_err(),
                 "'{bad}' 를 수용했습니다"
             );
         }
+        assert!(seal(IMAGE, MAGIC, 0, "", [0, 5, 3], &KEY, &test_key()).is_err(), "길이 0 을 수용했습니다");
+    }
+
+    /// **판 길이를 상이하게 주입하면 개방되지 않는다.** 서명은 길이와 무관하게 통과하므로, 판 항목의
+    /// 형식 검사나 AAD 가 중단시켜야 한다.
+    #[test]
+    fn reading_with_another_version_length_does_not_open() {
+        let bytes = sealed();
+        for other in [VLEN - 1, VLEN + 1] {
+            let stopped = match parse(&bytes, MAGIC, other, &test_verify()) {
+                Err(e) => e.code == ErrorCode::DataSealInvalid,
+                Ok(v) => open(&v, &KEY).is_err(),
+            };
+            assert!(stopped, "판 길이 {other} 로 판독했는데 개방되었습니다");
+        }
+    }
+
+    /// 판 1(판 길이 6 고정)의 그릇은 서명 확인 뒤 미지의 그릇으로 중단한다.
+    #[test]
+    fn a_container_of_the_previous_layout_is_rejected() {
+        let mut bytes = sealed();
+        bytes[8] = 1;
+        let signed_len = bytes.len() - SIGNATURE_LEN;
+        let signature = test_key().sign(&bytes[..signed_len]);
+        bytes[signed_len..].copy_from_slice(&signature.to_bytes());
+        assert_eq!(
+            parse(&bytes, MAGIC, VLEN, &test_verify()).unwrap_err().code,
+            ErrorCode::DataContainerUnknown
+        );
     }
 }
