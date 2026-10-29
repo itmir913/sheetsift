@@ -13,6 +13,13 @@ Rendering a table is done by `GridTable` and `GridToolbar`, those two only.
 Building a table per screen makes them diverge — column search present on one,
 absent on another. That is what actually happened in goe-navi.
 
+Those parts — the table, the toolbar, the value picker, print, the tooltip, the
+theme toggle and their CSS — live in the workspace package
+`packages/sheetsift-ui`, which goe-navi takes as well. `web/` keeps only what is
+this app's own (the start screen, the file picker, the language toggle, the
+dictionaries, the boundary) and hands the package its words, its data door and
+its storage prefix. See `docs/shared-ui.md`.
+
 **This is a record, not a rule.** What is and is not possible is stated by the
 tests, not by this document.
 
@@ -143,7 +150,7 @@ excluding Gwangju, Busan, Seoul and Incheon, which nobody touched.
 1,200 rows become 198 rows instead of 1,012. And the table renders fine, the
 number looks plausible, and the console is silent. **Nothing in the system knows
 that the person never excluded those four.** It now keeps a separate unnarrowed
-list and fills from that (the exclusion-list switch in `ColumnFilter.vue`).
+list and fills from that (the exclusion-list switch in `packages/sheetsift-ui/src/components/ColumnFilter.vue`).
 
 This one, too, would not have been known without running it. The type check
 passes, the source-reading checks pass, the core's tests pass — the core only

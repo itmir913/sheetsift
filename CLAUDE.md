@@ -27,6 +27,15 @@
 명칭(`DATA_SEAL_INVALID`)은 앱의 문구 사전과 맞물리는 열쇠라, 명칭을 변경하면
 앱이 추종해야 한다.
 
+## 공용 화면은 제품의 것을 보유하지 않는다
+
+`packages/sheetsift-ui` 는 이 앱과 goe-navi 가 동일하게 사용하는 화면이다. 문구는
+열쇠만 사용하고(`SharedUiKey`, 받는 앱의 사전이 `satisfies` 로 충족한다), 색은
+`tokens.css` 의 토큰만 참조하고, 반입은 상대 경로로 기재한다(`@/` 금지). 자료의
+문·오류의 판독·저장소 접두사는 받는 앱이 `installSharedUi` 로 주입한다.
+`crates/shell/tests/shared_ui.rs` 가 문자로 확인하고, 경위와 판정표는
+`docs/shared-ui.md` 에 존재한다.
+
 ## tauri 와 파일 시스템을 인지하지 않는다
 
 `core` 는 바이트를 수령하고 바이트를 반환한다. 파일에 기록하는 작업은 앱이
@@ -102,7 +111,7 @@ npm run ci
 | `ci:wasm` | wasm 타깃의 시험 둘과 껍질 clippy |
 | `ci:tauri` | 워크스페이스 외부인 tauri 앱의 시험과 clippy |
 | `ci:webview` | 워크스페이스 외부인 webview 단축키 차단 상자의 시험과 clippy |
-| `ci:web` | 화면의 타입 검사(`vue-tsc`) |
+| `ci:web` | 화면과 공용 화면 패키지(`packages/sheetsift-ui`)의 타입 검사(`vue-tsc`) |
 
 **조각을 증가시켜도 입력하는 명령은 동일하다.** 한동안 관문이라 호칭하는 행이
 다섯이었고, 그중 둘은 어디에서도 준수되지 않아 삭제해도 아무 일이 없었다. 암기
