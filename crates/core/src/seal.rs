@@ -167,6 +167,10 @@ pub fn parse<'a>(
     version_len: usize,
     verify: &[[u8; 32]],
 ) -> Result<Verified<'a>> {
+    // 길이 0 은 판이 부재한 그릇이다. 봉인하는 곳도 거절하므로 여기서도 수용하지 않는다.
+    if version_len == 0 {
+        return Err(Error::new(ErrorCode::DataSealInvalid).detail("data version length must not be zero"));
+    }
     if bytes.len() < head_len(version_len) + TAG_LEN + SIGNATURE_LEN {
         return Err(Error::new(ErrorCode::DataSealInvalid)
             .detail(format!("too short: {} bytes", bytes.len())));
@@ -493,6 +497,15 @@ mod tests {
             };
             assert!(stopped, "판 길이 {other} 로 판독했는데 개방되었습니다");
         }
+    }
+
+    /// 판 길이 0 으로는 판독하지 않는다.
+    #[test]
+    fn reading_with_a_zero_version_length_is_refused() {
+        assert_eq!(
+            parse(&sealed(), MAGIC, 0, &test_verify()).unwrap_err().code,
+            ErrorCode::DataSealInvalid
+        );
     }
 
     /// 판 1(판 길이 6 고정)의 그릇은 서명 확인 뒤 미지의 그릇으로 중단한다.
