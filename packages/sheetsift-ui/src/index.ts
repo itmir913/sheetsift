@@ -27,6 +27,8 @@ export type {
   GridLimits,
   GridSource,
   MessageParams,
+  PrintRequest,
+  PrintResponse,
   QueryRequest,
   SharedPluralKey,
   SharedUiErrors,

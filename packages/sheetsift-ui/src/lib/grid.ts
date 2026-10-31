@@ -314,14 +314,6 @@ export function pageSize(): number {
   return source().limits().maxPage;
 }
 
-/**
- * 1회에 인쇄 가능한 최대 행 수. A4 가로 기준 약 50면.
- *
- * **단일 위치에 배치한다.** 화면마다 개별 기재하면 동일한 인쇄 단추가 화면에
- * 따라 상이한 분량을 산출한다. 누구도 인지하지 못한 채.
- */
-export const PRINT_LIMIT = 2000;
-
 export interface PageResult {
   rows: Row[];
   /** 필터를 적용한 전체 행 수. */
@@ -354,44 +346,6 @@ export async function fetchPage(
     limit,
   });
   return { rows: res.rows, total: res.total, elapsedMs: res.elapsedMs };
-}
-
-export interface FetchAllResult {
-  rows: Row[];
-  total: number;
-  /** 상한에 포착되어 일부만 수령했는지. */
-  truncated: boolean;
-}
-
-/**
- * 현 조건의 결과를 `max` 행까지 일괄 수령한다. 인쇄처럼 화면 외부 자료까지
- * 필요한 경우에만 사용한다 — 12만 행을 전체 수령하면 안 되므로 부르는 곳이
- * 반드시 상한을 지정한다.
- */
-export async function fetchRows(
-  screenId: string,
-  header: HeaderSpec | null,
-  sorts: Sort[],
-  filters: Filter[],
-  max: number,
-): Promise<FetchAllResult> {
-  const page = pageSize();
-  const rows: Row[] = [];
-  let total = 0;
-  for (let offset = 0; offset < max; offset += page) {
-    const res = await source().queryRows({
-      screenId,
-      header,
-      sorts,
-      filters,
-      offset,
-      limit: Math.min(page, max - offset),
-    });
-    total = res.total;
-    rows.push(...res.rows);
-    if (res.rows.length === 0 || rows.length >= total) break;
-  }
-  return { rows, total, truncated: total > rows.length };
 }
 
 /**

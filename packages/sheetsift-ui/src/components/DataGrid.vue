@@ -13,9 +13,7 @@ import {
   columnValues,
   cycleSort,
   fetchPage,
-  fetchRows,
   pageSize,
-  PRINT_LIMIT,
   type Filter,
   type HeaderSpec,
   type Row,
@@ -25,7 +23,7 @@ import {
 } from "../lib/grid";
 import { useFault } from "../composables/useFault";
 import { useColumnLayout } from "../composables/useColumnLayout";
-import { formatNumber, t, tn } from "../lib/inject";
+import { formatNumber, source, t, tn } from "../lib/inject";
 
 const props = defineProps<{ screen: ScreenDef }>();
 
@@ -168,9 +166,11 @@ function resetColumns() {
 
 /* ── 인쇄 ──────────────────────────────────────────────────────
    현 화면의 정렬·필터를 그대로 지면에 출력한다. 노출된 페이지가 아니라
-   조건에 부합하는 전체(상한까지)를 출력한다. */
+   조건에 부합하는 전체를 출력한다. 몇 행을 출력할지는 받는 앱이 결정하며
+   (`GridSource.printRows`), 이 화면은 응답이 준 행을 그대로 출력한다. */
 
 const printRows = ref<Row[]>([]);
+const printTotal = ref(0);
 const printTruncated = ref(false);
 const printing = ref(false);
 
@@ -179,21 +179,24 @@ async function print() {
   printing.value = true;
   clearFault();
   try {
-    const res = await fetchRows(
-      props.screen.id,
-      props.screen.header,
-      sorts.value,
-      activeFilters.value,
-      PRINT_LIMIT,
-    );
+    const res = await source().printRows({
+      screenId: props.screen.id,
+      header: props.screen.header,
+      sorts: sorts.value,
+      filters: activeFilters.value,
+    });
+    // 인쇄할 행이 없으면(상한이 0 이거나 부합하는 행이 없다) 조용히 종료한다.
+    if (res.rows.length === 0) return;
     printRows.value = res.rows;
-    printTruncated.value = res.truncated;
+    printTotal.value = res.total;
+    printTruncated.value = res.total > res.rows.length;
     await new Promise((r) => requestAnimationFrame(() => r(null)));
     window.print();
   } catch (e) {
     captureFault(e);
   } finally {
     printRows.value = [];
+    printTotal.value = 0;
     printTruncated.value = false;
     printing.value = false;
   }
@@ -235,6 +238,7 @@ watch(sorts, reload, { deep: true });
       :columns-customized="layout.isCustomized.value"
       :has-filters="activeFilters.length > 0"
       :printing="printing"
+      :can-print="source().printEnabled()"
       :print-disabled="total === 0"
       @remove-sort="(k) => (sorts = sorts.filter((s) => s.key !== k))"
       @clear-sorts="sorts = []"
@@ -289,7 +293,7 @@ watch(sorts, reload, { deep: true });
           :description="screen.description"
           :columns="columns"
           :rows="printRows"
-          :total="total"
+          :total="printTotal"
           :truncated="printTruncated"
           :sorts="sorts"
           :filters="activeFilters"

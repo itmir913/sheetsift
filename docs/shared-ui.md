@@ -24,7 +24,7 @@ installSharedUi({
   storagePrefix: "sheetsift",          // keys become `sheetsift.theme`, `sheetsift.cols.…`
   appName: "SheetSift",                // the print header
   messages: { t, tn, formatNumber, formatDateTime },
-  source: { limits, queryRows, columnValues },
+  source: { limits, queryRows, columnValues, printRows, printEnabled },
   errors: { recognize, format },
   // shortcuts: { save: true, print: true, source: true, contextMenu: true },
 });
@@ -35,7 +35,7 @@ installSharedUi({
 | Words | The package calls `t(key)` with keys only. `SharedUiKey` lists every key it uses; the app's dictionary proves it has them all with `ui satisfies Record<SharedUiKey, string>` (`web/src/i18n/messages.ko.ts`) |
 | Colours | `styles/tokens.css` names the tokens and carries the defaults. A product overrides the same names in its own CSS. No other file in the package writes a colour value, print included (`--c-print-*`) |
 | Storage prefix | `storagePrefix`. Keys keep the shape `<prefix>.<name>`, so settings already saved under the old copy are read as before |
-| Data | `source` — the same request shapes the core takes. This app wraps its open `Book` (`web/src/lib/workbook.ts`) |
+| Data | `source` — the same request shapes the core takes. This app wraps its open `Book` (`web/src/lib/workbook.ts`). `printRows` returns the rows to print in one call and the package prints exactly what it returns; the receiving app owns any cap on that count. `printEnabled` only decides whether the print button shows |
 | Errors | `errors.recognize` pulls a code out of a thrown value (or returns `undefined` for anything else); `errors.format` turns it into words at render time, so a switch of language follows |
 | Behaviour | Options, off by default. `shortcuts` blocks the webview's own Ctrl+S / Ctrl+P / Ctrl+U and the context menu. This app does not pass it |
 

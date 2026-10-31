@@ -7,13 +7,14 @@
  */
 import { shallowRef } from "vue";
 import { Book, limits } from "sheetsift-book";
-import type { GridSource } from "sheetsift-ui";
+import type { GridSource, PrintRequest, PrintResponse } from "sheetsift-ui";
 import {
   setBlankMark,
   setCellDecimals,
   type ColumnValuesResult,
   type HeaderSpec,
   type QueryResponse,
+  type Row,
   type ScreenCatalog,
 } from "sheetsift-ui/lib/grid";
 
@@ -81,4 +82,35 @@ export const bookSource: GridSource = {
   limits,
   queryRows: (req) => book().queryRows<QueryResponse>(req),
   columnValues: (req) => book().columnValues<ColumnValuesResult>(req),
+  printRows,
+  printEnabled: () => true,
 };
+
+/**
+ * 1회에 인쇄 가능한 최대 행 수. A4 가로 기준 약 50면.
+ *
+ * 이 앱은 사용자가 자기 파일을 열람하는 곳이라 자료를 반출하는 길이라는 우려가 없다.
+ * 그래서 상한은 인쇄물이 지나치게 길어지지 않게 하는 용도뿐이다.
+ */
+const PRINT_LIMIT = 2000;
+
+/**
+ * 인쇄할 행을 `PRINT_LIMIT` 까지 페이지 단위로 모아 반환한다. 공용 화면은 이 응답을 그대로
+ * 인쇄하고, `total` 이 `rows` 보다 크면 일부만 인쇄했다고 표시한다.
+ */
+async function printRows(req: PrintRequest): Promise<PrintResponse> {
+  const page = limits().maxPage;
+  const rows: Row[] = [];
+  let total = 0;
+  for (let offset = 0; offset < PRINT_LIMIT; offset += page) {
+    const res = await book().queryRows<QueryResponse>({
+      ...req,
+      offset,
+      limit: Math.min(page, PRINT_LIMIT - offset),
+    });
+    total = res.total;
+    rows.push(...res.rows);
+    if (res.rows.length === 0 || rows.length >= total) break;
+  }
+  return { rows, total };
+}

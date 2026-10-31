@@ -11,7 +11,7 @@
  * 앱이 타 제품의 저장소 명칭이나 공백 문구로 묵시적으로 작동하고, 그것은
  * 어디에서도 오류로 발현되지 않는다.
  */
-import type { ColumnValuesResult, Filter, HeaderSpec, QueryResponse, Sort } from "./grid";
+import type { ColumnValuesResult, Filter, HeaderSpec, QueryResponse, Row, Sort } from "./grid";
 
 /* ── 문구 ──────────────────────────────────────────────────────── */
 
@@ -158,6 +158,18 @@ export interface ColumnValuesRequest {
 }
 
 /**
+ * 인쇄할 행을 요청하는 항목. [`QueryRequest`] 에서 `offset` 과 `limit` 만 제외한 것이다.
+ * **인쇄할 행의 범위는 받는 앱이 결정한다** — 화면이 쪽 번호나 상한을 지정하지 않는다.
+ */
+export type PrintRequest = Omit<QueryRequest, "offset" | "limit">;
+
+/** 인쇄할 행. `total` 은 조건에 부합하는 실제 행 수이며, `rows` 가 그보다 적으면 일부만 인쇄한 것이다. */
+export interface PrintResponse {
+  rows: Row[];
+  total: number;
+}
+
+/**
  * 표가 자료를 수령하는 문. **어디서 수령하는지 화면은 인지하지 않는다.**
  *
  * 발생시키는 오류는 [`SharedUiErrors`] 가 판독할 수 있는 것이어야 한다.
@@ -166,6 +178,13 @@ export interface GridSource {
   limits: () => GridLimits;
   queryRows: (req: QueryRequest) => Promise<QueryResponse>;
   columnValues: (req: ColumnValuesRequest) => Promise<ColumnValuesResult>;
+  /**
+   * 인쇄할 행을 1회에 수령한다. **상한은 받는 앱이 강제한다** — 이 패키지는 상한을
+   * 보유하지 않고 응답이 준 만큼만 인쇄한다. 응답의 `rows` 가 비어 있으면 인쇄하지 않는다.
+   */
+  printRows: (req: PrintRequest) => Promise<PrintResponse>;
+  /** 인쇄 단추를 노출할지. 노출 여부는 편의이며, 인쇄를 막는 것은 `printRows` 가 반환하는 행이다. */
+  printEnabled: () => boolean;
 }
 
 /* ── 오류 ──────────────────────────────────────────────────────── */
