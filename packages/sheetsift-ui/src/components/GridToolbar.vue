@@ -329,7 +329,7 @@ function labelOf(key: string): string {
 
     <!-- 하단 행: 정렬 칩. 증가하면 이 행만 수평 이동한다. -->
     <div v-if="!compact" class="gx-tools-row gx-sorts">
-      <span class="shrink-0 font-medium text-fg-muted">
+      <span class="gx-sorts-label shrink-0 font-medium text-fg-muted">
         {{ t(sorts.length ? "tools.sorts" : "tools.help") }}
       </span>
       <div class="gx-sort-list">
@@ -350,13 +350,17 @@ function labelOf(key: string): string {
         <!-- 정렬이 전무할 때만 표시된다. 정렬뿐 아니라 표를 취급하는 방법
              전체를 제시하는 위치라, 좌측 표지도 '설명' 으로 전환된다. 2문자로
              길이가 동일해 표지가 전환되어도 문구가 수평 이동하지 않는다. -->
-        <!-- 협소한 폭에서는 절단된다. 말단의 항목이 은폐되므로 전문을 설명으로
-             부착한다 — 절단된 셀과 동일한 처리다. -->
-        <span v-if="!sorts.length" class="truncate text-fg-subtle" :data-tip="t('tools.help.text')">
+        <!-- 협소한 폭에서는 여러 줄로 줄바꿈한다. 절단하지 않으므로 전문이
+             항상 노출된다. -->
+        <span v-if="!sorts.length" class="gx-sorts-help text-fg-subtle">
           {{ t("tools.help.text") }}
         </span>
       </div>
-      <slot name="status" />
+      <!-- 상태 문구(건수·소요 시간)의 자리. 글자 길이가 변해도 이 칸의 폭은
+           고정이라 좌측 설명이 줄바꿈되는 위치가 이동하지 않는다. -->
+      <span class="gx-sorts-status">
+        <slot name="status" />
+      </span>
     </div>
   </div>
 </template>
