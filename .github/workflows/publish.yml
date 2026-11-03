@@ -356,8 +356,14 @@ jobs:
   # waiting for both is waiting for the bake either way. If a day comes when the
   # screen is the slower one, that is itself a reason not to publish yet.
   #
-  # **The release is a draft.** A green bake does not say the app opens, so a
-  # person looks before it is public.
+  # **The release goes out public, not as a draft.** The screen deploys in the
+  # same run and is live at that version the moment `pages` finishes, so a draft
+  # release leaves the newest screen pointing at a `latest` that is a version
+  # behind -- until a person remembers to press publish, and that is exactly the
+  # step that gets forgotten. The two have to say the same version, so the one
+  # act publishes both. A green bake still does not say the app opens: that is
+  # checked on what is now public, and a bad one is corrected by raising the
+  # version and releasing again.
   ship:
     needs: [gate, pages, bake]
     runs-on: ubuntu-latest
@@ -446,5 +452,5 @@ jobs:
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" artifacts/* --clobber
           else
-            gh release create "$tag" --title "$tag" --notes-file notes.md --draft artifacts/*
+            gh release create "$tag" --title "$tag" --notes-file notes.md artifacts/*
           fi

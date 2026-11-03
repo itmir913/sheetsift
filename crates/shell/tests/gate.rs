@@ -925,3 +925,43 @@ fn the_check_reads_both_shapes_of_the_waiting_line() {
     assert_eq!(needs("    needs: gate\n"), ["gate"]);
     assert_eq!(needs("    needs: [gate, pages, bake]\n"), ["gate", "pages", "bake"]);
 }
+
+/// 게시하는 행. `gh release create` 가 소재하는 행 하나다.
+fn release_create(src: &str, whose: &str) -> String {
+    job(src, LAST, whose)
+        .lines()
+        .find(|l| l.contains("gh release create"))
+        .unwrap_or_else(|| {
+            panic!("{whose} 에서 게시하는 행을 탐색하지 못했습니다 — 검사가 실명한 것입니다")
+        })
+        .to_string()
+}
+
+/// **게시는 초고로 하지 않는다.**
+///
+/// 화면은 동일한 기동에서 송출되어 `pages` 가 종료하는 시점에 그 판으로 가동한다.
+/// 게시를 초고로 존치하면 `latest` 가 화면보다 한 판 후퇴한 상태가 되고, 그것을
+/// 공개로 전환하는 것은 **사람이 기억해야 하는 수순** 이라 누락된다. 누락된 동안
+/// 어디에서도 오류가 출현하지 않고, 내려받는 사람만 상이한 판을 수령한다.
+///
+/// 구워졌다는 녹색이 산출물이 개방되는지를 진술하지 않는 것은 그대로다. 그 확인은
+/// 공개된 것에서 수행하고, 불량은 판을 상승시켜 재차 반출하는 것으로 정정한다.
+#[test]
+fn the_release_goes_out_public() {
+    let line = release_create(PUBLISH, "`publish.yml`");
+    assert!(
+        !line.contains("--draft"),
+        "게시를 초고로 생성합니다 — 화면의 판과 `latest` 가 상이해집니다"
+    );
+}
+
+/// 초고로 생성하는 행을 투입한다.
+#[test]
+fn the_check_catches_a_release_left_as_a_draft() {
+    let doctored = concat!(
+        "\njobs:\n",
+        "  ship:\n    steps:\n",
+        "      - run: gh release create \"$tag\" --notes-file notes.md --draft artifacts/*\n"
+    );
+    assert!(release_create(doctored, "투입").contains("--draft"));
+}

@@ -178,8 +178,13 @@ published thing would have no name.
 
 Tags carry no `v`; they are plain versions. The gate is the same file `ci.yml`
 calls (`gate.yml`); after it, `pages` (the screen) and `bake` (the app) run side
-by side, and then `ship` attaches what came out to a **draft** release. Draft, because a green bake does not say the app
-opens — someone looks before it is public.
+by side, and then `ship` attaches what came out to a release and **publishes it
+at once**. Not a draft: the screen is live at that version as soon as `pages`
+finishes, so a release left unpublished would make `latest` a version older than
+the screen, and pressing publish by hand is the step that gets forgotten. A
+green bake does not say the app opens — that is checked on what is already
+public, and a bad one is corrected by raising the version and releasing again,
+not by deleting.
 
 **A tag that has been released is immutable.** This repository is not only an
 app: the crates in it are a dependency, pulled in over git by another repository
@@ -214,7 +219,7 @@ the crate on every push, but nothing bundles it until a tag is released, so a
 break in the bundling config — the icons, `tauri.conf.json`, a bundler argument
 — first appears in the run that publishes. That is the price of nothing going
 out by accident. After changing any of those, expect to spend a tag on finding
-out; the release is a draft, so a bad one is deleted rather than seen.
+out; the release is public, so a bad one is corrected by raising the version.
 
 ## The Mac build is unsigned
 
