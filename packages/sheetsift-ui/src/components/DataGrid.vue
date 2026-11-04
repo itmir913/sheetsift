@@ -283,7 +283,13 @@ watch(sorts, reload, { deep: true });
       @move="layout.move"
       @resize="layout.resize"
       @resize-end="layout.commit"
-    />
+    >
+      <!-- 받는 앱이 셀을 직접 묘사하는 경우만 전달한다. 슬롯이 부재하면 표의
+           기본 묘사가 그대로 사용된다. -->
+      <template v-if="$slots.cell" #cell="slotProps">
+        <slot name="cell" v-bind="slotProps" />
+      </template>
+    </GridTable>
 
     <!-- 인쇄 뷰. 화면에서는 은폐되어 있고 @media print 에서만 출현한다. -->
     <Teleport to="body">

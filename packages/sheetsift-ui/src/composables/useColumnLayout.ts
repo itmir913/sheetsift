@@ -179,7 +179,7 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
     if (settled.value) return;
     const out = new Map<string, number>();
     screen.value.columns.forEach((c, at) => {
-      out.set(c.key, clampWidth(autoWidthRem(c.label, c.kind, at, rows)));
+      out.set(c.key, clampWidth(autoWidthRem(c.label, c.kind, at, rows, c.measure)));
     });
     auto.value = out;
     settled.value = rows.length > 0;

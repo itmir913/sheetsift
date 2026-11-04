@@ -175,8 +175,14 @@ export function autoWidthRem(
   kind: ColumnKind,
   at: number,
   rows: Row[],
+  measure?: string,
 ): number {
   let widest = headerWidthRem(label);
+
+  // 셀을 직접 묘사하는 열은 값이 아니라 지정된 문자로 본문 폭을 산정한다.
+  if (measure !== undefined) {
+    return Math.min(AUTO_MAX_WIDTH, Math.max(widest, bodyWidthRem(measure, kind)));
+  }
 
   const seen = new Set<string>();
   const picked: { text: string; w: number }[] = [];
