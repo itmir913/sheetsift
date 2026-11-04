@@ -33,6 +33,9 @@ const PRIVACY = [
 ] as const;
 
 const REPO = "https://github.com/itmir913/sheetsift";
+/** 오프라인으로 구동하는 실행 파일이 게시되는 위치. **판을 기재하지 않는다** —
+    `latest` 가 최신 게시를 지시하므로 반출할 때마다 이 행을 수정할 사유가 부재하다. */
+const RELEASES = "https://github.com/itmir913/sheetsift/releases/latest";
 const KIT = "https://luminousky.com/teacher-utility-kit/";
 const MAIL = "hello@luminousky.com";
 </script>
@@ -99,6 +102,12 @@ const MAIL = "hello@luminousky.com";
         <span class="hidden text-line sm:inline" aria-hidden="true">·</span>
         <a class="app-link" :href="REPO" target="_blank" rel="noopener noreferrer">
           {{ t("foot.repo") }}
+        </a>
+        <span class="hidden text-line sm:inline" aria-hidden="true">·</span>
+        <!-- 창에서 구동하는 벌을 수령하는 위치. 브라우저로 진입한 사람만
+             판독하는 것이라 여기에만 존치한다. -->
+        <a class="app-link" :href="RELEASES" target="_blank" rel="noopener noreferrer">
+          {{ t("foot.offline") }}
         </a>
         <span class="hidden text-line sm:inline" aria-hidden="true">·</span>
         <a class="app-link" :href="`mailto:${MAIL}`">{{ MAIL }}</a>

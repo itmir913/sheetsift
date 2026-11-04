@@ -212,4 +212,5 @@ export const ui: Record<UiKey, string> = {
     "The data you opened is gone when you reload. Only screen settings — language, theme, column layout — are stored on the device.",
 
   "foot.repo": "GitHub repository",
+  "foot.offline": "Offline download",
 };
