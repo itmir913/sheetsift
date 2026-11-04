@@ -894,6 +894,29 @@ select.ss-text:disabled {
   scrollbar-gutter: stable;
 }
 
+/* 협소한 폭에서는 상태 항목이 표지·설명과 한 행을 분할하지 않는다. 상태를 상단의
+   자체 행으로 배치해, 표지와 설명이 하단 행의 폭 전체를 점유한다. 분할하면 설명이
+   세로로 신장해 표의 시작 위치가 화면 하단으로 압출된다.
+   목록의 기준 폭이 0 이어야 표지와 동일한 행에 잔류한다. 내용 폭을 기준으로 하면
+   목록이 다시 별도 행으로 이탈한다. 그 기준 폭을 재지정하므로 .gx-sort-list 이후에
+   배치한다. */
+@media (max-width: 48rem) {
+  .gx-tools-row.gx-sorts {
+    flex-wrap: wrap;
+  }
+
+  .gx-sorts-status {
+    flex: 1 0 100%;
+    order: -1;
+    min-width: 0;
+    padding-block-end: 0;
+  }
+
+  .gx-sort-list {
+    flex-basis: 0;
+  }
+}
+
 .gx-sort-chip {
   display: inline-flex;
   flex: 0 0 auto;
