@@ -39,6 +39,14 @@ export interface ColumnDef {
    * `Column D`) — 바탕이 문구를 합성하면 영어 화면에도 한국어가 출현한다.
    */
   letter?: string;
+  /**
+   * 헤더 셀에 부여할 CSS 변수(`--이름` → 값). **받는 앱이 헤더를 칠할 때** 지정한다.
+   *
+   * 값은 이 패키지가 해석하지 않고 헤더 셀의 `style` 로 전달할 뿐이다. 색의 혼합
+   * 규칙과 변수의 이름은 받는 앱의 CSS 가 결정한다 — 이 패키지는 색 값을 기재하지
+   * 않는다. 지정하지 않거나 비어 있으면 헤더 셀에 `style` 도 `data-hvars` 도 없다.
+   */
+  headerVars?: Record<string, string>;
 }
 
 /**

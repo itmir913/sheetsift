@@ -105,6 +105,12 @@ function pinIndex(i: number): number | undefined {
   return i < props.pinned ? i : undefined;
 }
 
+/** 헤더 셀에 부여할 CSS 변수. 지정하지 않았거나 비어 있으면 `undefined` 라 `style` 이 부착되지 않는다. */
+function headerVars(col: LaidOutColumn): Record<string, string> | undefined {
+  const v = col.headerVars;
+  return v && Object.keys(v).length > 0 ? v : undefined;
+}
+
 const gridVars = computed(() => {
   const vars: Record<string, string> = {
     "--dg-cols": colTemplate.value,
@@ -316,6 +322,8 @@ defineExpose({ close: () => (openFilterKey.value = null) });
             :data-sorted="!!sortOf(col.key)"
             :data-pin="pinIndex(i)"
             :data-pin-last="i === pinned - 1"
+            :data-hvars="headerVars(col) ? '' : undefined"
+            :style="headerVars(col)"
             :data-drag-src="dragging && dragFrom === i"
             :data-drop="dragging && dropAt === i"
             role="columnheader"
