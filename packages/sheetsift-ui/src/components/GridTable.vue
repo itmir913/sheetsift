@@ -111,6 +111,12 @@ function headerVars(col: LaidOutColumn): Record<string, string> | undefined {
   return v && Object.keys(v).length > 0 ? v : undefined;
 }
 
+/** 본문 셀에 부여할 CSS 변수. 지정하지 않았거나 비어 있으면 `undefined` 라 `style` 이 부착되지 않는다. */
+function cellVars(col: LaidOutColumn): Record<string, string> | undefined {
+  const v = col.cellVars;
+  return v && Object.keys(v).length > 0 ? v : undefined;
+}
+
 const gridVars = computed(() => {
   const vars: Record<string, string> = {
     "--dg-cols": colTemplate.value,
@@ -407,6 +413,8 @@ defineExpose({ close: () => (openFilterKey.value = null) });
             :data-blank="isBlank(row[col.srcIndex])"
             :data-pin="pinIndex(ci)"
             :data-pin-last="ci === pinned - 1"
+            :data-cvars="cellVars(col) ? '' : undefined"
+            :style="cellVars(col)"
             :data-tip="String(row[col.srcIndex] ?? '')"
           >
             <!-- 셀을 특수하게 묘사해야 하는 화면(가능성 배지 등)만 이 위치를 사용한다. -->

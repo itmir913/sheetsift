@@ -47,6 +47,11 @@ export interface ColumnDef {
    * 않는다. 지정하지 않거나 비어 있으면 헤더 셀에 `style` 도 `data-hvars` 도 없다.
    */
   headerVars?: Record<string, string>;
+  /**
+   * 본문 셀에 부여할 CSS 변수. `headerVars` 와 같이 전달만 하며 해석은 받는 앱의 CSS 가 한다.
+   * 지정하지 않거나 비어 있으면 본문 셀에 `style` 도 `data-cvars` 도 없다.
+   */
+  cellVars?: Record<string, string>;
 }
 
 /**
