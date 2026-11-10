@@ -49,9 +49,35 @@ let a product run on the other product's storage name.
   `@theme inline` must map the colour utilities onto the `--c-*` tokens. This
   app does both in `web/src/styles/base.css`.
 - **CSS.** Import `sheetsift-ui/styles/tokens.css`, `grid.css`, `tooltip.css`,
-  `print.css` and `seg.css`. `base.css` — the page background, fonts and the
+  `print.css`, `seg.css` and `picker.css` (the column picker modal; without it the
+  `<dialog>` renders unstyled). `base.css` — the page background, fonts and the
   app's own layout — is **not** shared; each product keeps its own.
 - **vue** is a peer dependency. Two copies break reactivity.
+
+### Choosing columns (`ColumnPicker.vue`, `applyColumns`)
+
+`GridToolbar` holds the modal, so every screen that uses the toolbar gets the
+button. The receiving app passes `allColumns` (from `useColumnLayout`) and handles
+one emit:
+
+```ts
+// GridToolbar emits: applyColumns [{ order, hidden, dropped }]
+layout.applyColumns({ order, hidden });          // remembers, per screen
+const kept = dropColumnState(dropped, { sorts, filterText, filterValues });
+```
+
+- `order` holds **every** column, hidden ones included; `columns` is `order` minus
+  `hidden`. Toggling a chip changes `hidden` only, so a column returns to its place.
+- `dropped` is the keys hidden by this apply. The app owns the sort and filter state,
+  so it must clear those columns' rules itself — `dropColumnState` (pure, in
+  `lib/grid.ts`) does it for all three consumers. A rule on a column nobody can see
+  would silently filter rows, and a leftover sort would print its raw key.
+- The last column can never be hidden. `load()` and `applyColumns()` enforce it (a
+  stored `hidden` that covers everything is cleared), not the modal.
+- `move()` takes **visible** indexes (what `GridTable` emits) and converts them to
+  `order` positions; the modal never calls it, it edits its own draft with `reorder`.
+- The dictionary needs the `picker.*` keys and `tools.columns`; `picker.count` is a
+  plural keyed by the number of shown columns, with `total` as a parameter.
 
 ## How the package is taken
 

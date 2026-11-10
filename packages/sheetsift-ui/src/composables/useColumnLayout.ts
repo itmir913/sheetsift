@@ -1,7 +1,7 @@
 import { computed, ref, watch, type Ref } from "vue";
 import { storageKey } from "../lib/inject";
 import { autoWidthRem, fontEpoch, headerWidthRem } from "../lib/colWidth";
-import { own } from "../lib/grid";
+import { own, reorder } from "../lib/grid";
 import { t } from "../lib/inject";
 import type { ColumnDef, Row, ScreenDef } from "../lib/grid";
 
@@ -21,8 +21,40 @@ export interface LaidOutColumn extends ColumnDef {
   flex?: number;
 }
 
+/** 모달 초안의 열 하나. `hidden` 이 참이면 표에서 제외된 열이다. */
+export interface PickableColumn {
+  key: string;
+  label: string;
+  hidden: boolean;
+  /** 원 정의에서의 위치. 모달의 오른쪽 칩이 자료의 열 순서로 늘어서는 데 쓴다. */
+  at: number;
+}
+
+/**
+ * 순서·숨김을 현 열 정의와 대조해 정리한다. **마지막 한 열은 제외할 수 없다** —
+ * 숨김이 전부를 덮으면 표도 되돌릴 단추도 사라지므로, 멈추지 않고 숨김을 비운다.
+ * 손상된·손으로 고친·다른 판이 기록한 저장분도 여기를 경유한다.
+ */
+export function normalizeLayout(
+  defaults: string[],
+  order0: unknown,
+  hidden0: unknown,
+): { order: string[]; hidden: string[] } {
+  const known = new Set(defaults);
+  const kept = (Array.isArray(order0) ? order0 : []).filter(
+    (k, i, a): k is string => known.has(k) && a.indexOf(k) === i,
+  );
+  const order = [...kept, ...defaults.filter((k) => !kept.includes(k))];
+  const hidden = (Array.isArray(hidden0) ? hidden0 : []).filter(
+    (k, i, a): k is string => known.has(k) && a.indexOf(k) === i,
+  );
+  return { order, hidden: hidden.length >= order.length ? [] : hidden };
+}
+
 interface StoredLayout {
   order?: string[];
+  /* 구 버전 앱이 새 저장분을 읽으면 이 항목을 무시해 전부 보인다. 해롭지 않다. */
+  hidden?: string[];
   widths?: Record<string, number>;
   pinned?: number;
 }
@@ -70,7 +102,9 @@ function clampWidth(rem: number): number {
  * 고장으로 인식된다.
  */
 export function useColumnLayout(screen: Ref<ScreenDef>) {
+  /** 숨긴 열까지 **전부** 담는다(순서를 잃지 않는다). */
   const order = ref<string[]>([]);
+  const hidden = ref<string[]>([]);
   const widths = ref<Record<string, number>>({});
   const pinned = ref(DEFAULT_PIN);
 
@@ -108,10 +142,9 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
 
     // 저장된 순서 중 현재도 존재하는 열만 존치하고, 신규 발생한 열은 후단에 부착한다.
     const known = new Set(defaults);
-    const order0 = Array.isArray(stored.order) ? stored.order : [];
-    const kept = order0.filter((k) => known.has(k));
-    const missing = defaults.filter((k) => !kept.includes(k));
-    order.value = [...kept, ...missing];
+    const norm = normalizeLayout(defaults, stored.order, stored.hidden);
+    order.value = norm.order;
+    hidden.value = norm.hidden;
 
     const w: Record<string, number> = {};
     const widths0 =
@@ -128,7 +161,7 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
     // 열이 감소한 양식에서는 저장된 수가 현 열 수를 초과할 수 있다.
     const p = stored.pinned;
     // 고정 가능한 수는 열 수에도 구속된다. 전 열을 고정하면 이동할 대상이 부재하다.
-    const limit = Math.min(MAX_PIN, Math.max(0, order.value.length - 1));
+    const limit = Math.min(MAX_PIN, Math.max(0, order.value.length - hidden.value.length - 1));
     pinned.value =
       Number.isInteger(p) && p! >= 0 ? Math.min(p!, limit) : Math.min(DEFAULT_PIN, limit);
   }
@@ -137,6 +170,7 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
     try {
       const payload: StoredLayout = {
         order: order.value,
+        hidden: hidden.value,
         widths: widths.value,
         pinned: pinned.value,
       };
@@ -197,7 +231,9 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
 
   const columns = computed<LaidOutColumn[]>(() => {
     const byKey = new Map(screen.value.columns.map((c) => [c.key, c]));
+    const off = new Set(hidden.value);
     return order.value.flatMap((key) => {
+      if (off.has(key)) return [];
       const col = byKey.get(key);
       if (!col) return [];
       return [
@@ -214,6 +250,24 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
     });
   });
 
+  /** 숨긴 열까지 담은 전체 목록(`order` 순). 열 선택 모달이 초안의 바탕으로 쓴다. */
+  const allColumns = computed<PickableColumn[]>(() => {
+    const byKey = new Map(screen.value.columns.map((c) => [c.key, c]));
+    const off = new Set(hidden.value);
+    return order.value.flatMap((key) => {
+      const col = byKey.get(key);
+      if (!col) return [];
+      return [
+        {
+          key,
+          label: col.letter ? t("column.letter", { letter: col.letter }) : col.label,
+          hidden: off.has(key),
+          at: srcIndexOf.value.get(key) ?? 0,
+        },
+      ];
+    });
+  });
+
   /**
    * 고정 가능한 열 수. 전부 고정하면 이동할 대상이 부재하므로 하나는 존치한다.
    */
@@ -224,14 +278,34 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
     save();
   }
 
-  /** `from` 위치의 열을 `to` 위치로 이전한다. */
+  /**
+   * 표에서 끌어 옮긴 열을 이전한다. **`from`·`to` 는 보이는 열의 위치다**(표가
+   * 보내는 것) — `order` 의 위치가 아니다. 숨긴 열이 끼면 둘이 어긋나므로
+   * 열쇠로 환산해 `order` 안에서 옮기고, 숨긴 열은 제자리에 남긴다.
+   * 순서 규칙은 모달 초안과 공유하는 `reorder` 다.
+   */
   function move(from: number, to: number) {
-    if (from === to || from < 0 || to < 0) return;
-    const next = [...order.value];
-    const [k] = next.splice(from, 1);
-    if (k === undefined) return;
-    next.splice(to, 0, k);
-    order.value = next;
+    const shown = columns.value;
+    const a = shown[from]?.key;
+    const b = shown[to]?.key;
+    if (a === undefined || b === undefined || a === b) return;
+    order.value = reorder(order.value, order.value.indexOf(a), order.value.indexOf(b));
+    save();
+  }
+
+  /**
+   * 열 선택 모달의 결과를 적용한다. 순서·숨김을 현 정의와 대조해 정리하고
+   * (`normalizeLayout` — 전부 숨기려 들면 숨김을 비운다), 저장한다.
+   *
+   * `pinned` 는 열쇠가 아니라 **앞에서 몇 개**다. 첫 열을 숨기면 고정은 다음 열로
+   * 옮겨간다 — 막지 않는다(사람이 그 열을 치웠으면 다음 열이 그 자리다). 다만
+   * 보이는 열 수에 구속되는 상한에는 맞춰 깎는다.
+   */
+  function applyColumns(next: { order: string[]; hidden: string[] }) {
+    const norm = normalizeLayout(defaultOrder(), next.order, next.hidden);
+    order.value = norm.order;
+    hidden.value = norm.hidden;
+    pinned.value = Math.max(0, Math.min(pinned.value, pinLimit.value));
     save();
   }
 
@@ -249,6 +323,7 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
 
   function reset() {
     order.value = defaultOrder();
+    hidden.value = [];
     widths.value = {};
     pinned.value = DEFAULT_PIN;
     try {
@@ -263,6 +338,7 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
     return (
       Object.keys(widths.value).length > 0 ||
       pinned.value !== DEFAULT_PIN ||
+      hidden.value.length > 0 ||
       order.value.length !== d.length ||
       order.value.some((k, i) => k !== d[i])
     );
@@ -272,7 +348,10 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
 
   return {
     columns,
+    allColumns,
     order,
+    hidden,
+    applyColumns,
     widths,
     pinned,
     pinLimit,

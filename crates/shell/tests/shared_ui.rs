@@ -219,7 +219,7 @@ fn exports(pkg: &serde_json::Value) -> Vec<(String, String)> {
 #[test]
 fn the_sources_are_there_to_look_at() {
     let files = sources();
-    for must in ["DataGrid.vue", "grid.ts", "inject.ts", TOKENS, "grid.css"] {
+    for must in ["DataGrid.vue", "ColumnPicker.vue", "grid.ts", "inject.ts", TOKENS, "grid.css", "picker.css"] {
         assert!(
             files.iter().any(|(n, _)| n == must),
             "`{SRC}` 에서 `{must}` 를 탐색하지 못했습니다 — 검사가 실명한 것입니다"

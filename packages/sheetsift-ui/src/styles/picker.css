@@ -1,0 +1,215 @@
+/* 열 선택 모달(ColumnPicker.vue). 접두사는 `cp-*` — `dg-*` 는 표와 값 선택의 것이다.
+   색은 tokens.css 의 토큰만 참조한다. */
+
+/* **`container-type` 을 `<dialog>` 자신에 주지 않는다.** `<dialog>` 의 기본 폭은
+   `fit-content` 라 inline 축을 억제하면 찌그러지고, `@container` 질의는 컨테이너
+   자신에게는 걸리지 않는다. 그래서 명시 폭을 주고, 컨테이너는 자손(.cp-body)이다. */
+.cp-dialog {
+  width: min(60rem, 92vw);
+  max-height: 90vh;
+  padding: 0;
+  margin: auto;
+  border: 1px solid var(--c-chrome-border);
+  border-radius: 0.75rem;
+  background: var(--c-surface);
+  color: var(--c-fg);
+  box-shadow: var(--c-shadow-pop);
+}
+
+.cp-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.cp-dialog::backdrop {
+  background: var(--c-overlay);
+}
+
+.cp-head {
+  padding: 0.875rem 1.125rem;
+  border-bottom: 1px solid var(--c-border);
+  flex-shrink: 0;
+}
+
+.cp-title {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.cp-body {
+  container-type: inline-size;
+  padding: 1rem 1.125rem;
+  overflow-y: auto;
+}
+
+/* 두 칸 ↔ 한 칸. 창이 아니라 **모달 자신의 폭**이 기준이다. */
+.cp-two {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.375rem;
+  --pane-h: 240px;
+}
+
+@container (min-width: 720px) {
+  .cp-two {
+    grid-template-columns: 1fr 1fr;
+    --pane-h: 46vh;
+  }
+}
+
+.cp-sub-title {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.cp-sub {
+  margin: 0.125rem 0 0;
+  color: var(--c-fg-muted);
+  font-size: 0.8125rem;
+}
+
+/* **두 칸의 높이를 고정한다.** 칩을 눌러 왼쪽 행이 늘고 줄 때 칸 높이가 따라
+   변하면, 쌓인 꼴에서 아래의 칩이 커서 밑에서 이동해 엉뚱한 열이 눌린다.
+   각자 안에서만 스크롤한다. 빈 목록 문구도 이 안에 둔다. */
+.cp-list {
+  height: var(--pane-h);
+  margin-top: 0.625rem;
+  padding-right: 0.25rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.cp-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  min-height: 2.5rem;
+  padding: 0 0.375rem 0 0.625rem;
+  border: 1px solid var(--c-border);
+  border-radius: 0.5rem;
+  background: var(--c-surface);
+}
+
+.cp-item[data-drag="true"] {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -1px;
+}
+
+.cp-item[data-over="true"] {
+  border-color: var(--c-accent);
+  background: var(--c-accent-surface);
+}
+
+.cp-grip {
+  color: var(--c-fg-subtle);
+  cursor: grab;
+  user-select: none;
+}
+
+.cp-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cp-icon {
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.375rem;
+  color: var(--c-fg-muted);
+}
+
+.cp-icon:hover:not(:disabled) {
+  background: var(--c-surface-hover);
+  color: var(--c-fg);
+}
+
+.cp-icon:disabled {
+  opacity: 0.4;
+}
+
+.cp-empty {
+  padding: 1rem;
+  border: 1px dashed var(--c-border-strong);
+  border-radius: 0.5rem;
+  color: var(--c-fg-subtle);
+  text-align: center;
+}
+
+.cp-chips {
+  height: var(--pane-h);
+  margin-top: 0.625rem;
+  overflow-y: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 0.375rem;
+}
+
+.cp-chip {
+  padding: 0.25rem 0.75rem;
+  border: 1px solid var(--c-chrome-border);
+  border-radius: 999px;
+  background: var(--c-surface);
+  color: var(--c-fg);
+  white-space: nowrap;
+}
+
+.cp-chip:hover {
+  background: var(--c-surface-hover);
+}
+
+.cp-chip[aria-pressed="true"] {
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+  color: var(--c-accent-fg);
+}
+
+.cp-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.625rem;
+  padding: 0.75rem 1.125rem;
+  border-top: 1px solid var(--c-border);
+  flex-shrink: 0;
+}
+
+.cp-count {
+  color: var(--c-fg-muted);
+}
+
+.cp-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.cp-btn {
+  padding: 0.375rem 0.75rem;
+  border: 1px solid var(--c-chrome-border);
+  border-radius: 0.375rem;
+  background: var(--c-surface);
+  color: var(--c-fg);
+}
+
+.cp-btn:hover {
+  background: var(--c-surface-hover);
+}
+
+.cp-btn-primary {
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+  color: var(--c-accent-fg);
+}
+
+.cp-btn-primary:hover {
+  background: var(--c-accent-hover);
+}

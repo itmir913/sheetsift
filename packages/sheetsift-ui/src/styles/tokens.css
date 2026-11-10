@@ -77,6 +77,9 @@
   /* 부유 요소(팝오버·드롭다운)의 음영 */
   --c-shadow-pop: 0 12px 32px rgb(15 20 30 / 0.18);
 
+  /* 모달 뒤의 덮개(`::backdrop`). `--c-shadow-pop` 처럼 `.dark` 에 쌍이 있다. */
+  --c-overlay: rgb(15 20 30 / 0.45);
+
   /* 지면(print.css). **`.dark` 에서 피복하지 않는다** — 암색 화면에서 인쇄해도
      지면은 백지에 흑색이어야 한다. */
   --c-print-paper: #fff;
@@ -134,4 +137,5 @@
   --c-focus: #6b9bff;
 
   --c-shadow-pop: 0 12px 32px rgb(0 0 0 / 0.55);
+  --c-overlay: rgb(0 0 0 / 0.65);
 }

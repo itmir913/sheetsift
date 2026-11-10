@@ -11,7 +11,8 @@
     "./styles/*": "./src/styles/*"
   },
   "scripts": {
-    "check": "vue-tsc --noEmit -p tsconfig.json"
+    "check": "vue-tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
   },
   "peerDependencies": {
     "vue": "^3.5.0"
@@ -19,6 +20,7 @@
   "devDependencies": {
     "@vue/tsconfig": "^0.9.1",
     "typescript": "~6.0.2",
+    "vitest": "^5.1.0",
     "vue": "^3.5.42",
     "vue-tsc": "^3.3.11"
   }

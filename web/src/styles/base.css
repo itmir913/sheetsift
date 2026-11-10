@@ -6,6 +6,7 @@
 @import "sheetsift-ui/styles/tooltip.css";
 @import "sheetsift-ui/styles/print.css";
 @import "sheetsift-ui/styles/seg.css";
+@import "sheetsift-ui/styles/picker.css";
 
 /* **공용 화면의 원본을 탐색하게 한다.** Tailwind 는 이 앱의 위치 하단만 탐색하므로,
    이 행이 부재하면 공용 부품이 사용하는 유틸리티가 생성되지 않고 빌드는 그대로

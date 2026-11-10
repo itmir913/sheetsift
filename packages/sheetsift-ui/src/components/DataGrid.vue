@@ -12,6 +12,7 @@ import {
   own,
   columnValues,
   cycleSort,
+  dropColumnState,
   fetchPage,
   pageSize,
   type Filter,
@@ -160,6 +161,23 @@ function clearFilters() {
   reload();
 }
 
+/** 열 선택을 적용한다. 숨긴 열에 남은 정렬·여과는 지운다(보이지 않는 규칙이 행을 거른다). */
+function applyColumns(next: { order: string[]; hidden: string[]; dropped: string[] }) {
+  layout.applyColumns(next);
+  if (!next.dropped.length) return;
+  const had = activeFilters.value.length;
+  const kept = dropColumnState(next.dropped, {
+    sorts: sorts.value,
+    filterText: filterText.value,
+    filterValues: filterValues.value,
+  });
+  sorts.value = kept.sorts;
+  filterText.value = kept.filterText;
+  filterValues.value = kept.filterValues;
+  /* 정렬은 watch 가 다시 읽는다. 여과가 바뀌었을 때만 직접 다시 읽는다. */
+  if (activeFilters.value.length !== had) reload();
+}
+
 function resetColumns() {
   layout.reset();
 }
@@ -230,6 +248,7 @@ watch(sorts, reload, { deep: true });
       :row-origin="screen.rowOrigin"
       :sheet-rows="screen.sheetRows"
       :columns="columns"
+      :all-columns="layout.allColumns.value"
       :pinned="layout.pinned.value"
       :pin-limit="layout.pinLimit.value"
       :page="page"
@@ -244,6 +263,7 @@ watch(sorts, reload, { deep: true });
       @clear-sorts="sorts = []"
       @clear-filters="clearFilters"
       @reset-columns="resetColumns"
+      @apply-columns="applyColumns"
       @set-pinned="layout.setPinned"
       @print="print"
       @goto="goto"

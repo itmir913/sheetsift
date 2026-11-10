@@ -23,7 +23,7 @@
     "ci": "npm run ci:gate && npm run ci:wasm && npm run ci:tauri && npm run ci:webview && npm run ci:web",
     "ci:gate": "cargo test --workspace && cargo clippy --workspace --all-targets -- -D warnings",
     "ci:wasm": "cargo clippy -p sheetsift-wasm --all-targets --target wasm32-unknown-unknown -- -D warnings && cargo test -p sheetsift-core --target wasm32-unknown-unknown && cargo test -p sheetsift-wasm --target wasm32-unknown-unknown",
-    "ci:web": "npm ci && npm run check --workspaces",
+    "ci:web": "npm ci && npm run check --workspaces && npm run test --workspaces --if-present",
     "ci:webview": "cargo clippy --manifest-path crates/webview/Cargo.toml --all-targets -- -D warnings && cargo test --manifest-path crates/webview/Cargo.toml",
     "ci:tauri": "cargo clippy --manifest-path crates/tauri/Cargo.toml --all-targets -- -D warnings && cargo test --manifest-path crates/tauri/Cargo.toml",
     "dev:web": "npm run pkg && npm install && npm run dev --workspace web",

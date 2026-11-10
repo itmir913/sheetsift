@@ -408,3 +408,47 @@ export function cycleSort(sorts: Sort[], key: string): Sort[] {
   }
   return sorts.filter((s) => s.key !== key);
 }
+
+/**
+ * `keys` 에서 `from` 위치의 열쇠를 `to` 위치로 이전한 새 배열.
+ *
+ * **열 순서 규칙의 정본이다.** 표의 끌어 옮기기(`useColumnLayout.move`)와 열 선택
+ * 모달의 초안이 이 함수를 공유한다 — 공유하는 것은 함수가 아니라 규칙이다.
+ * 범위를 이탈하면 원본과 동일한 내용을 반환한다.
+ */
+export function reorder<T>(keys: readonly T[], from: number, to: number): T[] {
+  const next = [...keys];
+  if (from === to || from < 0 || to < 0 || from >= next.length || to >= next.length) {
+    return next;
+  }
+  const [k] = next.splice(from, 1);
+  next.splice(to, 0, k as T);
+  return next;
+}
+
+/**
+ * 숨긴 열에 남은 정렬·여과를 제거한다. **보이지 않는 규칙이 행을 거르면 건수가
+ * 맞지 않는 이유를 화면이 진술하지 못하고, 정렬이 남으면 정렬 칩에 열쇠 원문이
+ * 출현한다.** 소비자가 상태를 소유하므로 새 값을 반환하고 입력은 변경하지 않는다.
+ */
+export function dropColumnState(
+  dropped: readonly string[],
+  state: {
+    sorts: Sort[];
+    filterText: Record<string, string>;
+    filterValues: Record<string, ValuePick | null>;
+  },
+): {
+  sorts: Sort[];
+  filterText: Record<string, string>;
+  filterValues: Record<string, ValuePick | null>;
+} {
+  const gone = new Set(dropped);
+  const omit = <V>(map: Record<string, V>): Record<string, V> =>
+    Object.fromEntries(Object.entries(map).filter(([k]) => !gone.has(k)));
+  return {
+    sorts: state.sorts.filter((s) => !gone.has(s.key)),
+    filterText: omit(state.filterText),
+    filterValues: omit(state.filterValues),
+  };
+}

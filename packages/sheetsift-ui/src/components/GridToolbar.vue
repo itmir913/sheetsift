@@ -7,11 +7,12 @@
  * 하단 행 높이를 존치하므로, 정렬을 적용하고 해제해도 표가 수직 이동하지
  * 않는다.
  */
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
+import ColumnPicker from "./ColumnPicker.vue";
 import { t, tn } from "../lib/inject";
 import { grouping, setGrouping } from "../composables/useGrouping";
 import type { HeaderSpec, Sort } from "../lib/grid";
-import type { LaidOutColumn } from "../composables/useColumnLayout";
+import type { LaidOutColumn, PickableColumn } from "../composables/useColumnLayout";
 
 const props = withDefaults(
   defineProps<{
@@ -25,6 +26,8 @@ const props = withDefaults(
     compact?: boolean;
     sorts?: Sort[];
     columns?: LaidOutColumn[];
+    /** 숨긴 열까지 담은 전체 목록. 열 선택 모달의 바탕이다. */
+    allColumns?: PickableColumn[];
     pinned?: number;
     pinLimit?: number;
     /** 열 순서·폭을 조작한 이력이 존재해 '열 초기화' 가 의미를 보유하는가. */
@@ -62,6 +65,7 @@ const props = withDefaults(
     compact: false,
     sorts: () => [],
     columns: () => [],
+    allColumns: () => [],
     pinned: 0,
     pinLimit: 0,
     header: null,
@@ -81,6 +85,8 @@ const emit = defineEmits<{
   clearSorts: [];
   clearFilters: [];
   resetColumns: [];
+  /** 열 선택을 적용했다. `dropped` 는 이번에 숨겨진 열쇠들이다(정렬·여과를 지울 때 쓴다). */
+  applyColumns: [next: { order: string[]; hidden: string[]; dropped: string[] }];
   setPinned: [n: number];
   print: [];
   goto: [page: number];
@@ -128,6 +134,17 @@ function applyPageInput() {
   const n = Number(pageInput.value);
   if (Number.isFinite(n) && n >= 1) goto(Math.floor(n) - 1);
   else pageInput.value = String((props.page ?? 0) + 1);
+}
+
+const picker = ref<InstanceType<typeof ColumnPicker> | null>(null);
+
+const visibleKeys = computed(() => new Set(props.columns.map((c) => c.key)));
+
+function onApplyColumns(next: { order: string[]; hidden: string[] }) {
+  const off = new Set(next.hidden);
+  /* 지금 보이는 열 중 이번에 숨겨지는 것만 `dropped` 다. */
+  const dropped = [...visibleKeys.value].filter((k) => off.has(k));
+  emit("applyColumns", { ...next, dropped });
 }
 
 function labelOf(key: string): string {
@@ -295,6 +312,15 @@ function labelOf(key: string): string {
         <button
           type="button"
           class="gx-tool-btn"
+          :disabled="!allColumns.length"
+          :data-tip="t('tools.columns.tip')"
+          @click="picker?.open()"
+        >
+          {{ t("tools.columns") }}
+        </button>
+        <button
+          type="button"
+          class="gx-tool-btn"
           :disabled="!columnsCustomized"
           :data-tip="t('tools.columns.reset.tip')"
           @click="emit('resetColumns')"
@@ -326,6 +352,10 @@ function labelOf(key: string): string {
         </label>
       </span>
     </div>
+
+    <!-- 모달은 단추를 품은 `<span>` 밖, 조작부 뿌리 직하에 둔다. 소비자가 셋이라
+         여기 하나로 조립한다 — 화면마다 달면 눌러도 아무 일도 없는 단추가 생긴다. -->
+    <ColumnPicker v-if="!compact" ref="picker" :columns="allColumns" @apply="onApplyColumns" />
 
     <!-- 하단 행: 정렬 칩. 증가하면 이 행만 수평 이동한다. -->
     <div v-if="!compact" class="gx-tools-row gx-sorts">
