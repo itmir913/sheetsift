@@ -290,6 +290,7 @@ watch(sorts, reload, { deep: true });
     <GridTable
       v-if="layout.ready.value"
       :columns="columns"
+      :detail-columns="layout.detailColumns.value"
       :rows="rows"
       :sorts="sorts"
       :filter-text="filterText"

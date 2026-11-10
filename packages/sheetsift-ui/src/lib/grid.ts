@@ -452,3 +452,24 @@ export function dropColumnState(
     filterValues: omit(state.filterValues),
   };
 }
+
+/**
+ * 행을 누른 것이 **행 상세 모달을 여는 누름인가.**
+ *
+ * 순수 함수로 분리한 사유는 시험 가능성이다 — 이 판정이 틀리면 글자를 복사하려던
+ * 조작이나 바로가기 버튼이 모달을 열어 버린다.
+ *
+ * 열지 않는 경우는 셋이다.
+ * - 조작 가능한 요소(버튼·링크·입력) 위의 누름. 그 요소가 자기 일을 한다.
+ * - 문자를 끌어 선택한 직후. 선택이 존재하면 복사하려는 조작이다.
+ * - 값 선택 팝오버가 개방된 상태로 시작한 누름. 그것은 팝오버를 폐쇄하는 누름이다.
+ */
+export function opensRowDetail(
+  target: Element | null,
+  selectedText: string,
+  filterWasOpen: boolean,
+): boolean {
+  if (filterWasOpen) return false;
+  if (selectedText.trim() !== "") return false;
+  return !target?.closest('button, a, input, select, textarea, label, [role="button"]');
+}

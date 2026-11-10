@@ -80,6 +80,35 @@ describe("useColumnLayout", () => {
     ]);
   });
 
+  it("detailColumns keeps hidden ones in order and columns derives from it", () => {
+    const l = layout();
+    l.applyColumns({ order: ["d", "c", "b", "a"], hidden: ["c"] });
+    // 전체 목록은 숨긴 열까지 order 순으로 담는다.
+    expect(l.detailColumns.value.map((c) => [c.key, c.hidden])).toEqual([
+      ["d", false],
+      ["c", true],
+      ["b", false],
+      ["a", false],
+    ]);
+    // 보이는 열은 그것에서 숨김을 거른 것이다 — 매핑이 한 곳이어야 분기하지 않는다.
+    expect(shown(l)).toEqual(l.detailColumns.value.filter((c) => !c.hidden).map((c) => c.key));
+    /* 숨긴 열도 **자료의 원위치**를 그대로 보유한다. 이것이 틀리면 모달이 상이한 열의
+       값을 묘사한다 — 순서를 역전한 이 사례에서 값으로 단언한다. */
+    expect(l.detailColumns.value.map((c) => [c.key, c.srcIndex])).toEqual([
+      ["d", 3],
+      ["c", 2],
+      ["b", 1],
+      ["a", 0],
+    ]);
+    expect(l.allColumns.value.map((c) => [c.key, c.at])).toEqual([
+      ["d", 3],
+      ["c", 2],
+      ["b", 1],
+      ["a", 0],
+    ]);
+    for (const c of l.detailColumns.value) expect(c.width).toBeGreaterThan(0);
+  });
+
   it("move converts visible indexes into order indexes", () => {
     const l = layout();
     l.applyColumns({ order: KEYS, hidden: ["b"] });

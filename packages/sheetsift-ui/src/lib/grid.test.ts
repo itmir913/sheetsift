@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dropColumnState, reorder } from "./grid";
+import { dropColumnState, opensRowDetail, reorder } from "./grid";
 
 describe("reorder", () => {
   it("moves forward and backward", () => {
@@ -51,5 +51,32 @@ describe("dropColumnState", () => {
 
   it("is the identity when nothing is dropped", () => {
     expect(dropColumnState([], state())).toEqual(state());
+  });
+});
+
+describe("opensRowDetail", () => {
+  /** DOM 없이 시험한다 — 이 함수가 보는 것은 `closest` 의 답뿐이다. */
+  const target = (interactive: boolean): Element =>
+    ({ closest: () => (interactive ? ({} as Element) : null) }) as unknown as Element;
+
+  it("opens on a plain cell", () => {
+    expect(opensRowDetail(target(false), "", false)).toBe(true);
+  });
+
+  it("does not open on an interactive element", () => {
+    expect(opensRowDetail(target(true), "", false)).toBe(false);
+  });
+
+  it("does not open right after selecting text", () => {
+    expect(opensRowDetail(target(false), "text", false)).toBe(false);
+    expect(opensRowDetail(target(false), "   ", false)).toBe(true);
+  });
+
+  it("does not open when the press closed the value popover", () => {
+    expect(opensRowDetail(target(false), "", true)).toBe(false);
+  });
+
+  it("opens when the press had no element behind it", () => {
+    expect(opensRowDetail(null, "", false)).toBe(true);
   });
 });

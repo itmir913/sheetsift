@@ -79,6 +79,23 @@ const kept = dropColumnState(dropped, { sorts, filterText, filterValues });
 - The dictionary needs the `picker.*` keys and `tools.columns`; `picker.count` is a
   plural keyed by the number of shown columns, with `total` as a parameter.
 
+### Row details (`GridTable.vue`)
+
+`GridTable` holds this modal, not `GridToolbar` or `DataGrid`: some screens build
+the toolbar and the table themselves, and a modal mounted anywhere else would do
+nothing there. Press a row and every column of that row is listed vertically.
+
+- `detailColumns` (from `useColumnLayout`) is **required**, and it carries hidden
+  columns too — hiding a column removes it from the table, not from the row.
+- Values are drawn through the **same `cell` slot** as the table, so a receiving
+  app's chips and link buttons look the same in both places.
+- Styles live in `grid.css` with the `rd-*` prefix. No new stylesheet, so no
+  receiving app has to add an `@import` it could forget.
+- Colours still come from the receiving app: the value cell carries `data-cvars`
+  and the variables, and the app's own rule paints it (goe-navi's `header-tint.css`).
+- The dictionary needs the six `detail.*` keys; `detail.position` takes `n` and
+  `total`, counted within the page the table is showing.
+
 ## How the package is taken
 
 Exports are the source files (`.vue`, `.ts`, `.css`); the receiver's vite

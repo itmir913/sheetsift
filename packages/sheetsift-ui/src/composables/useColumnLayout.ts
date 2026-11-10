@@ -21,6 +21,15 @@ export interface LaidOutColumn extends ColumnDef {
   flex?: number;
 }
 
+/**
+ * 숨긴 열까지 담은 열 하나. **행 상세 모달이 수령한다** — 모달은 「열 선택」에서 제외한
+ * 열의 값도 묘사하므로(제외는 화면에서 배제한 것이지 값이 부재하는 것이 아니다),
+ * 보이는 열만으로는 부족하다.
+ */
+export interface DetailColumn extends LaidOutColumn {
+  hidden: boolean;
+}
+
 /** 모달 초안의 열 하나. `hidden` 이 참이면 표에서 제외된 열이다. */
 export interface PickableColumn {
   key: string;
@@ -229,11 +238,15 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
     return out;
   });
 
-  const columns = computed<LaidOutColumn[]>(() => {
+  /**
+   * **열 목록의 정본.** 숨긴 열까지 `order` 순으로 담는다. 보이는 열(`columns`)도 열 선택
+   * 모달의 초안(`allColumns`)도 이것에서 파생한다 — 동일한 매핑(기호 열의 문구 합성,
+   * `srcIndex`, 폭)을 복수 개소에 기재하면 한쪽만 수정되어 분기한다.
+   */
+  const detailColumns = computed<DetailColumn[]>(() => {
     const byKey = new Map(screen.value.columns.map((c) => [c.key, c]));
     const off = new Set(hidden.value);
     return order.value.flatMap((key) => {
-      if (off.has(key)) return [];
       const col = byKey.get(key);
       if (!col) return [];
       return [
@@ -245,28 +258,23 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
           width:
             own(widths.value, key) ?? auto.value?.get(key) ?? byHeader.value.get(key) ?? MIN_WIDTH,
           srcIndex: srcIndexOf.value.get(key) ?? 0,
+          hidden: off.has(key),
         },
       ];
     });
   });
 
+  const columns = computed<LaidOutColumn[]>(() => detailColumns.value.filter((c) => !c.hidden));
+
   /** 숨긴 열까지 담은 전체 목록(`order` 순). 열 선택 모달이 초안의 바탕으로 쓴다. */
-  const allColumns = computed<PickableColumn[]>(() => {
-    const byKey = new Map(screen.value.columns.map((c) => [c.key, c]));
-    const off = new Set(hidden.value);
-    return order.value.flatMap((key) => {
-      const col = byKey.get(key);
-      if (!col) return [];
-      return [
-        {
-          key,
-          label: col.letter ? t("column.letter", { letter: col.letter }) : col.label,
-          hidden: off.has(key),
-          at: srcIndexOf.value.get(key) ?? 0,
-        },
-      ];
-    });
-  });
+  const allColumns = computed<PickableColumn[]>(() =>
+    detailColumns.value.map((c) => ({
+      key: c.key,
+      label: c.label,
+      hidden: c.hidden,
+      at: c.srcIndex,
+    })),
+  );
 
   /**
    * 고정 가능한 열 수. 전부 고정하면 이동할 대상이 부재하므로 하나는 존치한다.
@@ -348,6 +356,7 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
 
   return {
     columns,
+    detailColumns,
     allColumns,
     order,
     hidden,

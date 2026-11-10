@@ -10,12 +10,12 @@
  * 어떻게 적용하는지는 쓰는 곳이 결정한다. 조회 화면은 SQL 로, 성적 검색은
  * 메모리에서 처리한다.
  */
-import { computed, ref } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import ColumnFilter from "./ColumnFilter.vue";
-import { cellText, isBlank, own } from "../lib/grid";
+import { cellText, isBlank, opensRowDetail, own } from "../lib/grid";
 import { t } from "../lib/inject";
 import type { ColumnValuesResult, Row, Sort, ValuePick } from "../lib/grid";
-import type { LaidOutColumn } from "../composables/useColumnLayout";
+import type { DetailColumn, LaidOutColumn } from "../composables/useColumnLayout";
 
 const props = withDefaults(
   defineProps<{
@@ -26,6 +26,14 @@ const props = withDefaults(
     filterText: Record<string, string>;
     /** 엑셀식 값 선택. 열쇠가 부재하거나 null 이면 그 열은 전체 허용. */
     filterValues: Record<string, ValuePick | null>;
+    /**
+     * **숨긴 열까지 담은 전체 열 목록.** 행 상세 모달이 이것을 묘사한다 —
+     * 「열 선택」에서 제외한 열은 화면에서 배제한 것이지 값이 부재하는 것이 아니다.
+     *
+     * 선택이 아니라 **필수**다. 선택으로 두고 `columns` 로 대체하면, 전달을 망각한
+     * 화면에서 숨긴 열이 조용히 누락되고 오류가 발생하지 않는다.
+     */
+    detailColumns: DetailColumn[];
     /** 좌측에 고정할 열 수. */
     pinned: number;
     /**
@@ -150,6 +158,74 @@ function ariaSort(key: string): "ascending" | "descending" | "none" {
 /* ── 열 검색 · 값 선택 ─────────────────────────────────────── */
 
 const openFilterKey = ref<string | null>(null);
+
+/* ── 행 상세 모달 ─────────────────────────────────────────────
+   표는 가로로 장대해 한 행을 전부 읽으려면 좌우로 굴려야 하고, 「열 선택」으로 제외한
+   열의 값은 아예 보이지 않는다. 행을 누르면 그 행의 **전 열**을 세로로 묘사한다.
+
+   **모달을 여기 배치한 사유.** 조작부와 표를 직접 조립하는 화면(성적 검색·자료 관리)이
+   존재해, `DataGrid` 에 배치하면 그 화면들에서는 아무 일도 발생하지 않는다. 공통분모는
+   이 컴포넌트뿐이다. */
+const detailDialog = ref<HTMLDialogElement | null>(null);
+const detailCloseBtn = ref<HTMLButtonElement | null>(null);
+/** 묘사 중인 행의 위치. `-1` 이면 폐쇄 상태다. */
+const detailAt = ref(-1);
+const detailRow = computed(() => (detailAt.value >= 0 ? props.rows[detailAt.value] : undefined));
+
+/** 누름이 시작된 시점에 값 선택 팝오버가 개방되어 있었는가. */
+let filterWasOpen = false;
+function onRowPointerDown(): void {
+  filterWasOpen = openFilterKey.value !== null;
+}
+
+async function onRowClick(ev: MouseEvent, i: number): Promise<void> {
+  const sel = typeof window === "undefined" ? null : window.getSelection();
+  const text = sel && !sel.isCollapsed ? sel.toString() : "";
+  if (!opensRowDetail(ev.target as Element | null, text, filterWasOpen)) return;
+  detailAt.value = i;
+  /* **그린 뒤에 개방한다.** 내용은 `detailRow` 에 달려 있어 이 시점에는 아직 부재하고,
+     그 상태로 `showModal()` 하면 초점이 빈 `<dialog>` 에 머물러 하기의 지정이 무위가 된다. */
+  await nextTick();
+  detailDialog.value?.showModal();
+  // 최초 초점을 명시한다. 두지 않으면 목록 내부의 링크 버튼이 초점을 수령한다.
+  detailCloseBtn.value?.focus();
+}
+
+/** 덮개를 누르면 폐쇄한다. 내용 위의 누름은 `<dialog>` 자신이 대상이 아니라 걸리지 않는다. */
+function onDetailClick(ev: MouseEvent): void {
+  if (ev.target === detailDialog.value) detailDialog.value?.close();
+}
+
+function moveDetail(step: number): void {
+  const next = detailAt.value + step;
+  if (next < 0 || next >= props.rows.length) return;
+  detailAt.value = next;
+  // 행을 이전하면 목록은 상단으로 되돌린다. 그러지 않으면 다음 행을 중도부터 읽는다.
+  const body = detailDialog.value?.querySelector(".rd-body");
+  if (body) body.scrollTop = 0;
+}
+
+function onDetailKey(ev: KeyboardEvent): void {
+  // 보조 키가 눌린 조합은 그대로 둔다(브라우저·보조기기의 조작이다).
+  if (ev.ctrlKey || ev.altKey || ev.metaKey) return;
+  if (ev.key === "ArrowDown") {
+    ev.preventDefault();
+    moveDetail(1);
+  } else if (ev.key === "ArrowUp") {
+    ev.preventDefault();
+    moveDetail(-1);
+  }
+}
+
+/* 행 목록이 교체되면 **폐쇄한다.** 여과의 지연 조회나 재조회로 교체되므로, 동일한
+   위치가 동일한 행이라는 보장이 없다. 상이한 행을 조용히 묘사하는 것보다 낫다.
+   얕은 비교다 — 깊은 감시는 매 조회마다 헛닫힘을 유발한다. */
+watch(
+  () => props.rows,
+  () => {
+    if (detailAt.value >= 0) detailDialog.value?.close();
+  },
+);
 const popX = ref(0);
 const popY = ref(0);
 /** 팝오버가 사용 가능한 최대 높이(px). 화면 외부로 절단되지 않게 한다. */
@@ -404,7 +480,14 @@ defineExpose({ close: () => (openFilterKey.value = null) });
       </div>
 
       <div>
-        <div v-for="(row, i) in rows" :key="i" class="dg-row" :data-odd="i % 2 === 1">
+        <div
+          v-for="(row, i) in rows"
+          :key="i"
+          class="dg-row"
+          :data-odd="i % 2 === 1"
+          @pointerdown="onRowPointerDown"
+          @click="onRowClick($event, i)"
+        >
           <div
             v-for="(col, ci) in columns"
             :key="col.key"
@@ -429,6 +512,71 @@ defineExpose({ close: () => (openFilterKey.value = null) });
         </p>
       </div>
     </div>
+
+    <!-- 행 상세. 행을 누르면 그 행의 **전 열**(숨긴 열 포함)을 세로로 묘사한다.
+         읽기 전용이다 — 선별·정렬·여과는 표가 담당한다. -->
+    <dialog
+      ref="detailDialog"
+      class="rd-dialog"
+      aria-labelledby="rd-title"
+      @close="detailAt = -1"
+      @click="onDetailClick"
+      @keydown="onDetailKey"
+    >
+      <div v-if="detailRow" class="rd-head">
+        <h3 id="rd-title" class="rd-title">{{ t("detail.title") }}</h3>
+        <button ref="detailCloseBtn" type="button" class="rd-btn" @click="detailDialog?.close()">
+          {{ t("detail.close") }}
+        </button>
+      </div>
+
+      <div v-if="detailRow" class="rd-body" role="group" tabindex="0" aria-labelledby="rd-title">
+        <dl class="rd-list">
+          <div v-for="col in detailColumns" :key="col.key" class="rd-pair">
+            <dt class="rd-name">
+              {{ col.label }}
+              <span v-if="col.hidden" class="rd-tag">{{ t("detail.hidden") }}</span>
+            </dt>
+            <dd
+              class="rd-value"
+              :data-kind="col.kind"
+              :data-blank="isBlank(detailRow[col.srcIndex])"
+              :data-cvars="cellVars(col) ? '' : undefined"
+              :style="cellVars(col)"
+            >
+              <!-- 표와 **동일한 슬롯**이다. 그러지 않으면 모달에서만 꼴이 상이해진다. -->
+              <slot name="cell" :col="col" :row="detailRow" :value="detailRow[col.srcIndex]">
+                {{ cellText(col, detailRow[col.srcIndex]) }}
+              </slot>
+            </dd>
+          </div>
+        </dl>
+      </div>
+
+      <div v-if="detailRow" class="rd-foot">
+        <span class="rd-at" aria-live="polite">
+          {{ t("detail.position", { n: detailAt + 1, total: rows.length }) }}
+        </span>
+        <span class="rd-move">
+          <button
+            type="button"
+            class="rd-btn"
+            :aria-disabled="detailAt <= 0"
+            @click="moveDetail(-1)"
+          >
+            {{ t("detail.prev") }}
+          </button>
+          <button
+            type="button"
+            class="rd-btn"
+            :aria-disabled="detailAt >= rows.length - 1"
+            @click="moveDetail(1)"
+          >
+            {{ t("detail.next") }}
+          </button>
+        </span>
+      </div>
+    </dialog>
 
     <!-- 값 선택 팝오버. 표 상단에 부유하므로 레이아웃에 영향을 미치지 않는다. -->
     <ColumnFilter
