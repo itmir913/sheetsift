@@ -181,16 +181,21 @@
   contain-intrinsic-size: var(--dg-total) var(--dg-row-h);
 }
 
-.dg-row:hover {
-  background-color: var(--c-surface-hover);
-}
-
+/* 홀수 행의 줄무늬. **알파 막이라 열에 부여한 색을 은폐하지 않는다.**
+   `--dg-veil` 은 불투명해야 하는 고정 셀이 동일한 막을 자기 색 위에 도포하기
+   위한 것이다(하기 `.dg-cell[data-pin]`). */
 .dg-row[data-odd="true"] {
-  background-color: var(--c-canvas);
+  background-color: var(--c-row-stripe);
+  --dg-veil: var(--c-row-stripe);
 }
 
+/* **홀수 규칙의 후방에 배치한다.** 특이도가 (0,2,0) 으로 동일하므로 후순위가
+   승리한다 — 전방에 두면 홀수 행에서 올림이 패배한다. 올림은 줄무늬보다 농후해
+   짝·홀 어느 행에서도 우세하다. */
+.dg-row:hover,
 .dg-row[data-odd="true"]:hover {
-  background-color: var(--c-surface-hover);
+  background-color: var(--c-row-hover);
+  --dg-veil: var(--c-row-hover);
 }
 
 .dg-cell {
@@ -402,8 +407,14 @@
   background-color: var(--c-surface-sunken);
 }
 
+/* 고정 셀은 불투명해야 하단 내용이 투과 노출되지 않는다. 기저는 항상 `--c-surface`
+   이고, 줄무늬·올림은 행이 전달한 `--dg-veil` 을 그 위에 한 겹 도포해 재현한다.
+   색을 부여한 열은 `background-color` 만 피복하므로(제품의 `header-tint.css`) 이
+   막과 충돌하지 않는다. */
 .dg-cell[data-pin] {
   z-index: 1;
+  background-color: var(--c-surface);
+  background-image: linear-gradient(var(--dg-veil, transparent), var(--dg-veil, transparent));
 }
 
 .dg-hcell[data-pin="0"],
@@ -425,20 +436,6 @@
 .dg-fcell[data-pin="3"],
 .dg-cell[data-pin="3"] {
   left: var(--dg-pin-3);
-}
-
-/* 고정 셀은 불투명해야 하단 내용이 투과 노출되지 않는다.
-   줄무늬·호버 배경을 그대로 추종한다. */
-.dg-row[data-odd="false"] .dg-cell[data-pin] {
-  background-color: var(--c-surface);
-}
-
-.dg-row[data-odd="true"] .dg-cell[data-pin] {
-  background-color: var(--c-canvas);
-}
-
-.dg-row:hover .dg-cell[data-pin] {
-  background-color: var(--c-surface-hover);
 }
 
 /* 고정 구간의 종단을 굵은 선으로 표시한다(엑셀의 열 고정 선). */

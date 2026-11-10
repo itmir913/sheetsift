@@ -18,6 +18,14 @@
   --c-surface-hover: #e6e9ee;
   --c-surface-active: #dbe0e7;
 
+  /* 표의 홀짝 줄무늬와 행의 마우스 올림. **색이 아니라 덮는 막이다** — 열에 색을
+     부여할 수 있으므로(`cellVars`) 불투명한 색으로 도포하면 그 색을 은폐한다.
+     행의 올림을 `--c-surface-hover` 와 분리하는 사유: 그 토큰은 버튼·헤더 등
+     전역에서 사용하는데, 줄무늬를 농후하게 하면 둘이 근접해 올림이 식별되지
+     않는다. 행에는 줄무늬의 2배 이상을 부여해 **올림이 항상 우세**하게 한다. */
+  --c-row-stripe: rgb(13 18 28 / 7%);
+  --c-row-hover: rgb(13 18 28 / 16%);
+
   /* 문자 */
   --c-fg: #14161a; /* 본문 */
   --c-fg-muted: #545b68; /* 보조 설명 */
@@ -89,7 +97,9 @@
   --c-print-rule-strong: #999;
   --c-print-rule: #bbb;
   --c-print-head: #eee;
-  --c-print-stripe: #f4f4f4;
+  /* 지면은 알파를 혼합하지 않으므로 불투명 값이다. 인쇄 헤더(`#eee`, 238)보다
+     **명도가 높아야** 한다 — 역전하면 헤더와 줄무늬의 위계가 전도된다. */
+  --c-print-stripe: #f0f0f0;
 }
 
 .dark {
@@ -98,6 +108,10 @@
   --c-surface-sunken: #1e222a;
   --c-surface-hover: #262b34;
   --c-surface-active: #313742;
+
+  /* 암색에서는 반대로 **명도를 상승**시켜야 동등하게 식별된다. */
+  --c-row-stripe: rgb(255 255 255 / 6%);
+  --c-row-hover: rgb(255 255 255 / 15%);
 
   --c-fg: #e8eaee;
   --c-fg-muted: #a2aab8;
