@@ -286,6 +286,13 @@
   gap: 0.5rem;
   width: 20rem;
   max-height: var(--pop-maxh, 26rem);
+  /* **휠을 여기서 차단한다.** 이 상자는 `.app-main` 의 자손이라, 구르지 않는 부분(헤더·검색
+     칸·푸터) 위의 휠이 그대로 배후의 표로 연쇄한다 — 실측으로 400px 이동을 확인했다.
+     스크롤 컨테이너로 전환해야 `overscroll-behavior` 가 적용되므로 `overflow-y` 를 부여한다.
+     `hidden` 이 아니라 `auto` 인 사유: 창이 협소해 `--pop-maxh` 가 축소되면 푸터의 버튼이
+     절단되어 접촉이 불가능해진다. `auto` 는 팝업 자신이 굴러 버튼에 도달한다. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 0.75rem;
   border: 1px solid var(--c-border-strong);
   border-radius: 0.75rem;
@@ -310,6 +317,9 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: scroll;
+  /* 상위의 `.dg-pop` 에서 이미 연쇄가 절단된다. 이 선언은 **예비**다 — Chromium 실측으로는
+     불요하나 WKWebView 는 미실측이다(goe-navi 는 macOS 도 배포한다). */
+  overscroll-behavior: contain;
   scrollbar-gutter: stable;
   border: 1px solid var(--c-border);
   border-radius: 0.5rem;

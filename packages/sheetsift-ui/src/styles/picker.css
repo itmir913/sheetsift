@@ -14,6 +14,11 @@
   background: var(--c-surface);
   color: var(--c-fg);
   box-shadow: var(--c-shadow-pop);
+  /* **예비.** 모달은 top layer 라 배후의 `.app-main` 으로 연쇄하지 않는 것을 Chromium 에서
+     실측했다(덮개 위·본문 종단 공히 무이동). WKWebView 미실측분에 대한 대비로 외곽
+     경계에만 부여한다. 내부의 `.cp-list`·`.cp-chips` 에는 부여하지 않는다 — 협소한 폭에서
+     두 칸이 적층될 때 본문 스크롤이 목록에 구속된다. */
+  overscroll-behavior: contain;
 }
 
 .cp-dialog[open] {
@@ -41,6 +46,7 @@
   container-type: inline-size;
   padding: 1rem 1.125rem;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* 두 칸 ↔ 한 칸. 창이 아니라 **모달 자신의 폭**이 기준이다. */
