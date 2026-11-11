@@ -94,6 +94,9 @@ export const ui: Record<UiKey, string> = {
   "pager.of_one": "/ {n} page",
   "pager.of_other": "/ {n} pages",
 
+  "tools.font": "Text",
+  "tools.font.less.aria": "Smaller table text",
+  "tools.font.more.aria": "Larger table text",
   "tools.pin": "Freeze",
   "tools.pin.less.aria": "Freeze fewer columns",
   "tools.pin.more.aria": "Freeze more columns",

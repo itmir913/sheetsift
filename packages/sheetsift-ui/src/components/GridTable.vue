@@ -14,6 +14,7 @@ import { computed, nextTick, ref, watch } from "vue";
 import ColumnFilter from "./ColumnFilter.vue";
 import { cellText, isBlank, opensRowDetail, own } from "../lib/grid";
 import { t } from "../lib/inject";
+import { tableFont } from "../composables/useTableFont";
 import type { ColumnValuesResult, Row, Sort, ValuePick } from "../lib/grid";
 import type { DetailColumn, LaidOutColumn } from "../composables/useColumnLayout";
 
@@ -79,31 +80,40 @@ const DRAG_THRESHOLD = 5;
 
 const root = ref<HTMLElement | null>(null);
 const headEl = ref<HTMLElement | null>(null);
-function remPx(): number {
-  const v = parseFloat(getComputedStyle(document.documentElement).fontSize);
-  return Number.isFinite(v) && v > 0 ? v : 16;
+/**
+ * 열 폭 한 단위가 화면에서 점유하는 px. 폭은 `em` 이고 `.dg` 의 글자 크기가 곧
+ * `tableFont` 이므로 그 값 그대로다. 루트 글자 크기로 나누면 글자를 확대한 표에서
+ * 끌어 확장할 때 커서와 열 경계가 불일치한다.
+ */
+function emPx(): number {
+  return tableFont.value;
 }
 
-/* ── 열 격자 · 열 고정 ─────────────────────────────────────── */
+/* ── 열 격자 · 열 고정 ───────────────────────────────────────
+   폭의 단위는 `rem` 이 아니라 **`em`** 이다(`...Rem` 이라는 명칭은 유래라 존치한다).
+   `rem` 은 루트 글자 크기를 추종하므로 표만 확대해도 열이 고정되어 글자가 말줄임으로
+   절단된다. `em` 은 사용하는 요소(`.dg-head`·`.dg-row`)의 글자 크기로 해석되고 그것은
+   `.dg` 가 상속한 `--dg-font` 이므로, 열 폭·합계·고정 열 offset 이 일괄 비례한다.
+   기본(16px)에서는 `rem` 과 동일한 값이라 저장된 폭이 그대로 유효하다. */
 
 const colTemplate = computed(() =>
   props.columns
     // 배분받는 열은 `width` 가 최소 폭이다. 잔여 공간은 그러한 열 상호간에
     // 균등 배분되므로, 최소 폭이 동일하면 폭도 동일해진다.
-    .map((c) => (c.flex ? `minmax(${c.width}rem, ${c.flex}fr)` : `${c.width}rem`))
+    .map((c) => (c.flex ? `minmax(${c.width}em, ${c.flex}fr)` : `${c.width}em`))
     .join(" "),
 );
 
 /** 열 폭의 합계. 표의 수평 폭을 브라우저가 추정하지 않도록 직접 제시한다. */
 const totalWidth = computed(
-  () => `${props.columns.reduce((sum, c) => sum + c.width, 0)}rem`,
+  () => `${props.columns.reduce((sum, c) => sum + c.width, 0)}em`,
 );
 
 const pinOffsets = computed(() => {
   const out: string[] = [];
   let acc = 0;
   for (let i = 0; i < props.pinned; i += 1) {
-    out.push(`${acc}rem`);
+    out.push(`${acc}em`);
     acc += props.columns[i]?.width ?? 0;
   }
   return out;
@@ -129,6 +139,10 @@ const gridVars = computed(() => {
   const vars: Record<string, string> = {
     "--dg-cols": colTemplate.value,
     "--dg-total": totalWidth.value,
+    /* 글자 크기가 변경되면 이 인라인 값만 변경되고, 행 높이(`--dg-row-h`)·열 폭은
+       `em` 이므로 자동으로 추종한다. 가상 스크롤(`content-visibility`)의 예약 크기도
+       동일한 변수라 불일치하지 않는다. */
+    "--dg-font": `${tableFont.value}px`,
   };
   pinOffsets.value.forEach((off, i) => {
     vars[`--dg-pin-${i}`] = off;
@@ -375,7 +389,7 @@ function onResizeStart(col: LaidOutColumn, ev: PointerEvent) {
 
 function onResizeMove(ev: PointerEvent) {
   if (!resizeKey) return;
-  emit("resize", resizeKey, resizeStartW + (ev.clientX - resizeStartX) / remPx());
+  emit("resize", resizeKey, resizeStartW + (ev.clientX - resizeStartX) / emPx());
 }
 
 function onResizeEnd() {
@@ -533,7 +547,7 @@ defineExpose({ close: () => (openFilterKey.value = null) });
       </div>
 
       <!-- **초점을 받지 않는다.** 받으면 Tab 으로 들어왔을 때 본문 전체에 초점 테두리가 그려진다.
-           행 이동 키는 `<dialog>` 가 받으므로(`onDetailKey`) 여기가 초점을 가질 까닭이 없다. -->
+           행 이동 키는 `<dialog>` 가 받으므로(`onDetailKey`) 여기가 초점을 보유할 사유가 없다. -->
       <div v-if="detailRow" class="rd-body" role="group" aria-labelledby="rd-title">
         <dl class="rd-list">
           <!-- 열에 준 색은 **줄 전체**에 칠한다. 값 칸만 칠하면 이름과 값이 다른 줄처럼 보인다. -->

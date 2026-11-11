@@ -302,6 +302,91 @@ fn the_check_catches_a_pin_the_css_does_not_hold() {
     assert_eq!(pin_rules("[data-pin=\"0\"] {} [data-pin=\"1\"] {} [data-pin=\"0\"] {}"), 2);
 }
 
+/* ── 표 글자 크기의 두 벌 ───────────────────────────────────────── */
+
+const TABLE_FONT_TS: &str = include_str!("../../../packages/sheetsift-ui/src/composables/useTableFont.ts");
+
+/// `.dg { --dg-font: 16px }` 의 `16`. 규칙 블록 내부에서만 탐색한다.
+fn css_default_font(css: &str) -> Option<u32> {
+    let block = &css[css.find("\n.dg {")?..];
+    let block = &block[..block.find('}')?];
+    let v = block.split("--dg-font:").nth(1)?.split(';').next()?.trim();
+    v.strip_suffix("px")?.trim().parse().ok()
+}
+
+/// `DEFAULT_TABLE_FONT` 의 값.
+fn ts_default_font(ts: &str) -> Option<u32> {
+    let at = ts.find("export const DEFAULT_TABLE_FONT")?;
+    ts[at..].split('=').nth(1)?.split(';').next()?.trim().parse().ok()
+}
+
+/// `TABLE_FONT_STEPS` 의 단계.
+fn ts_font_steps(ts: &str) -> Vec<u32> {
+    let Some(at) = ts.find("export const TABLE_FONT_STEPS") else { return vec![] };
+    let Some(open) = ts[at..].find('[') else { return vec![] };
+    let rest = &ts[at + open + 1..];
+    let Some(close) = rest.find(']') else { return vec![] };
+    rest[..close].split(',').filter_map(|n| n.trim().parse().ok()).collect()
+}
+
+/// 글자에 비례해야 하는 셀 규칙의 `padding`·`gap`·`flex` 에 `rem` 이 부재하는가.
+/// 하나라도 `rem` 이면 그만큼은 글자 크기와 무관한 고정 px 라, 16px 에서 측정한
+/// 열 폭이 작은 글자에서 부족해 헤더가 절단된다(14px 에서 실측으로 확인).
+fn rem_in_proportional_rules(css: &str) -> Vec<String> {
+    let mut bad = Vec::new();
+    for sel in [".dg-hcell", ".dg-cell", ".dg-fcell", ".dg-sortmark", ".dg-finput", ".dg-fwrap", ".dg-fbtn"] {
+        let head = format!("\n{sel} {{");
+        let Some(at) = css.find(&head) else {
+            bad.push(format!("{sel}: 규칙을 탐색하지 못했습니다"));
+            continue;
+        };
+        let body = &css[at..];
+        let body = &body[..body.find('}').unwrap_or(body.len())];
+        for line in body.lines() {
+            let l = line.trim();
+            let prop = ["padding", "gap", "flex", "width", "height"].iter().any(|p| l.starts_with(&format!("{p}:")));
+            if prop && l.contains("rem") {
+                bad.push(format!("{sel}: {l}"));
+            }
+        }
+    }
+    bad
+}
+
+/// **측정 셀의 글자 크기와 기본 크기가 같은가.** 갈라지면 측정한 폭이 화면의 글자와
+/// 불일치하는데 어디에서도 오류가 발생하지 않는다.
+#[test]
+fn the_css_default_font_is_the_default_the_screen_starts_at() {
+    let css = css_default_font(GRID_CSS).expect("grid.css 의 --dg-font 를 탐색하지 못했습니다 — 검사가 실명한 것입니다");
+    let ts = ts_default_font(TABLE_FONT_TS).expect("DEFAULT_TABLE_FONT 를 탐색하지 못했습니다 — 검사가 실명한 것입니다");
+    assert_eq!(css, ts, "grid.css 는 {css}px, useTableFont.ts 는 {ts}px 입니다");
+    assert!(ts_font_steps(TABLE_FONT_TS).contains(&ts), "기본 크기가 단계 배열에 부재합니다");
+}
+
+#[test]
+fn the_check_catches_a_default_font_that_drifted() {
+    assert_eq!(css_default_font("\n.dg {\n  --dg-font: 18px;\n  x: y;\n}\n"), Some(18));
+    assert_eq!(css_default_font("\n.dg {\n  x: y;\n}\n"), None);
+    assert_eq!(ts_default_font("export const DEFAULT_TABLE_FONT: TableFontPx = 16;\n"), Some(16));
+    assert_eq!(ts_font_steps("export const TABLE_FONT_STEPS = [14, 16, 18] as const;"), [14, 16, 18]);
+    assert!(ts_font_steps("nothing").is_empty());
+}
+
+#[test]
+fn the_cells_scale_with_the_font() {
+    let bad = rem_in_proportional_rules(GRID_CSS);
+    assert!(bad.is_empty(), "글자에 비례하지 않는 단위가 남았습니다: {bad:?}");
+}
+
+#[test]
+fn the_check_catches_a_cell_that_stopped_scaling() {
+    let css = "\n.dg-hcell {\n  padding: 0.5em 0.625rem;\n}\n";
+    let bad = rem_in_proportional_rules(css);
+    assert!(bad.iter().any(|b| b.contains("padding: 0.5em 0.625rem")), "{bad:?}");
+    /* 규칙을 탐색하지 못한 것도 실패로 센다. */
+    assert!(bad.iter().any(|b| b.contains("탐색하지 못했습니다")));
+}
+
 /* ── 경계의 두 벌 ───────────────────────────────────────────────── */
 
 const BOOK_WASM: &str = include_str!("../../../web/src/lib/book.wasm.ts");

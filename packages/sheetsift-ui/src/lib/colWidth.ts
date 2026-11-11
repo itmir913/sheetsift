@@ -9,7 +9,7 @@
  * 그래서 기재하지 않고 측정한다. 실제 헤더 셀과 **동일한 클래스를 부착한
  * 셀**을 화면 외부에 하나 생성해 두고, 거기에 문자를 주입해 폭을 판독한다.
  * 여백·구분선·정렬 표식 공간이 전부 그 셀의 스타일에 이미 포함되어 있으므로,
- * 여기서 `2.625rem` 같은 수치를 별도 보유하지 않아도 된다. CSS 가 변경되면
+ * 여기서 `2.625em` 같은 수치를 별도 보유하지 않아도 된다. CSS 가 변경되면
  * 측정값도 추종해 변경된다.
  *
  * 본문 값도 함께 측정한다. 헤더만 측정하면 `전형방법` 처럼 **명칭은 단축인데
@@ -38,7 +38,7 @@ const SAMPLE_ROWS = 150;
 const SAMPLE_VALUES = 3;
 
 /**
- * 측정으로 산정 가능한 최대 폭(rem).
+ * 측정으로 산정 가능한 최대 폭(em, 기본 16px 에서는 rem 과 동일).
  *
  * 상한이 부재하면 문장이 수록된 열 하나가 화면을 전체 점유한다. 수동 조작 시의
  * 한계(MAX_WIDTH)보다 낮게 배치한다 — 자동으로는 여기까지만 확장하고, 추가
@@ -63,8 +63,19 @@ if (typeof document !== "undefined" && document.fonts) {
   });
 }
 
-function rootFontPx(): number {
-  const v = parseFloat(getComputedStyle(document.documentElement).fontSize);
+/**
+ * 폭 한 단위의 px. 측정 셀(`.dg-probe`)의 글자 크기다.
+ *
+ * 폭의 단위는 `rem` 이 아니라 `em` 이다 — `GridTable` 이 열 폭을 `em` 으로 전달하므로
+ * 동일한 단위로 환산해야 한다. 루트 글자 크기로 나누면 루트가 16px 가 아닌 환경에서
+ * 측정값과 화면의 폭이 그 비율만큼 불일치한다. 측정 셀은 `--dg-font` 의 기본값(16px)을
+ * 사용하므로 이 값은 사용자가 선택한 글자 크기와 무관하게 일정하다 — 그래서 캐시된
+ * 값과 저장된 폭이 글자 크기를 변경해도 유효하다. 셀의 여백·간격도 `em` 이라(`grid.css`)
+ * 화면에서는 모든 단계에서 측정한 폭이 정확히 대응한다.
+ * (함수·상수 명칭의 `Rem` 은 유래라 존치한다. 기본 크기에서는 `rem` 과 동일하다.)
+ */
+function unitPx(): number {
+  const v = parseFloat(getComputedStyle(probeCell ?? document.documentElement).fontSize);
   return Number.isFinite(v) && v > 0 ? v : 16;
 }
 
@@ -118,7 +129,7 @@ function ensureProbe() {
 }
 
 /**
- * 헤더가 절단되지 않는 최소 열 폭(rem).
+ * 헤더가 절단되지 않는 최소 열 폭(em).
  *
  * 측정 대상은 문자가 아니라 **셀 전체**다 — 좌우 여백과 정렬 표식 공간이
  * 포함된 값이 산출된다.
@@ -130,12 +141,12 @@ export function headerWidthRem(label: string): number {
   ensureProbe();
   probeLabel!.textContent = label;
   const px = probeCell!.getBoundingClientRect().width;
-  // 0.25rem 단위로 절상한다. 소수점 이하가 절사되어 1문자가 말줄임으로
+  // 0.25em 단위로 절상한다. 소수점 이하가 절사되어 1문자가 말줄임으로
   // 전환되는 사태를 차단한다.
-  const rem = Math.ceil((px / rootFontPx()) * 4) / 4;
+  const em = Math.ceil((px / unitPx()) * 4) / 4;
 
-  cache.set(label, rem);
-  return rem;
+  cache.set(label, em);
+  return em;
 }
 
 /** 문자가 광폭인가. 실측할 값을 선별하는 데만 사용한다. */
@@ -145,13 +156,13 @@ function weigh(s: string): number {
   return w;
 }
 
-/** 본문 값 하나가 전부 노출되는 셀 폭(rem). */
+/** 본문 값 하나가 전부 노출되는 셀 폭(em). */
 function bodyWidthRem(text: string, kind: ColumnKind): number {
   ensureProbe();
   probeBody!.dataset.kind = kind;
   probeBody!.textContent = text;
   const px = probeBody!.getBoundingClientRect().width;
-  return Math.ceil((px / rootFontPx()) * 4) / 4;
+  return Math.ceil((px / unitPx()) * 4) / 4;
 }
 
 /** 500행에서 균등 추출한다. 무작위 추출하면 개방할 때마다 폭이 상이해진다. */
@@ -164,7 +175,7 @@ function sample(rows: Row[]): Row[] {
 }
 
 /**
- * 헤더와 본문을 함께 참조해 산정한 열 폭(rem).
+ * 헤더와 본문을 함께 참조해 산정한 열 폭(em).
  *
  * 문자 수로 장문 값 수 개를 선별한 뒤 **그것만 실측한다.** 500행 × 40열을 전부
  * 측정하면 레이아웃을 2만 회 재산정하게 되는데, 선별해 측정하면 열마다 수 회면
@@ -201,8 +212,8 @@ export function autoWidthRem(
   }
 
   for (const p of picked) {
-    const rem = bodyWidthRem(p.text, kind);
-    if (rem > widest) widest = rem;
+    const em = bodyWidthRem(p.text, kind);
+    if (em > widest) widest = em;
   }
 
   return Math.min(AUTO_MAX_WIDTH, widest);

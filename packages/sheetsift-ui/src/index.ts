@@ -9,6 +9,7 @@
  * 부품은 원본(`.vue`·`.ts`)으로 반출한다. 받는 쪽의 vite 가 컴파일한다.
  */
 import { installGrouping } from "./composables/useGrouping";
+import { installTableFont } from "./composables/useTableFont";
 import { installTheme } from "./composables/useTheme";
 import {
   provideAppName,
@@ -53,7 +54,7 @@ export interface SharedUiOptions {
 }
 
 /**
- * 주입하고, 저장소에 보관된 선택(테마·천 단위 구분)을 반영한다.
+ * 주입하고, 저장소에 보관된 선택(테마·천 단위 구분·표 글자 크기)을 반영한다.
  *
  * **화면을 장착하기 이전에 호출한다.** 장착 이후에 호출하면 최초 묘사가 기본
  * 테마로 점멸하고, 주입 이전에 묘사된 부품은 정지한다.
@@ -65,6 +66,7 @@ export function installSharedUi(o: SharedUiOptions): void {
   provideGridSource(o.source);
   provideErrors(o.errors);
   installTheme();
+  installTableFont();
   installGrouping();
   if (o.shortcuts) installShortcutGuard(o.shortcuts);
 }

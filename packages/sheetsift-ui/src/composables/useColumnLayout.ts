@@ -8,7 +8,7 @@ import type { ColumnDef, Row, ScreenDef } from "../lib/grid";
 /** 화면에 실제로 묘사되는 열. `srcIndex` 는 바탕이 전송한 행 배열에서의 원위치다. */
 export interface LaidOutColumn extends ColumnDef {
   srcIndex: number;
-  /** 열 폭(rem). 헤더를 측정해 결정하고, 사용자가 조작하면 그 값으로 피복한다. */
+  /** 열 폭(`em` — 표의 글자 크기 기준, 기본 16px 에서는 `rem` 과 같다). 헤더를 측정해 결정하고, 사용자가 조작하면 그 값으로 피복한다. */
   width: number;
   /**
    * 잔여 공간을 **몇 배분** 수령할 열인가. `width` 는 그때 최소 폭이 된다.
@@ -69,12 +69,13 @@ interface StoredLayout {
 }
 
 /**
- * 열 폭의 하한(rem). 이보다 협소하면 열 검색란과 값 선택 단추가 셀을 이탈한다.
+ * 열 폭의 하한(em). 이보다 협소하면 열 검색란과 값 선택 단추가 셀을 이탈한다.
+ * 검색란의 여백·단추도 `em` 이라(`grid.css`) 글자 크기와 무관하게 이 약속이 성립한다.
  */
 export const MIN_WIDTH = 6;
 
 /**
- * 열 폭의 상한(rem). **사람이 조작하는 범위다.**
+ * 열 폭의 상한(em). **사람이 조작하는 범위다.**
  *
  * 자동 산정은 이보다 현저히 낮은 한계를 자체 보유하므로(`AUTO_MAX_WIDTH`) 이
  * 수치는 끌어서 조절할 때만 도달한다. 종전에는 양자가 근접해 있어, 장문이
@@ -96,8 +97,8 @@ export const MAX_PIN = 4;
 /** 기준 열 하나는 기본으로 고정한다. 표를 수평 이동해도 무엇의 행인지 잔존한다. */
 const DEFAULT_PIN = 1;
 
-function clampWidth(rem: number): number {
-  return Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, rem));
+function clampWidth(em: number): number {
+  return Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, em));
 }
 
 /**

@@ -123,6 +123,9 @@ export const ui = {
   "pager.of_other": "/ {n} 페이지",
 
   /* 도구 모음 */
+  "tools.font": "글자",
+  "tools.font.less.aria": "표 글자 줄이기",
+  "tools.font.more.aria": "표 글자 키우기",
   "tools.pin": "왼쪽 고정",
   "tools.pin.less.aria": "고정할 열 줄이기",
   "tools.pin.more.aria": "고정할 열 늘리기",

@@ -11,6 +11,7 @@ import { computed, ref, watch } from "vue";
 import ColumnPicker from "./ColumnPicker.vue";
 import { t, tn } from "../lib/inject";
 import { grouping, setGrouping } from "../composables/useGrouping";
+import { TABLE_FONT_STEPS, stepTableFont, tableFont } from "../composables/useTableFont";
 import type { HeaderSpec, Sort } from "../lib/grid";
 import type { LaidOutColumn, PickableColumn } from "../composables/useColumnLayout";
 
@@ -209,147 +210,184 @@ function labelOf(key: string): string {
         </button>
       </span>
 
-      <span v-if="!compact" class="gx-tools-set">
+      <span class="gx-tools-set">
+        <!-- 표의 글자 크기. **`compact` 에도 배치한다** — 범위 차트도 표를 열람하는
+             화면이고, 글자 크기는 열을 취급하는 기능이 아니라 은폐할 사유가 없다. 그래서
+             하기 `!compact` 묶음 외부다. 값은 화면 전체가 공유하는 하나라 props·emit
+             없이 직접 판독하고 기록한다(`useTableFont`). 양 끝에서는 `열 고정` 처럼
+             단추가 비활성화된다. -->
         <span class="gx-pin">
-          <span class="whitespace-nowrap text-fg-muted">{{ t("tools.pin") }}</span>
+          <span class="whitespace-nowrap text-fg-muted">{{ t("tools.font") }}</span>
           <button
             type="button"
             class="gx-pin-btn"
-            :disabled="pinned <= 0"
-            :aria-label="t('tools.pin.less.aria')"
-            @click="emit('setPinned', pinned - 1)"
+            :disabled="tableFont <= TABLE_FONT_STEPS[0]"
+            :aria-label="t('tools.font.less.aria')"
+            @click="stepTableFont(-1)"
           >
             −
           </button>
+          <!-- 폭을 `22px`(가장 넓은 값)에 맞춰 사전에 확보한다. 값이 변경될 때 단추가
+               이동하면 안 된다. `ch` 는 `p`·`x` 의 폭을 보장하지 않으므로 숫자 둘과
+               단위 둘에 여유를 더해 `6ch` 로 한다. -->
           <span
-            class="min-w-4 shrink-0 whitespace-nowrap text-center tabular-nums text-fg"
+            class="w-[6ch] shrink-0 whitespace-nowrap text-center tabular-nums text-fg"
           >
-            {{ pinned }}
+            {{ tableFont }}px
           </span>
           <button
             type="button"
             class="gx-pin-btn"
-            :disabled="pinned >= pinLimit"
-            :aria-label="t('tools.pin.more.aria')"
-            @click="emit('setPinned', pinned + 1)"
+            :disabled="tableFont >= TABLE_FONT_STEPS[TABLE_FONT_STEPS.length - 1]"
+            :aria-label="t('tools.font.more.aria')"
+            @click="stepTableFont(1)"
           >
             ＋
           </button>
         </span>
 
-        <span v-if="header" class="gx-pin">
-          <span class="whitespace-nowrap text-fg-muted">{{ t("tools.header") }}</span>
-          <button
-            type="button"
-            class="gx-pin-btn"
-            :disabled="header.at <= 0"
-            :aria-label="t('tools.header.up.aria')"
-            :data-tip="t('tools.header.up.tip')"
-            @click="moveStart(-1)"
-          >
-            ↑
-          </button>
-          <span class="whitespace-nowrap tabular-nums text-fg">
-            <template v-if="header.rows === 1">
-              {{ t("tools.header.single", { a: rowOrigin + header.at + 1 }) }}
-            </template>
-            <template v-else>
-              {{
-                t("tools.header.range", {
-                  a: rowOrigin + header.at + 1,
-                  b: rowOrigin + header.at + header.rows,
-                })
-              }}
-            </template>
+        <template v-if="!compact">
+          <span class="gx-pin">
+            <span class="whitespace-nowrap text-fg-muted">{{ t("tools.pin") }}</span>
+            <button
+              type="button"
+              class="gx-pin-btn"
+              :disabled="pinned <= 0"
+              :aria-label="t('tools.pin.less.aria')"
+              @click="emit('setPinned', pinned - 1)"
+            >
+              −
+            </button>
+            <span
+              class="min-w-4 shrink-0 whitespace-nowrap text-center tabular-nums text-fg"
+            >
+              {{ pinned }}
+            </span>
+            <button
+              type="button"
+              class="gx-pin-btn"
+              :disabled="pinned >= pinLimit"
+              :aria-label="t('tools.pin.more.aria')"
+              @click="emit('setPinned', pinned + 1)"
+            >
+              ＋
+            </button>
           </span>
-          <button
-            type="button"
-            class="gx-pin-btn"
-            :disabled="header.at + header.rows >= sheetRows"
-            :aria-label="t('tools.header.down.aria')"
-            :data-tip="t('tools.header.down.tip')"
-            @click="moveStart(1)"
-          >
-            ↓
-          </button>
-          <button
-            type="button"
-            class="gx-pin-btn"
-            :disabled="header.rows <= 1"
-            :aria-label="t('tools.header.less.aria')"
-            :data-tip="t('tools.header.less.tip')"
-            @click="moveRows(-1)"
-          >
-            −
-          </button>
-          <span
-            class="min-w-4 shrink-0 whitespace-nowrap text-center tabular-nums text-fg"
-          >
-            {{ header.rows }}
+
+          <span v-if="header" class="gx-pin">
+            <span class="whitespace-nowrap text-fg-muted">{{ t("tools.header") }}</span>
+            <button
+              type="button"
+              class="gx-pin-btn"
+              :disabled="header.at <= 0"
+              :aria-label="t('tools.header.up.aria')"
+              :data-tip="t('tools.header.up.tip')"
+              @click="moveStart(-1)"
+            >
+              ↑
+            </button>
+            <span class="whitespace-nowrap tabular-nums text-fg">
+              <template v-if="header.rows === 1">
+                {{ t("tools.header.single", { a: rowOrigin + header.at + 1 }) }}
+              </template>
+              <template v-else>
+                {{
+                  t("tools.header.range", {
+                    a: rowOrigin + header.at + 1,
+                    b: rowOrigin + header.at + header.rows,
+                  })
+                }}
+              </template>
+            </span>
+            <button
+              type="button"
+              class="gx-pin-btn"
+              :disabled="header.at + header.rows >= sheetRows"
+              :aria-label="t('tools.header.down.aria')"
+              :data-tip="t('tools.header.down.tip')"
+              @click="moveStart(1)"
+            >
+              ↓
+            </button>
+            <button
+              type="button"
+              class="gx-pin-btn"
+              :disabled="header.rows <= 1"
+              :aria-label="t('tools.header.less.aria')"
+              :data-tip="t('tools.header.less.tip')"
+              @click="moveRows(-1)"
+            >
+              −
+            </button>
+            <span
+              class="min-w-4 shrink-0 whitespace-nowrap text-center tabular-nums text-fg"
+            >
+              {{ header.rows }}
+            </span>
+            <button
+              type="button"
+              class="gx-pin-btn"
+              :disabled="header.at + header.rows >= sheetRows"
+              :aria-label="t('tools.header.more.aria')"
+              :data-tip="t('tools.header.more.tip')"
+              @click="moveRows(1)"
+            >
+              ＋
+            </button>
           </span>
+
+          <button
+            v-if="canPrint"
+            type="button"
+            class="gx-tool-btn"
+            :disabled="printing || printDisabled"
+            :data-tip="t('tools.print.tip')"
+            @click="emit('print')"
+          >
+            {{ t(printing ? "tools.print.busy" : "tools.print") }}
+          </button>
           <button
             type="button"
-            class="gx-pin-btn"
-            :disabled="header.at + header.rows >= sheetRows"
-            :aria-label="t('tools.header.more.aria')"
-            :data-tip="t('tools.header.more.tip')"
-            @click="moveRows(1)"
+            class="gx-tool-btn"
+            :disabled="!allColumns.length"
+            :data-tip="t('tools.columns.tip')"
+            @click="picker?.open()"
           >
-            ＋
+            {{ t("tools.columns") }}
           </button>
-        </span>
+          <button
+            type="button"
+            class="gx-tool-btn"
+            :disabled="!columnsCustomized"
+            :data-tip="t('tools.columns.reset.tip')"
+            @click="emit('resetColumns')"
+          >
+            {{ t("tools.columns.reset") }}
+          </button>
+          <button
+            type="button"
+            class="gx-tool-btn"
+            :disabled="!sorts.length"
+            @click="emit('clearSorts')"
+          >
+            {{ t("tools.sorts.clear") }}
+          </button>
+          <button
+            type="button"
+            class="gx-tool-btn"
+            :disabled="!hasFilters"
+            @click="emit('clearFilters')"
+          >
+            {{ t("tools.filters.clear") }}
+          </button>
 
-        <button
-          v-if="canPrint"
-          type="button"
-          class="gx-tool-btn"
-          :disabled="printing || printDisabled"
-          :data-tip="t('tools.print.tip')"
-          @click="emit('print')"
-        >
-          {{ t(printing ? "tools.print.busy" : "tools.print") }}
-        </button>
-        <button
-          type="button"
-          class="gx-tool-btn"
-          :disabled="!allColumns.length"
-          :data-tip="t('tools.columns.tip')"
-          @click="picker?.open()"
-        >
-          {{ t("tools.columns") }}
-        </button>
-        <button
-          type="button"
-          class="gx-tool-btn"
-          :disabled="!columnsCustomized"
-          :data-tip="t('tools.columns.reset.tip')"
-          @click="emit('resetColumns')"
-        >
-          {{ t("tools.columns.reset") }}
-        </button>
-        <button
-          type="button"
-          class="gx-tool-btn"
-          :disabled="!sorts.length"
-          @click="emit('clearSorts')"
-        >
-          {{ t("tools.sorts.clear") }}
-        </button>
-        <button
-          type="button"
-          class="gx-tool-btn"
-          :disabled="!hasFilters"
-          @click="emit('clearFilters')"
-        >
-          {{ t("tools.filters.clear") }}
-        </button>
-
-        <!-- 천 단위 구분. **사람이 선택한다** — 어느 열이 식별자인지 이 앱은
-             판정하지 않는다. -->
-        <label class="gx-tool-btn gx-tool-check" :data-tip="t('tools.grouping.tip')">
-          <input type="checkbox" :checked="grouping" @change="setGrouping(!grouping)" />
-          {{ t("tools.grouping") }}
-        </label>
+          <!-- 천 단위 구분. **사람이 선택한다** — 어느 열이 식별자인지 이 앱은
+               판정하지 않는다. -->
+          <label class="gx-tool-btn gx-tool-check" :data-tip="t('tools.grouping.tip')">
+            <input type="checkbox" :checked="grouping" @change="setGrouping(!grouping)" />
+            {{ t("tools.grouping") }}
+          </label>
+        </template>
       </span>
     </div>
 
