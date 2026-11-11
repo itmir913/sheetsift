@@ -618,12 +618,26 @@ fn order_keys(
     Ok(parts)
 }
 
-/// ORDER BY 절.
-fn build_order(table: &dyn Table, sorts: &[Sort], blank: &str) -> Result<String> {
-    let parts = order_keys(table, sorts, blank, true)?;
-    if parts.is_empty() {
-        return Ok(String::new());
-    }
+/// 쪽을 나눠 판독할 때 행 하나를 유일하게 지시하는 열의 별칭.
+///
+/// 기준 테이블의 `rowid` 다. 안쪽 질의가 그 이름으로 산출하고 바깥 질의가 그것
+/// 으로 정렬한다 — 바깥에서는 `rowid` 가 더 이상 참조되지 않기 때문이다.
+pub(crate) const RID: &str = "_sheetsift_rid";
+
+/// ORDER BY 절. **늘 유일 열 꼬리로 종결한다.**
+///
+/// 꼬리가 부재하면 동점 행들의 순서가 정의되지 않는다. 그 상태로 offset 을
+/// 상승시키며 쪽을 이어 붙이면 **동일한 행이 두 번 실리고 다른 행이 누락되는데,
+/// 건수는 정합해 눈에 출현하지 않는다** — 인쇄하는 쪽이 그렇게 판독한다.
+/// 정렬을 아예 걸지 않은 요청도 동일하다. 그래서 정렬 열쇠가 공백이어도 꼬리
+/// 하나로 전순서가 성립한다.
+///
+/// 색인 정의에는 이 꼬리를 기재하지 않는다 — **SQLite 의 모든 색인은 마지막
+/// 열쇠가 `rowid` 다.** 기재하면 동일한 열쇠를 두 번 기재하는 것이 되고, 그러면
+/// 색인 명칭의 지문과 ORDER BY 의 글자가 어긋나 색인이 정렬에 사용되지 않는다.
+fn build_order(table: &dyn Table, sorts: &[Sort], blank: &str, rid: &str) -> Result<String> {
+    let mut parts = order_keys(table, sorts, blank, true)?;
+    parts.push(format!("{rid} ASC"));
     Ok(format!(" ORDER BY {}", parts.join(", ")))
 }
 
@@ -724,7 +738,10 @@ pub fn run(conn: &Connection, table: &dyn Table, blank: &str, q: &Query) -> Resu
     let started = web_time::Instant::now();
 
     let (where_sql, binds) = build_where(table, &q.filters, blank, Own::Apply)?;
-    let order_sql = build_order(table, &q.sorts, blank)?;
+    /* 안쪽은 기준 테이블의 `rowid` 로, 바깥은 안쪽이 산출한 별칭으로 정렬한다.
+       양쪽이 동일한 꼬리를 보아야 쪽을 이어 붙인 결과에 중복도 누락도 없다. */
+    let inner_order = build_order(table, &q.sorts, blank, "t.rowid")?;
+    let outer_order = build_order(table, &q.sorts, blank, &format!("t.\"{RID}\""))?;
     let limit = q.limit.clamp(1, MAX_LIMIT);
 
     let params: Vec<&dyn rusqlite::ToSql> =
@@ -746,8 +763,9 @@ pub fn run(conn: &Connection, table: &dyn Table, blank: &str, q: &Query) -> Resu
         .join(", ");
     let sql = format!(
         "SELECT {select_list} FROM (\
-           SELECT * FROM {base} t{where_sql}{order_sql} LIMIT {limit} OFFSET {offset}\
-         ) t{joins}{order_sql}",
+           SELECT t.*, t.rowid AS \"{RID}\" FROM {base} t{where_sql}{inner_order} \
+           LIMIT {limit} OFFSET {offset}\
+         ) t{joins}{outer_order}",
         base = table.base(),
         joins = dict_joins(table),
         offset = q.offset,
@@ -1597,6 +1615,127 @@ mod tests {
         (conn, t)
     }
 
+    /// 동점이 다수인 표. `rows` 행이고 점수는 `세 가지`뿐이라 전 행이 동점군에
+    /// 소속된다 — 꼬리가 부재하면 쪽마다 순서가 상이할 수 있는 형태다.
+    fn ties(rows: i64) -> (Connection, T) {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE ties(name TEXT, score TEXT);").unwrap();
+        {
+            let tx = conn.unchecked_transaction().unwrap();
+            let mut st = conn.prepare("INSERT INTO ties VALUES(?1, ?2)").unwrap();
+            for i in 0..rows {
+                st.execute(rusqlite::params![format!("n{i}"), format!("{}", i % 3)]).unwrap();
+            }
+            drop(st);
+            tx.commit().unwrap();
+        }
+        let mut t = T {
+            base: "ties".into(),
+            columns: vec![col("name", ColumnKind::Text, false), col("score", ColumnKind::Number, false)],
+        };
+        assign_aliases(t.columns.iter_mut());
+        (conn, t)
+    }
+
+    /// **정렬 열쇠가 유일 열 꼬리로 종결한다.**
+    ///
+    /// 쪽을 이어 붙여 판독하는 쪽(인쇄)이 전순서를 요구한다. 꼬리가 부재하면
+    /// 동점 행들의 순서는 **질의 계획이 결정한다** — 색인이 생성되는 경계,
+    /// 필터의 유무, SQLite 의 판에 따라 상이해지고, 그 결과로 중복과 누락이
+    /// 발생하는데 건수는 정합한다. 산출되는 행으로는 그것을 포착할 수 없으므로
+    /// 절을 글자로 판정한다.
+    ///
+    /// 정렬을 걸지 않은 요청도 동일하다. 종전에는 그 요청의 ORDER BY 가 공백
+    /// 문자였다 — 순서가 전혀 지정되지 않은 질의다.
+    #[test]
+    fn every_order_by_ends_with_a_unique_column() {
+        let (_conn, t) = fixture();
+        for sorts in [
+            vec![],
+            vec![s("score", SortDir::Desc)],
+            vec![s("city", SortDir::Asc), s("name", SortDir::Desc)],
+        ] {
+            let order = build_order(&t, &sorts, BLANK, "t.rowid").unwrap();
+            assert!(order.starts_with(" ORDER BY "), "{order}");
+            assert!(order.ends_with("t.rowid ASC"), "{order}");
+        }
+        // 안쪽 질의와 바깥 질의가 동일한 꼬리를 보아야 한다. 바깥에서는 `rowid`
+        // 가 더 이상 참조되지 않으므로 안쪽이 산출한 별칭을 사용한다.
+        let outer = build_order(&t, &[], BLANK, &format!("t.\"{RID}\"")).unwrap();
+        assert!(outer.ends_with(&format!("t.\"{RID}\" ASC")), "{outer}");
+    }
+
+    /// 쪽을 끝까지 이어 붙여 판독한다. 인쇄하는 쪽이 수행하는 것과 동일하다.
+    fn every_page(conn: &Connection, t: &T, sorts: Vec<Sort>) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        let mut offset = 0u32;
+        loop {
+            let q = Query { sorts: sorts.clone(), filters: vec![], offset, limit: MAX_LIMIT };
+            let page = run(conn, t, BLANK, &q).unwrap();
+            if page.rows.is_empty() {
+                break;
+            }
+            out.extend(names(&page));
+            offset += MAX_LIMIT;
+            if offset >= page.total {
+                break;
+            }
+        }
+        out
+    }
+
+    /// **쪽을 나눠 전부 판독하면 중복도 누락도 부재한다.**
+    ///
+    /// 정렬 열쇠에 유일 열 꼬리가 부재하면 동점 행들의 순서가 정의되지 않는다.
+    /// 그 상태로 offset 을 상승시키며 쪽을 이어 붙이면 **동일한 행이 두 번
+    /// 실리고 다른 행이 누락되는데, 건수는 정합해 눈에 출현하지 않는다** — 그
+    /// 표를 인쇄한 사람은 자신의 줄이 소멸한 것을 인지하지 못한다.
+    #[test]
+    fn reading_every_page_of_a_table_full_of_ties_loses_no_row_and_repeats_none() {
+        let rows = 2_100i64;
+        let (conn, t) = ties(rows);
+        let expected: std::collections::BTreeSet<String> =
+            (0..rows).map(|i| format!("n{i}")).collect();
+
+        for sorts in [
+            vec![],
+            vec![s("score", SortDir::Asc)],
+            vec![s("score", SortDir::Desc)],
+            vec![s("name", SortDir::Asc)],
+        ] {
+            let got = every_page(&conn, &t, sorts.clone());
+            let unique: std::collections::BTreeSet<String> = got.iter().cloned().collect();
+            assert_eq!(got.len() as i64, rows, "건수가 상이합니다: {sorts:?}");
+            assert_eq!(unique.len(), got.len(), "동일한 행이 두 번 실렸습니다: {sorts:?}");
+            assert_eq!(unique, expected, "누락된 행이 존재합니다: {sorts:?}");
+        }
+    }
+
+    /// **색인을 생성하는 경계의 양측이 동일한 순서를 산출한다.**
+    ///
+    /// 색인은 행 수가 [`SORT_INDEX_LEAST`] 이상일 때만 생성되므로, 그 경계에서는
+    /// 쪽마다 상이한 질의 계획으로 작동할 수 있다. 꼬리가 양측에서 동일해야
+    /// 색인 순회와 임시 정렬이 동일한 답을 산출한다.
+    #[test]
+    fn both_sides_of_the_index_threshold_answer_the_same() {
+        let sorts = vec![s("score", SortDir::Asc)];
+        let (small, ts) = ties(SORT_INDEX_LEAST - 1);
+        let (large, tl) = ties(SORT_INDEX_LEAST);
+
+        let below = every_page(&small, &ts, sorts.clone());
+        let above = every_page(&large, &tl, sorts.clone());
+        // 색인이 경계의 상측에서만 생성된다 — 그런데도 순서는 동일해야 한다.
+        assert!(sort_indexes(&small).is_empty(), "경계 하측에는 색인이 부재한다");
+        assert_eq!(sort_indexes(&large).len(), 1, "경계 상측에는 색인이 존재한다");
+
+        assert_eq!(below.len() as i64, SORT_INDEX_LEAST - 1);
+        assert_eq!(above.len() as i64, SORT_INDEX_LEAST);
+        // 상측은 하측보다 행이 하나 많다. 그 행을 제외하면 순서가 일치해야 한다.
+        let last = format!("n{}", SORT_INDEX_LEAST - 1);
+        let trimmed: Vec<String> = above.into_iter().filter(|n| *n != last).collect();
+        assert_eq!(trimmed, below, "색인의 유무로 순서가 상이합니다");
+    }
+
     fn sort_indexes(conn: &Connection) -> Vec<String> {
         let mut st = conn
             .prepare("SELECT name FROM sqlite_schema WHERE type = 'index' AND name LIKE 'sheetsift_sort_%' ORDER BY name")
@@ -1617,7 +1756,7 @@ mod tests {
         let names = sort_indexes(&conn);
         assert_eq!(names.len(), 1, "정렬마다 색인 하나");
 
-        let order = build_order(&t, &q.sorts, BLANK).unwrap();
+        let order = build_order(&t, &q.sorts, BLANK, "t.rowid").unwrap();
         let sql = format!("SELECT * FROM big t{order} LIMIT 100 OFFSET {}", SORT_INDEX_LEAST - 50);
         let plan: Vec<String> = {
             let mut st = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
