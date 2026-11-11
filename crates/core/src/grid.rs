@@ -208,6 +208,21 @@ pub struct Filter {
     /// 그런 행까지 산입해 페이지를 분할하면 전체가 공백인 페이지가 발생한다.
     #[serde(default)]
     pub not_blank: bool,
+    /// **숫자 열의 하한.** 이 값 이상인 행만 통과시킨다(경계를 포함한다).
+    ///
+    /// 열 전체가 숫자로 판독되는 값만 통과한다 — 공백과 `총 44850점` 같은 문자는
+    /// 하한이나 상한이 하나라도 기재되면 탈락한다. 공백을 고르려면 범위가 아니라 값
+    /// 선택(`values` 에 `BLANK_TOKEN`)으로 기재한다. 범위가 걸린 열의 값 목록
+    /// ([`column_values`])에는 공백이 없다.
+    ///
+    /// 숫자 열이 아닌 열에 기재하면 **중단한다.** 문자 열에 숫자 비교를 적용하면
+    /// 모든 행이 탈락하는데, 그것이 오류로 출현하지 않는다.
+    #[serde(default)]
+    pub min: Option<f64>,
+    /// **숫자 열의 상한.** 이 값 이하인 행만 통과시킨다(경계를 포함한다). 하나만
+    /// 기재해도 유효하나, 하한이 상한을 초과하면 중단한다.
+    #[serde(default)]
+    pub max: Option<f64>,
 }
 
 impl Filter {
@@ -216,6 +231,8 @@ impl Filter {
             && self.values.is_none()
             && self.excluded.is_none()
             && !self.not_blank
+            && self.min.is_none()
+            && self.max.is_none()
     }
 }
 
@@ -246,12 +263,23 @@ pub struct ColumnValue {
     pub count: u32,
 }
 
+/// 숫자 열의 최소와 최대.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct NumberSpan {
+    pub min: f64,
+    pub max: f64,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ColumnValues {
     pub values: Vec<ColumnValue>,
     /// [`MAX_VALUES`] 를 초과해 절단되었는가.
     pub truncated: bool,
+    /// 숫자 열의 **자료가 존재하는 범위.** 숫자 열이 아니거나 숫자로 판독되는 값이
+    /// 하나도 부재하거나, **축소 문자가 있는 요청이면** `None` 이다. 그 열 자신의 필터와 축소 문자를 제외하고 산출한다
+    /// — 값 목록과 같은 규칙이다.
+    pub range: Option<NumberSpan>,
     pub elapsed_ms: f64,
 }
 
@@ -306,6 +334,14 @@ fn values_order_sql(expr: &str, blank: &str, numeric: bool) -> String {
 }
 
 pub(crate) fn not_a_number_sql(base: &str) -> String {
+    format!("(CASE WHEN {} THEN 0 ELSE 1 END) ASC", is_number_sql(base))
+}
+
+/// 전체가 수치의 형태인지 판정하는 SQL 조건. 정렬([`not_a_number_sql`])과 범위 필터가
+/// **「무엇을 수치로 보는가」만 공유한다.** 한쪽이 수치로 판정한 값이 타방에서 문자로
+/// 취급되면 갈라지기 때문이다. 순서까지 같은 것은 아니다 — 사전 열의 정렬은 정수 id 로
+/// (가나다순) 수행하므로, 범위가 수치로 거르는 행과 정렬에서 보이는 순서는 사전 열에서 다르다.
+fn is_number_sql(base: &str) -> String {
     /* **전체가 수치의 형태인지 판정한다.** 변환 결과가 0 이 아닌지로 판정하면
        `3 apples`·`12abc`·`7점` 처럼 수치가 **접두사로** 기재된 문자가 그 수치의
        위치로 정렬된다 — SQLite 의 변환이 접두사를 수용하기 때문이다.
@@ -317,7 +353,7 @@ pub(crate) fn not_a_number_sql(base: &str) -> String {
        않는가" 로 판정하고, 횟수는 문자를 제거한 길이로 판정한다. */
     let bare = format!("REPLACE({base}, ',', '')");
     let count = |ch: &str| format!("LENGTH({bare}) - LENGTH(REPLACE({bare}, '{ch}', ''))");
-    let numeric = format!(
+    format!(
         "{bare} GLOB '*[0-9]*' \
          AND NOT {bare} GLOB '*[^0-9.+-]*' \
          AND NOT {bare} GLOB '?*[+-]*' \
@@ -325,8 +361,7 @@ pub(crate) fn not_a_number_sql(base: &str) -> String {
          AND NOT ({})",
         count("."),
         misgrouped(base)
-    );
-    format!("(CASE WHEN {numeric} THEN 0 ELSE 1 END) ASC")
+    )
 }
 
 /// 쉼표가 천 단위 구분으로 유효하지 않게 기재되었는가.
@@ -452,6 +487,30 @@ fn filter_clause(col: &Column, f: &Filter, blank: &str, binds: &mut Vec<String>)
         });
     }
 
+    // ⑤ 숫자 범위. 열 전체가 수치로 판독되는 값만 통과한다.
+    if f.min.is_some() || f.max.is_some() {
+        let inside = |expr: &str, binds: &mut Vec<String>| -> String {
+            let num = number_sql(expr);
+            let mut conds = vec![is_number_sql(expr)];
+            /* 값을 SQL 에 기재하지 않고 바인딩한다. `CAST` 로 받는 쪽이 셀 값을 변환하는
+               것과 **같은 변환**을 거치므로, 경계의 값이 부동소수 표기 때문에 어긋나지 않는다. */
+            if let Some(lo) = f.min {
+                binds.push(format!("{lo}"));
+                conds.push(format!("{num} >= CAST(? AS REAL)"));
+            }
+            if let Some(hi) = f.max {
+                binds.push(format!("{hi}"));
+                conds.push(format!("{num} <= CAST(? AS REAL)"));
+            }
+            conds.join(" AND ")
+        };
+        parts.push(if col.dict {
+            format!("{base} IN (SELECT id FROM dict WHERE {})", inside("s", binds))
+        } else {
+            format!("({})", inside(&base, binds))
+        });
+    }
+
     if parts.is_empty() {
         None
     } else {
@@ -459,20 +518,99 @@ fn filter_clause(col: &Column, f: &Filter, blank: &str, binds: &mut Vec<String>)
     }
 }
 
+/// 숫자 열의 자료가 존재하는 범위. `where_sql` 은 그 열 자신의 필터를 제외한 조건이다.
+///
+/// 사전 열은 행마다가 아니라 **고유한 id 마다** 변환한다. 고유값 수가 행 수보다 훨씬
+/// 적고 사전은 기본 열쇠 탐색이다.
+fn number_span(
+    conn: &Connection,
+    table: &dyn Table,
+    col: &Column,
+    where_sql: &str,
+    params: &[&dyn rusqlite::ToSql],
+) -> Result<Option<NumberSpan>> {
+    let base = col.base_ref();
+    let glue = if where_sql.is_empty() { " WHERE " } else { " AND " };
+    let sql = if col.dict {
+        let (num, is_num) = (number_sql("d.s"), is_number_sql("d.s"));
+        format!(
+            "SELECT MIN({num}), MAX({num}) FROM \
+             (SELECT DISTINCT {base} AS v FROM {table} t{where_sql}) c \
+             JOIN dict d ON d.id = c.v WHERE {is_num}",
+            table = table.base(),
+        )
+    } else {
+        let (num, is_num) = (number_sql(&base), is_number_sql(&base));
+        format!(
+            "SELECT MIN({num}), MAX({num}) FROM {table} t{where_sql}{glue}{is_num}",
+            table = table.base(),
+        )
+    };
+    let (lo, hi): (Option<f64>, Option<f64>) = conn
+        .prepare_cached(&sql)?
+        .query_row(params, |r| Ok((r.get(0)?, r.get(1)?)))?;
+    Ok(match (lo, hi) {
+        (Some(min), Some(max)) if min.is_finite() && max.is_finite() => {
+            Some(NumberSpan { min, max })
+        }
+        _ => None,
+    })
+}
+
+/// 한 열의 필터를 WHERE 에서 어떻게 다루는가.
+#[derive(Clone, Copy)]
+enum Own<'a> {
+    /// 모든 필터를 적용한다.
+    Apply,
+    /// 그 열의 필터를 **통째로** 제외한다. 열의 자료가 존재하는 범위를 산출할 때 쓴다 —
+    /// 자기 범위가 자기 범위를 좁히면 손잡이의 양 끝이 걸어 둔 범위로 줄어든다.
+    SkipAll(&'a str),
+    /// 그 열의 **값 선택·제외·검색만** 제외하고, 범위(`min`·`max`)와 `not_blank`(화면이 거는
+    /// 구조 조건이다)는 적용한다. 값 목록을 만들 때 쓴다.
+    ///
+    /// 자기 값 선택은 빼되 자기 범위는 적용한다. 그러지 않으면 목록이 범위 밖의 값을 보여
+    /// 주고, 그것을 선택하면 둘이 AND 로 겹쳐 조용히 0건이 된다. 범위 밖의 값은 목록에 없으니
+    /// 선택할 수도 없다. 공백은 어떤 범위에도 들지 않으므로 범위가 걸려 있으면 목록에서도 빠진다.
+    SkipPick(&'a str),
+}
+
 /// WHERE 절과 바인딩 값을 생성한다. 기준 테이블 기준으로만 생성한다(조인 없음).
-/// `skip_key` 가 지정되면 그 열의 필터는 제외한다(값 선택 목록 생성 시 사용한다).
+/// `own` 이 지정되면 그 열의 필터를 그에 따라 다룬다(값 선택 목록 생성 시 사용한다).
 fn build_where(
     table: &dyn Table,
     filters: &[Filter],
     blank: &str,
-    skip_key: Option<&str>,
+    own: Own<'_>,
 ) -> Result<(String, Vec<String>)> {
     let mut clauses = Vec::new();
     let mut binds = Vec::new();
 
     for f in filters {
-        let names_this = skip_key.is_some_and(|k| k == f.key || f.keys.iter().any(|x| x == k));
-        if f.is_empty() || names_this {
+        let names = |k: &str| k == f.key || f.keys.iter().any(|x| x == k);
+        let only_range;
+        let f = match own {
+            Own::SkipAll(k) if names(k) => continue,
+            Own::SkipPick(k) if names(k) => {
+                if f.min.is_none() && f.max.is_none() && !f.not_blank {
+                    continue;
+                }
+                /* **칸을 하나씩 열거한다.** `..Filter::default()` 로 채우면 앞으로 더해지는 칸이
+                   조용히 떨어진다 — 열거하면 칸이 늘 때 여기서 컴파일이 멈춘다. */
+                only_range = Filter {
+                    key: f.key.clone(),
+                    keys: f.keys.clone(),
+                    contains: String::new(),
+                    values: None,
+                    excluded: None,
+                    not_blank: f.not_blank,
+                    min: f.min,
+                    max: f.max,
+                };
+                &only_range
+            }
+            _ => f,
+        };
+        if f.is_empty() {
             continue;
         }
         /* **선택과 제외를 동시에 기재하면 중단한다.** 우선순위를 묵시적으로
@@ -493,6 +631,18 @@ fn build_where(
                 .ok_or_else(|| unknown_column(table, key, "unknown filter column"))?;
             if !col.filterable {
                 continue;
+            }
+            /* **숫자 열이 아닌 열의 범위는 중단한다.** 문자 열에 숫자 비교를 적용하면
+               전 행이 탈락하는데, 그것이 오류로 출현하지 않는다. 오류 코드는 정렬·필터 열쇠
+               오류(`InvalidSortKey`)를 쓰고 **사유는 `detail` 이 진술한다** — 코드가 단일
+               enum 이라 하나 더하면 이 층을 쓰지 않는 앱까지 문구를 기재해야 한다. */
+            if (f.min.is_some() || f.max.is_some()) && col.kind != ColumnKind::Number {
+                return Err(unknown_column(table, key, "a range was given for a column that is not a number"));
+            }
+            if let (Some(lo), Some(hi)) = (f.min, f.max) {
+                if lo > hi {
+                    return Err(unknown_column(table, key, "the range minimum exceeds its maximum"));
+                }
             }
             if let Some(c) = filter_clause(col, f, blank, &mut binds) {
                 alts.push(c);
@@ -660,7 +810,7 @@ pub fn run(conn: &Connection, table: &dyn Table, blank: &str, q: &Query) -> Resu
     // 운영체제의 시계가 부재해 **호출하는 즉시 패닉한다.**
     let started = web_time::Instant::now();
 
-    let (where_sql, binds) = build_where(table, &q.filters, blank, None)?;
+    let (where_sql, binds) = build_where(table, &q.filters, blank, Own::Apply)?;
     let order_sql = build_order(table, &q.sorts, blank)?;
     let limit = q.limit.clamp(1, MAX_LIMIT);
 
@@ -712,9 +862,12 @@ pub fn run(conn: &Connection, table: &dyn Table, blank: &str, q: &Query) -> Resu
 
 /// 한 열의 고유값 목록과 각 값의 행 수.
 ///
-/// 엑셀 필터 드롭다운과 동일하게, **그 열 자신의 필터는 제외하고** 나머지
+/// 엑셀 필터 드롭다운과 동일하게, **그 열 자신의 값 선택은 제외하고** 나머지
 /// 필터를 반영한다. 그래야 선택을 해제하고 재설정해도 후보 목록이 소멸하지
 /// 않는다.
+///
+/// **그 열 자신의 범위는 적용한다**([`Own::SkipPick`]). 목록이 범위 밖의 값을 담으면 그것을
+/// 선택하는 순간 둘이 AND 로 겹쳐 조용히 0건이 된다.
 ///
 /// `needle` 은 **후보 자체를 축소하는 문자**다. 공백이면 축소하지 않는다.
 ///
@@ -740,7 +893,22 @@ pub fn column_values(
         .column(key)
         .ok_or_else(|| unknown_column(table, key, "unknown column for value list"))?;
 
-    let (mut where_sql, mut binds) = build_where(table, filters, blank, Some(key))?;
+    // 목록은 자기 값 선택만 빼고 자기 범위는 적용한다. 범위 밖의 값이 목록에 없어야 한다(`Own::SkipPick`).
+    let (mut where_sql, mut binds) = build_where(table, filters, blank, Own::SkipPick(key))?;
+
+    /* 자료의 범위는 **자기 필터를 통째로 빼고, 축소 문자도 적용하지 않고** 산출한다. 자기
+       범위가 자기 범위를 좁히거나 문자로 후보를 좁힐 때마다 범위가 따라 좁아지면, 손잡이의
+       양 끝이 이동한다. */
+    /* 축소 문자가 있는 요청에서는 **산출하지 않는다.** 범위는 한 세션 안에서 변하지 않고 화면도
+       축소한 응답의 범위는 버리는데, 산출은 전 행 집약이다. */
+    let range = if col.kind == ColumnKind::Number && needle.trim().is_empty() {
+        let (whole_sql, whole_binds) = build_where(table, filters, blank, Own::SkipAll(key))?;
+        let params: Vec<&dyn rusqlite::ToSql> =
+            whole_binds.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+        number_span(conn, table, col, &whole_sql, params.as_slice())?
+    } else {
+        None
+    };
 
     /* 축소하는 문자는 **이 열에 적용하는 부분일치**다. 사전 열이면 사전에서
        탐색한다 — 그 처리를 여기 한 벌 더 기재하지 않고 필터 한 조각을 차용한다. */
@@ -825,7 +993,12 @@ pub fn column_values(
     let truncated = values.len() > MAX_VALUES as usize;
     values.truncate(MAX_VALUES as usize);
 
-    Ok(ColumnValues { values, truncated, elapsed_ms: started.elapsed().as_secs_f64() * 1000.0 })
+    Ok(ColumnValues {
+        values,
+        truncated,
+        range,
+        elapsed_ms: started.elapsed().as_secs_f64() * 1000.0,
+    })
 }
 
 #[cfg(test)]
@@ -1256,6 +1429,204 @@ mod tests {
         // 타 열의 필터는 반영한다.
         let res = column_values(&conn, &t, BLANK, "name", &[picked("city", &["서울"])], "").unwrap();
         assert_eq!(res.values.len(), 2);
+    }
+
+    fn ranged(key: &str, min: Option<f64>, max: Option<f64>) -> Filter {
+        Filter { key: key.into(), min, max, ..Filter::default() }
+    }
+
+    #[test]
+    fn a_range_may_be_negative() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE n(v TEXT); INSERT INTO n VALUES('-10'),('-5'),('-0.5'),('3');")
+            .unwrap();
+        let mut t = T { base: "n".into(), columns: vec![col("v", ColumnKind::Number, false)] };
+        assign_aliases(t.columns.iter_mut());
+        let page =
+            run(&conn, &t, BLANK, &query(vec![], vec![ranged("v", Some(-5.0), Some(0.0))])).unwrap();
+        assert_eq!(page.total, 2, "-5 와 -0.5 만 통과해야 한다");
+        let got = column_values(&conn, &t, BLANK, "v", &[], "").unwrap();
+        assert_eq!(got.range, Some(NumberSpan { min: -10.0, max: 3.0 }));
+    }
+
+    /// 숫자 열에 수치가 하나도 없으면 범위는 `None` 이다(0 ~ 0 이 아니다).
+    #[test]
+    fn a_number_column_without_a_number_has_no_span() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE e(v TEXT); INSERT INTO e VALUES('-'),(''),('해당 없음');").unwrap();
+        let mut t = T { base: "e".into(), columns: vec![col("v", ColumnKind::Number, false)] };
+        assign_aliases(t.columns.iter_mut());
+        let got = column_values(&conn, &t, BLANK, "v", &[], "").unwrap();
+        assert_eq!(got.range, None);
+    }
+
+    /// 사전 **문자** 열에 범위를 주면 중단한다.
+    #[test]
+    fn a_range_on_a_dictionary_text_column_stops() {
+        let (conn, t) = fixture();
+        let f = ranged("city", Some(1.0), None);
+        assert!(run(&conn, &t, BLANK, &query(vec![], vec![f])).is_err());
+    }
+
+    /// 범위는 경계를 포함하고, **수치로 판독되지 않는 값(공백·`-`·문자)은 통과하지 못한다.**
+    #[test]
+    fn a_range_keeps_the_numbers_inside_it_and_drops_everything_else() {
+        let (conn, t) = fixture();
+        let f = ranged("score", Some(85.5), Some(90.0));
+        let page = run(&conn, &t, BLANK, &query(vec![], vec![f])).unwrap();
+        assert_eq!(names(&page), ["가", "라"], "경계를 포함하지 않았거나 공백이 통과했다");
+    }
+
+    #[test]
+    fn a_range_may_name_only_one_side() {
+        let (conn, t) = fixture();
+        let low = ranged("score", Some(90.0), None);
+        assert_eq!(run(&conn, &t, BLANK, &query(vec![], vec![low])).unwrap().total, 2);
+        let high = ranged("score", None, Some(85.5));
+        assert_eq!(run(&conn, &t, BLANK, &query(vec![], vec![high])).unwrap().total, 2);
+    }
+
+    #[test]
+    fn a_range_reads_a_number_with_a_thousands_separator_as_that_number() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE r(v TEXT);
+             INSERT INTO r VALUES('1,200'), ('50'), ('총 44850점'), ('7점');",
+        )
+        .unwrap();
+        let mut t = T { base: "r".into(), columns: vec![col("v", ColumnKind::Number, false)] };
+        assign_aliases(t.columns.iter_mut());
+        let page =
+            run(&conn, &t, BLANK, &query(vec![], vec![ranged("v", Some(100.0), Some(5000.0))])).unwrap();
+        assert_eq!(page.total, 1, "1,200 은 1 이 아니라 1200 으로 판독해야 한다");
+        let page =
+            run(&conn, &t, BLANK, &query(vec![], vec![ranged("v", Some(0.0), Some(99999.0))])).unwrap();
+        assert_eq!(page.total, 2, "접두사가 수치인 문자가 통과했다");
+    }
+
+    #[test]
+    fn a_range_works_on_a_dictionary_number_column() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE dict(id INTEGER PRIMARY KEY, s TEXT);
+             INSERT INTO dict VALUES(1, '10'), (2, '9'), (3, '해당 없음');
+             CREATE TABLE d(v INTEGER);
+             INSERT INTO d VALUES(1), (2), (2), (3), (NULL);",
+        )
+        .unwrap();
+        let mut t = T { base: "d".into(), columns: vec![col("v", ColumnKind::Number, true)] };
+        assign_aliases(t.columns.iter_mut());
+        let page = run(&conn, &t, BLANK, &query(vec![], vec![ranged("v", Some(9.0), Some(9.5))])).unwrap();
+        assert_eq!(page.total, 2);
+        let got = column_values(&conn, &t, BLANK, "v", &[], "").unwrap();
+        assert_eq!(got.range, Some(NumberSpan { min: 9.0, max: 10.0 }));
+    }
+
+    /// 범위가 숫자 열이 아닌 열에 기재되거나 하한이 상한을 초과하면 **중단한다.**
+    #[test]
+    fn a_range_that_cannot_mean_anything_stops() {
+        let (conn, t) = fixture();
+        let on_text = ranged("name", Some(1.0), None);
+        assert!(run(&conn, &t, BLANK, &query(vec![], vec![on_text])).is_err());
+        let reversed = ranged("score", Some(90.0), Some(80.0));
+        assert!(run(&conn, &t, BLANK, &query(vec![], vec![reversed])).is_err());
+    }
+
+    /// 범위와 값 선택은 AND 로 겹친다.
+    #[test]
+    fn a_range_and_a_value_pick_both_apply() {
+        let (conn, t) = fixture();
+        let mut f = ranged("score", Some(80.0), None);
+        f.values = Some(vec!["90".into()]);
+        let page = run(&conn, &t, BLANK, &query(vec![], vec![f])).unwrap();
+        assert_eq!(names(&page), ["가"]);
+    }
+
+    fn listed(res: &ColumnValues) -> Vec<(String, u32)> {
+        res.values
+            .iter()
+            .map(|v| (if v.value == BLANK_TOKEN { "<blank>".into() } else { v.value.clone() }, v.count))
+            .collect()
+    }
+
+    /// **값 목록은 지금 걸린 범위 안의 값만 담는다**(건수도 그렇다). 범위 밖의 값이 목록에 있으면
+    /// 그것을 선택하는 순간 범위와 AND 로 겹쳐 조용히 0건이 된다.
+    #[test]
+    fn the_value_list_holds_only_what_is_inside_the_range() {
+        let (conn, t) = fixture();
+        let r = ranged("score", Some(80.0), Some(95.0));
+        let got = column_values(&conn, &t, BLANK, "score", &[r], "").unwrap();
+        assert_eq!(listed(&got), [("85.5".into(), 1), ("90".into(), 1)]);
+    }
+
+    /// 범위를 풀면 목록은 전부로 돌아오고, 공백은 어떤 범위에도 들지 않으므로 범위가 걸려 있는
+    /// 동안에는 목록에 없다.
+    #[test]
+    fn the_blank_is_listed_only_while_no_range_is_set() {
+        let (conn, t) = fixture();
+        let all = column_values(&conn, &t, BLANK, "score", &[], "").unwrap();
+        let names: Vec<String> = listed(&all).into_iter().map(|(v, _)| v).collect();
+        assert_eq!(names, ["<blank>", "70", "85.5", "90", "100"]);
+        let r = ranged("score", Some(0.0), Some(1000.0));
+        let got = column_values(&conn, &t, BLANK, "score", &[r], "").unwrap();
+        assert!(!listed(&got).iter().any(|(v, _)| v == "<blank>"), "범위가 걸렸는데 공백이 목록에 있다");
+    }
+
+    /// 범위가 모든 값을 걸러 내면 목록은 빈다.
+    #[test]
+    fn a_range_that_removes_every_value_leaves_an_empty_list() {
+        let (conn, t) = fixture();
+        let r = ranged("score", Some(1000.0), Some(2000.0));
+        let got = column_values(&conn, &t, BLANK, "score", &[r], "").unwrap();
+        assert!(got.values.is_empty());
+        assert!(!got.truncated);
+    }
+
+    /// 화면이 거는 `not_blank` 는 자기 열의 것이어도 목록에 적용한다(구조 조건이다).
+    #[test]
+    fn the_list_keeps_its_own_not_blank() {
+        let (conn, t) = fixture();
+        let f = Filter { key: "score".into(), not_blank: true, ..Filter::default() };
+        let got = column_values(&conn, &t, BLANK, "score", &[f], "").unwrap();
+        assert!(!listed(&got).iter().any(|(v, _)| v == "<blank>"));
+    }
+
+    /// 같은 열의 값 선택은 목록을 좁히지 않고(그래야 선택을 해제·재설정할 수 있다), 범위는 좁힌다.
+    #[test]
+    fn the_list_drops_its_own_pick_but_keeps_its_own_range() {
+        let (conn, t) = fixture();
+        let mut f = ranged("score", Some(80.0), Some(95.0));
+        f.values = Some(vec!["70".into()]);
+        let got = column_values(&conn, &t, BLANK, "score", &[f], "").unwrap();
+        let names: Vec<String> = listed(&got).into_iter().map(|(v, _)| v).collect();
+        assert_eq!(names, ["85.5", "90"]);
+    }
+
+    /// 자료의 범위는 **그 열 자신의 필터를 제외하고 다른 열의 필터는 반영한다.**
+    #[test]
+    fn the_span_ignores_its_own_filter_but_not_the_others() {
+        let (conn, t) = fixture();
+        let got = column_values(&conn, &t, BLANK, "score", &[], "").unwrap();
+        assert_eq!(got.range, Some(NumberSpan { min: 70.0, max: 100.0 }));
+
+        let own = ranged("score", Some(95.0), Some(96.0));
+        let got = column_values(&conn, &t, BLANK, "score", &[own], "").unwrap();
+        assert_eq!(got.range, Some(NumberSpan { min: 70.0, max: 100.0 }), "자기 필터가 범위를 좁혔다");
+
+        let got = column_values(&conn, &t, BLANK, "score", &[picked("city", &["서울"])], "").unwrap();
+        assert_eq!(got.range, Some(NumberSpan { min: 90.0, max: 90.0 }));
+    }
+
+    /// 축소 문자가 있으면 범위를 산출하지 않는다(화면이 쓰지 않는 전 행 집약이다). 문자 열에는
+    /// 범위가 없다.
+    #[test]
+    fn the_span_is_not_computed_for_a_needle_and_text_has_none() {
+        let (conn, t) = fixture();
+        let got = column_values(&conn, &t, BLANK, "score", &[], "100").unwrap();
+        assert_eq!(got.range, None);
+        assert!(!got.values.is_empty(), "축소한 목록은 그대로 와야 한다");
+        let got = column_values(&conn, &t, BLANK, "name", &[], "").unwrap();
+        assert_eq!(got.range, None);
     }
 
     #[test]

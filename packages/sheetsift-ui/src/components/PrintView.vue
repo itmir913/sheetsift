@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { cellText, valueText } from "../lib/grid";
+import { cellText, rangeText, valueText } from "../lib/grid";
 import { appName, formatDateTime, formatNumber, t, tn } from "../lib/inject";
 import type { Cell, Filter, Row, Sort } from "../lib/grid";
 import type { LaidOutColumn } from "../composables/useColumnLayout";
@@ -72,6 +72,11 @@ const filterSummary = computed(() =>
                 n: f.values.length - 3,
               }),
       );
+    }
+    /* 지면에는 **걸어 둔 범위를 그대로** 적는다. 한쪽만 기재한 필터(바탕은 허용한다)는 없는
+       쪽을 비워 둔다 — 어느 쪽이 열려 있는지는 `~` 의 위치로 읽힌다. */
+    if (f.min != null || f.max != null) {
+      parts.push(rangeText(f.min, f.max));
     }
     return `${labelOf(f.key)}: ${parts.join(" / ")}`;
   }),

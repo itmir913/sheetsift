@@ -11,12 +11,21 @@
  * 그대로 기재하면, 목록이 절단되었거나 축소된 상태에서도 "이것만 제외" 가
  * 정확하다 — 선택한 것을 열거하는 방식은 노출되지 않은 값까지 탈락시킨다.
  */
-import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import {
   type ColumnDef,
   type ColumnValue,
   type ColumnValuesResult,
+  type NumberRange,
   type ValuePick,
+  RANGE_STEP,
+  canApply,
+  changeCommitsAtOnce,
+  rangeText,
+  settleRange,
+  settleSelection,
+  showsRange,
+  snapSpan,
   valueText,
 } from "../lib/grid";
 import { useFault } from "../composables/useFault";
@@ -27,8 +36,13 @@ const props = defineProps<{
   column: ColumnDef;
   /** 현 선택 상태. null 이면 전체 선택. */
   selected: ValuePick | null;
-  /** 후보 목록을 수령하는 방법. `needle` 로 축소한 것을 반환한다. */
-  load: (needle: string) => Promise<ColumnValuesResult>;
+  /** 현 범위(숫자 열). null 이면 범위를 걸지 않은 것이다. */
+  range?: NumberRange | null;
+  /**
+   * 후보 목록을 수령하는 방법. `needle` 로 축소한 것을 반환한다. `range` 는 **이 팝오버가 지금
+   * 보유한 범위**다(확정했으나 아직 적용하지 않은 것) — 목록이 그 범위 안의 값만 담아야 한다.
+   */
+  load: (needle: string, range: NumberRange | null) => Promise<ColumnValuesResult>;
   /** 그리드 기준 위치(px). */
   x: number;
   y: number;
@@ -37,7 +51,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  apply: [pick: ValuePick | null];
+  apply: [pick: ValuePick | null, range: NumberRange | null];
   close: [];
 }>();
 
@@ -147,15 +161,6 @@ watch(shown, () => {
   listEl.value?.scrollTo({ top: 0 });
 });
 
-/**
- * 적용하면 **아무 행도 통과하지 못하는 상태**인가.
- *
- * 열거한 것만 통과시키는 상태에서 전부 해제하면 그렇다. 적용을 허용하면 표가
- * 공백이 되는데, 사람이 의도한 것은 그것이 아니다 — 엑셀도 그 상태의 확인을
- * 차단한다.
- */
-const nothingPasses = computed(() => mode.value === "include" && named.value.size === 0);
-
 const popVars = computed(() => ({
   "--pop-x": `${props.x}px`,
   "--pop-y": `${props.y}px`,
@@ -168,16 +173,24 @@ const allShownChecked = computed(
 
 /** 축소 문자로 재수령한다. 지연 도달한 응답이 신규 응답을 피복하지 않게 번호를 산정한다. */
 let token = 0;
-async function fetchShown() {
+/**
+ * `quiet` 는 범위가 바뀌어 다시 수령할 때다 — **직전 목록을 둔 채 교체한다.** 불러오는 중
+ * 안내로 갈아 끼우면 목록과 안내가 통째로 접혀 적용 단추가 위로 올라붙는데, 마우스를 내리는
+ * 동안 단추가 움직이고 그 순간 눌리지도 않는다.
+ */
+async function fetchShown(quiet = false) {
   const mine = ++token;
-  loading.value = true;
+  if (!quiet) loading.value = true;
   clearFault();
   try {
     const needle = search.value.trim();
-    const res = await props.load(needle);
+    const res = await props.load(needle, range.value);
     if (mine !== token) return;
     shown.value = res.values;
     shownFor = needle;
+    /* 자료의 범위는 목록이 자기 범위를 적용해도 변하지 않는다(바탕이 자기 필터를 통째로 빼고
+       산출한다). 축소한 목록에서도 같은 값이 오지만 한 곳에서만 받는다. */
+    if (!needle) takeRangeFacts(res);
     // 축소 없이 수령한 것이면 그것이 곧 전체다.
     if (!search.value.trim()) {
       truncated.value = res.truncated;
@@ -188,6 +201,7 @@ async function fetchShown() {
   } finally {
     if (mine === token) {
       loading.value = false;
+      loadedOnce.value = true;
     }
   }
 }
@@ -241,12 +255,247 @@ function toggleAllShown() {
   named.value = next;
 }
 
-function apply() {
-  if (mode.value === "all") {
-    emit("apply", null);
+/* ── 숫자 범위 ─────────────────────────────────────────────────
+   숫자 열은 고유값이 수백 개라 목록에서 고르는 것이 쓸모가 적다(내신 `2.41`). 범위로 거른다.
+   값 목록과 **함께** 걸 수 있다 — 둘은 AND 로 겹친다. */
+
+/** 멈춘 뒤 확정하기까지의 지연(ms). */
+const RANGE_SETTLE = 300;
+
+/** 자료가 존재하는 범위. 축소하지 않은 목록을 수령할 때 갱신한다. */
+const span = ref<NumberRange | null>(null);
+
+
+/** **확정한** 범위. 적용할 때 이것이 올라간다. 전체를 그대로 둔 것은 null 이다. */
+const range = ref<NumberRange | null>(props.range ?? null);
+
+/**
+ * 화면에 떠 있는 두 손잡이의 값. 확정 전에도 여기까지는 즉시 따라온다.
+ * **뒤집지 않은 그대로** 보유한다 — 하한 손잡이가 상한 너머로 가도 각 손잡이는 자기가
+ * 잡힌 자리에 있어야 하고, 뒤집는 것은 확정할 때다(`settleRange`).
+ */
+const live = ref<NumberRange>({ min: 0, max: 0 });
+
+const minEl = ref<HTMLInputElement | null>(null);
+const maxEl = ref<HTMLInputElement | null>(null);
+
+/** 손잡이를 잡고 있는가. 잡고 있는 동안에는 지연 확정이 확정하지 않는다. */
+let gripped = false;
+let settleTimer: number | undefined;
+
+/** 슬라이더와 입력칸이 칸으로 삼는 범위. 자료의 끝이 눈금 위에 있지 않아도 덮는다. */
+const grid = computed(() => (span.value ? snapSpan(span.value) : null));
+
+/** 범위 칸을 그리는가(판정은 `showsRange`). */
+const showRange = computed(() => showsRange(props.column.kind, span.value));
+
+/** 자료의 폭이 0 인가(값이 한 가지뿐). 손잡이를 움직일 데가 없어 조작만 막는다. */
+const flat = computed(() => !!span.value && span.value.min >= span.value.max);
+
+/**
+ * 값 검색칸을 그리는가. 값 목록은 모든 열이 그리고, 숫자 열은 그 위에 범위 칸이 더해진다.
+ *
+ * **숫자 열은 첫 수령이 끝나기 전에는 검색칸을 그리지 않는다.** 범위 칸이 그 응답과 함께
+ * 나타나 검색칸을 아래로 밀어내므로, 먼저 그리면 열 때 팝오버가 튄다.
+ *
+ * 값 목록은 **지금 범위 안의 값만** 담는다(바탕이 자기 범위를 적용해 만든다). 범위 밖의 값이
+ * 목록에 있으면 그것을 선택하는 순간 범위와 AND 로 겹쳐 조용히 0건이 된다.
+ */
+const loadedOnce = ref(false);
+const showSearch = computed(() => props.column.kind !== "number" || loadedOnce.value);
+
+
+/**
+ * 범위가 걸려 있거나 걸리려는 중인가. 「범위 해제」의 활성 여부가 이것을 따른다.
+ * 확정한 범위(`range`)도 본다 — 자료의 폭이 0 이면 손잡이가 전체를 덮어 보여도 걸린 것이다.
+ */
+const narrowed = computed(
+  () =>
+    range.value !== null ||
+    (!!span.value && settleRange(live.value.min, live.value.max, span.value) !== null),
+);
+
+/**
+ * 채워진 구간의 위치(%). 손잡이가 서로를 넘어도 칠하는 구간은 앞이 작다.
+ * **값이 바뀌어도 크기가 변하지 않는 배경 변수**일 뿐이라 배치가 이동하지 않는다.
+ */
+const fillVars = computed(() => {
+  const g = grid.value;
+  if (!g || g.max <= g.min) return {};
+  const at = (v: number) => Math.min(100, Math.max(0, ((v - g.min) / (g.max - g.min)) * 100));
+  return {
+    "--lo": `${at(Math.min(live.value.min, live.value.max))}%`,
+    "--hi": `${at(Math.max(live.value.min, live.value.max))}%`,
+  };
+});
+
+/** 헤더에 적는 요약. 값 선택과 범위를 한 줄로 잇는다. */
+const summary = computed(() => {
+  const parts: string[] = [];
+  if (mode.value === "include") parts.push(tn("filter.selected", named.value.size));
+  else if (mode.value === "exclude") parts.push(tn("filter.excluded", named.value.size));
+  if (range.value) {
+    parts.push(
+      t("filter.range.active", { span: rangeText(range.value.min, range.value.max) }),
+    );
+  }
+  return parts.length ? parts.join(" · ") : t("filter.all");
+});
+
+function takeRangeFacts(res: ColumnValuesResult) {
+  const r = res.range;
+  const next = r && Number.isFinite(r.min) && Number.isFinite(r.max) ? r : null;
+  if (next?.min !== span.value?.min || next?.max !== span.value?.max) span.value = next;
+}
+
+/* 자료의 범위가 처음 도달하면 손잡이를 놓는다. 입력칸은 DOM 이 생긴 뒤에 쓴다. */
+watch(span, (s) => {
+  if (!s) return;
+  /* **눈금에 맞춘 범위로 놓는다.** 원본(`2.415`)을 놓으면 입력칸이 `step` 에 어긋나 무효가
+     되고, 슬라이더는 눈금으로 끌려가 손잡이와 `live` 가 갈린다. 전체로 보이는 값이 필터가
+     되지는 않는다 — `settleRange` 는 원본과 대조하고 눈금 범위는 원본을 덮는다. */
+  live.value = range.value ?? { ...snapSpan(s) };
+  void nextTick(() => syncInputs(null));
+});
+
+/**
+ * 입력칸 둘을 지금 값에 맞춘다. **다시 그리지 않고 제자리에서 고쳐 쓴다.**
+ *
+ * 입력칸을 `:value` 로 묶으면 사람이 `2.` 까지 친 순간 되쓰이며 입력이 끊긴다. 그래서
+ * 입력칸은 손으로 쓰고, `skip` 은 지금 치고 있는 칸이다. 입력칸에는 **뒤집은 값**을 적는다
+ * (앞이 작다).
+ */
+function syncInputs(skip: EventTarget | null) {
+  const lo = Math.min(live.value.min, live.value.max);
+  const hi = Math.max(live.value.min, live.value.max);
+  if (minEl.value && minEl.value !== skip) minEl.value.value = String(lo);
+  if (maxEl.value && maxEl.value !== skip) maxEl.value.value = String(hi);
+}
+
+/**
+ * 범위가 바뀌면 값 목록을 다시 수령한다. 목록은 지금 범위 안의 값만 담아야 하므로, 범위를
+ * 좁히면 목록이 따라 줄고 「범위 해제」로 풀면 전부로 돌아온다. 값이 같으면 다시 받지 않는다.
+ */
+watch(
+  () => (range.value ? `${range.value.min}~${range.value.max}` : ""),
+  () => {
+    window.clearTimeout(searchTimer);
+    void fetchShown(true);
+  },
+);
+
+/**
+ * 범위를 바꾼다. **값 선택에서 범위 밖이 된 것을 같은 자리에서 거둔다**(`settleSelection`) —
+ * 적용이 곧바로 뒤따를 수 있으므로 비동기로 거두면 늦는다.
+ */
+function setRange(next: NumberRange | null) {
+  range.value = next;
+  const s = settleSelection(mode.value, [...named.value], next);
+  mode.value = s.mode;
+  named.value = new Set(s.values);
+}
+
+/** 확정한다. 전체를 그대로 둔 것은 필터가 아니라 null 이다. */
+function commitRange() {
+  if (!span.value) return;
+  setRange(settleRange(live.value.min, live.value.max, span.value));
+}
+
+/**
+ * 멈춘 뒤에만 확정한다. **끄는 중에는 확정하지 않는다.**
+ *
+ * 확정하면 헤더의 요약과 해제 단추가 바뀌고 팝오버가 다시 그려지는데, 그 순간 잡고 있던
+ * 손잡이를 놓칠 수 있다. 아직 잡고 있으면 손을 뗄 때 `release`·`change` 가 확정한다.
+ */
+function settle() {
+  window.clearTimeout(settleTimer);
+  settleTimer = window.setTimeout(() => {
+    if (!gripped) commitRange();
+  }, RANGE_SETTLE);
+}
+
+/** 손잡이를 잡는다. 놓는 것은 창 전체에서 듣는다 — 끌다가 팝오버 바깥에서 놓을 수 있다. */
+function grip() {
+  gripped = true;
+  window.addEventListener("pointerup", release);
+  window.addEventListener("pointercancel", release);
+}
+
+/**
+ * 손잡이를 놓는다. 값이 바뀌지 않은 채 놓으면 `change` 가 오지 않아 잡은 상태가
+ * 남는데, 그러면 이후의 지연 확정이 영영 확정하지 않는다.
+ */
+function release() {
+  window.removeEventListener("pointerup", release);
+  window.removeEventListener("pointercancel", release);
+  if (!gripped) return;
+  gripped = false;
+  commitRange();
+}
+
+/**
+ * 한쪽 값을 읽는다. 비었거나 숫자가 아닌 것(치던 도중의 `-`)은 받지 않는다 — `Number("")`
+ * 이 0 이라, 지우는 순간 하한이 0 으로 확정되는 것을 막는다.
+ */
+function takeSide(e: Event, side: "min" | "max"): boolean {
+  const raw = (e.target as HTMLInputElement).value;
+  const n = Number(raw);
+  if (raw.trim() === "" || !Number.isFinite(n)) return false;
+  live.value = { ...live.value, [side]: n };
+  return true;
+}
+
+function onRangeInput(e: Event, side: "min" | "max") {
+  if (!takeSide(e, side)) return;
+  syncInputs(e.target);
+  settle();
+}
+
+/**
+ * 손을 떼거나 입력칸을 벗어났다. 여기서 확정하고, 뒤집힌 값을 입력칸에 반영한다.
+ * 슬라이더를 **방향키로** 움직인 `change` 는 즉시 확정하지 않고 지연 확정으로 보낸다
+ * (`changeCommitsAtOnce`).
+ */
+function onRangeChange(e: Event, side: "min" | "max", source: "slider" | "input") {
+  takeSide(e, side);
+  const held = gripped;
+  gripped = false;
+  if (!changeCommitsAtOnce(source, held)) {
+    settle();
     return;
   }
-  emit("apply", { mode: mode.value, values: [...named.value] });
+  window.clearTimeout(settleTimer);
+  /* 뒤집고, 자료의 범위 밖으로 친 값(0)은 눈금 범위로 집는다. 그대로 두면 「데이터 범위
+     1.5 ~ 9」 옆 입력칸에 `0 ~ 9` 가 남는다. */
+  const g = grid.value;
+  const clamp = (n: number) => (g ? Math.min(g.max, Math.max(g.min, n)) : n);
+  live.value = {
+    min: clamp(Math.min(live.value.min, live.value.max)),
+    max: clamp(Math.max(live.value.min, live.value.max)),
+  };
+  syncInputs(null);
+  commitRange();
+}
+
+function clearRange() {
+  window.clearTimeout(settleTimer);
+  gripped = false;
+  setRange(null);
+  if (grid.value) live.value = { ...grid.value };
+  syncInputs(null);
+}
+
+function apply() {
+  /* **적용할 수 없는 상태면 어느 길로 와도 적용하지 않는다.** 단추만 막으면 엔터로 표를 통째로
+     비울 수 있다(`canApply`). */
+  if (!canApply(loading.value, mode.value, named.value.size)) return;
+  /* **끌고 있던 값이나 입력 중인 값까지 담아 적용한다.** 확정은 멈춘 뒤에야 따라오는데,
+     그 사이에 적용을 누르면 사람이 보고 있던 값과 다른 범위가 적용된다. */
+  window.clearTimeout(settleTimer);
+  commitRange();
+  const pick: ValuePick | null =
+    mode.value === "all" ? null : { mode: mode.value, values: [...named.value] };
+  emit("apply", pick, range.value);
 }
 
 /**
@@ -293,6 +542,12 @@ function onKeydown(e: KeyboardEvent) {
   }
   if (e.key !== "Enter" || e.isComposing) return;
   if (!root.value?.contains(e.target as Node)) return;
+  /* 범위 입력칸의 엔터는 **그 값을 적용하라는 뜻**이다. 값 검색칸의 엔터(`applyTyped`)는
+     검색 결과를 선택으로 삼는데, 범위를 고치던 사람에게 그것은 의도가 아니다. */
+  if ((e.target as Element).closest?.(".dg-range")) {
+    apply();
+    return;
+  }
   void applyTyped();
 }
 
@@ -320,6 +575,9 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.clearTimeout(searchTimer);
+  window.clearTimeout(settleTimer);
+  window.removeEventListener("pointerup", release);
+  window.removeEventListener("pointercancel", release);
   window.removeEventListener("keydown", onKeydown);
   window.removeEventListener("pointerdown", onPointerDown);
 });
@@ -336,14 +594,91 @@ onBeforeUnmount(() => {
   >
     <div class="dg-pop-head">
       <span class="font-semibold">{{ column.label }}</span>
-      <span class="text-fg-subtle">
-        <template v-if="mode === 'all'">{{ t("filter.all") }}</template>
-        <template v-else-if="mode === 'include'">{{ tn("filter.selected", named.size) }}</template>
-        <template v-else>{{ tn("filter.excluded", named.size) }}</template>
-      </span>
+      <!-- 한 줄에 고정한다. 범위를 확정하면 요약이 길어지는데, 줄이 바뀌면 팝오버 높이가
+           출렁인다. 넘치면 말줄임이다. -->
+      <span class="dg-pop-sum text-fg-subtle" :title="summary">{{ summary }}</span>
+    </div>
+
+    <!-- 숫자 범위. 이 블록은 **로딩 표시와 무관하게** 둔다 — 값 검색으로 목록이 다시
+         수령될 때마다 사라졌다 나타나면 끌던 손잡이와 입력 중인 값이 소멸한다. -->
+    <div v-if="showRange && span && grid" class="dg-range" role="group">
+      <!-- 값 목록의 「모두 선택」 줄과 같은 위치(맨 위)에 둔다. -->
+      <div class="dg-range-top">
+        <button
+          type="button"
+          class="ml-auto rounded-md border border-line px-2 py-0.5 text-fg-muted hover:bg-surface-hover hover:text-fg disabled:opacity-40"
+          :disabled="!narrowed"
+          @click="clearRange"
+        >
+          {{ t("filter.range.clear") }}
+        </button>
+      </div>
+      <div class="dg-range-inputs">
+        <input
+          ref="minEl"
+          class="dg-finput dg-range-num"
+          type="number"
+          :step="RANGE_STEP"
+          :min="grid.min"
+          :max="grid.max"
+          :disabled="flat"
+          :aria-label="t('filter.range.min', { label: column.label })"
+          @input="onRangeInput($event, 'min')"
+          @change="onRangeChange($event, 'min', 'input')"
+        />
+        <span class="text-fg-subtle" aria-hidden="true">{{ t("filter.range.sep") }}</span>
+        <input
+          ref="maxEl"
+          class="dg-finput dg-range-num"
+          type="number"
+          :step="RANGE_STEP"
+          :min="grid.min"
+          :max="grid.max"
+          :disabled="flat"
+          :aria-label="t('filter.range.max', { label: column.label })"
+          @input="onRangeInput($event, 'max')"
+          @change="onRangeChange($event, 'max', 'input')"
+        />
+      </div>
+      <div class="dg-range-slider" :style="fillVars">
+        <input
+          class="dg-range-thumb"
+          type="range"
+          :step="RANGE_STEP"
+          :min="grid.min"
+          :max="grid.max"
+          :disabled="flat"
+          :value="live.min"
+          :aria-label="t('filter.range.min.slider', { label: column.label })"
+          @pointerdown="grip"
+          @input="onRangeInput($event, 'min')"
+          @change="onRangeChange($event, 'min', 'slider')"
+        />
+        <input
+          class="dg-range-thumb"
+          type="range"
+          :step="RANGE_STEP"
+          :min="grid.min"
+          :max="grid.max"
+          :disabled="flat"
+          :value="live.max"
+          :aria-label="t('filter.range.max.slider', { label: column.label })"
+          @pointerdown="grip"
+          @input="onRangeInput($event, 'max')"
+          @change="onRangeChange($event, 'max', 'slider')"
+        />
+      </div>
+      <!-- **자료의 범위만 적는다. 지금 고른 값은 적지 않는다.** 둘을 한 줄에 적으면 끄는
+           동안 앞의 숫자가 바뀌며 줄 길이가 변하고, 줄바꿈이 오가며 높이가 출렁여 끌고 있는
+           손잡이가 움직인다. 고른 값은 바로 위 입력칸에 이미 있다. 이 글은 자료가 바뀌기
+           전에는 변하지 않고, 한 줄에 고정한다. -->
+      <p class="dg-range-data">
+        {{ t("filter.range.data", { span: rangeText(span.min, span.max) }) }}
+      </p>
     </div>
 
     <input
+      v-if="showSearch"
       v-model="search"
       class="dg-finput"
       type="search"
@@ -399,7 +734,7 @@ onBeforeUnmount(() => {
       <button
         type="button"
         class="rounded-md bg-accent px-3 py-1.5 font-medium text-accent-fg hover:bg-accent-hover disabled:opacity-40"
-        :disabled="loading || nothingPasses"
+        :disabled="!canApply(loading, mode, named.size)"
         @click="apply"
       >
         {{ t("filter.apply") }}

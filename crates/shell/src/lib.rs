@@ -203,7 +203,8 @@ pub struct ValuesAsk {
     #[serde(default)]
     pub header: Option<HeaderSpec>,
     pub column_key: String,
-    /// 현재 적용된 필터들. 이 열 자체의 것은 바탕이 제외하고 산정한다.
+    /// 현재 적용된 필터들. 이 열 자체의 **값 선택은** 바탕이 제외하고, **범위(`min`·`max`)는**
+    /// 적용해 산정한다 — 목록이 범위 밖의 값을 담으면 그것을 선택해 조용히 0건이 된다.
     #[serde(default)]
     pub filters: Vec<grid::Filter>,
     /// 후보를 축소하는 문자.
@@ -1014,6 +1015,76 @@ mod tests {
             .unwrap();
         let got: Vec<&str> = values.values.iter().map(|v| v.value.as_str()).collect();
         assert!(got.contains(&"부산"), "자체 필터를 사유로 후보가 소멸했다");
+    }
+
+    /// **범위는 화면이 보내는 JSON 의 `min`·`max` 그대로 도달한다.** 그리고 값 목록이
+    /// 자료의 범위를 함께 제시해, 화면이 손잡이의 양 끝을 자료에서 얻는다 — 화면이 열의
+    /// 값을 전부 수령해 계산하는 경로는 없다(목록은 상한에서 절단된다).
+    #[test]
+    fn a_range_arrives_as_json_and_the_list_reports_the_span() {
+        let csv = "점수\n9\n-\n100\n20\n".as_bytes();
+        let mut v = Viewer::open(csv, "점수.csv").unwrap();
+        let view = screen(&v, 0);
+        let key = view.columns[0].key.clone();
+
+        let filters: Vec<grid::Filter> = vec![serde_json::from_value(serde_json::json!({
+            "key": key, "min": 10, "max": 100
+        }))
+        .unwrap()];
+        let page = v.query_rows(&Ask { filters: filters.clone(), ..ask("점수", 10) }).unwrap();
+        assert_eq!(page.total, 2, "20 과 100 만 통과하고 `-` 는 탈락해야 한다");
+
+        // 자체 필터를 제외하고 산정하므로 범위를 걸어도 자료의 범위는 좁아지지 않는다.
+        let got = v.column_values(&ValuesAsk { filters, ..values_ask("점수", &key) }).unwrap();
+        let span = got.range.expect("숫자 열의 자료 범위가 부재한다");
+        assert_eq!((span.min, span.max), (9.0, 100.0));
+    }
+
+    /// **값 목록이 범위를 반영하는지를 화면이 보내는 JSON 그대로 확인한다.** 엔진 안의 시험은 요청의
+    /// 모양을 지나지 않으므로, 요청의 항목 명칭(`columnKey`·`min`·`max`)이 어긋나거나 중간 층이
+    /// 열의 필터를 떼어 내면 시험은 통과하는데 화면에서만 목록이 범위를 무시한다.
+    #[test]
+    fn the_value_list_follows_the_range_through_the_json_request() {
+        let mut csv = String::from("내신
+");
+        for i in 0..20 {
+            csv.push_str(&format!("{}
+", 2.0 + f64::from(i) * 0.05));
+        }
+        csv.push_str("-
+"); // 값이 없는 줄
+        let mut v = Viewer::open(csv.as_bytes(), "내신.csv").unwrap();
+        let view = screen(&v, 0);
+        assert_eq!(view.columns[0].kind, "number");
+        let key = view.columns[0].key.clone();
+        let blank = Limits::default().blank_token;
+
+        let ask = |filters: serde_json::Value| -> ValuesAsk {
+            serde_json::from_value(serde_json::json!({
+                "screenId": "내신", "columnKey": key, "filters": filters, "needle": ""
+            }))
+            .unwrap()
+        };
+        let list = |v: &mut Viewer, filters: serde_json::Value| -> Vec<String> {
+            let got = v.column_values(&ask(filters)).unwrap();
+            got.values.iter().map(|c| c.value.clone()).collect()
+        };
+
+        let all = list(&mut v, serde_json::json!([]));
+        assert_eq!(all.len(), 21);
+        assert!(all.contains(&blank), "범위가 없으면 공백이 목록에 있어야 한다");
+
+        let ranged = serde_json::json!([{ "key": key, "min": 2.5, "max": 2.75 }]);
+        let inside = list(&mut v, ranged.clone());
+        assert_eq!(inside, ["2.5", "2.55", "2.6", "2.65", "2.7", "2.75"]);
+        assert!(!inside.contains(&blank), "범위가 걸렸는데 공백이 목록에 있다");
+
+        // 자료의 범위는 걸어 둔 범위에 좁아지지 않는다.
+        let span = v.column_values(&ask(ranged)).unwrap().range.unwrap();
+        assert_eq!((span.min, span.max), (2.0, 2.95));
+
+        // 범위를 풀면 전부로 돌아온다.
+        assert_eq!(list(&mut v, serde_json::json!([])), all);
     }
 
     /// 표를 변경하면 선행 표가 잔존하지 않는다. **변경 도중 중단된 위치도

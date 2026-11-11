@@ -15,7 +15,7 @@ import ColumnFilter from "./ColumnFilter.vue";
 import { cellText, isBlank, opensRowDetail, own } from "../lib/grid";
 import { t } from "../lib/inject";
 import { tableFont } from "../composables/useTableFont";
-import type { ColumnValuesResult, Row, Sort, ValuePick } from "../lib/grid";
+import type { ColumnValuesResult, NumberRange, Row, Sort, ValuePick } from "../lib/grid";
 import type { DetailColumn, LaidOutColumn } from "../composables/useColumnLayout";
 
 const props = withDefaults(
@@ -27,6 +27,11 @@ const props = withDefaults(
     filterText: Record<string, string>;
     /** 엑셀식 값 선택. 열쇠가 부재하거나 null 이면 그 열은 전체 허용. */
     filterValues: Record<string, ValuePick | null>;
+    /**
+     * 숫자 열의 범위. 열쇠가 부재하거나 null 이면 그 열은 범위를 걸지 않은 것이다.
+     * **생략할 수 있다** — 여과하지 않는 표나 범위를 모르는 받는 앱은 그대로 쓴다.
+     */
+    filterRanges?: Record<string, NumberRange | null>;
     /**
      * **숨긴 열까지 담은 전체 열 목록.** 행 상세 모달이 이것을 묘사한다 —
      * 「열 선택」에서 제외한 열은 화면에서 배제한 것이지 값이 부재하는 것이 아니다.
@@ -43,8 +48,18 @@ const props = withDefaults(
      * `needle` 은 후보를 축소하는 문자다. **여과 작업을 바탕까지 전달한다** —
      * 수령한 목록을 화면에서 여과해 표시하면, 값이 다수라 목록이 전단에서
      * 절단된 열에서 탐색하는 값이 그 이후에 소재할 때 "없습니다" 가 표시된다.
+     *
+     * **세 번째 인자(`range`)를 바탕까지 전달해야 한다.** 숫자 열의 값 목록은 그 범위 안의 값만
+     * 담아야 하는데, 무시하면 범위 밖의 값이 목록에 나타나고 그것을 고르는 즉시 범위와 AND 로
+     * 겹쳐 조용히 0건이 된다. 바탕이 `range` 를 반환하지 않으면(범위 칸이 나오지 않는다) 안전하나,
+     * 반환하기 시작하는 순간 이 함정이 되살아난다. `update:filterRanges` 를 듣지 않는 앱도
+     * 같은 사정이다 — 범위를 걸어도 조회에 닿지 않는다.
      */
-    loadValues: (columnKey: string, needle: string) => Promise<ColumnValuesResult>;
+    loadValues: (
+      columnKey: string,
+      needle: string,
+      range: NumberRange | null,
+    ) => Promise<ColumnValuesResult>;
     busy?: boolean;
     emptyText?: string;
     /**
@@ -59,6 +74,7 @@ const props = withDefaults(
     busy: false,
     emptyText: "",
     showFilters: true,
+    filterRanges: () => ({}),
   },
 );
 
@@ -67,6 +83,7 @@ const emit = defineEmits<{
   sort: [key: string];
   "update:filterText": [value: Record<string, string>];
   "update:filterValues": [value: Record<string, ValuePick | null>];
+  "update:filterRanges": [value: Record<string, NumberRange | null>];
   /** 열을 조작해 이전했다. */
   move: [from: number, to: number];
   /** 열 폭을 조작하는 중. */
@@ -308,9 +325,12 @@ function openFilter(col: LaidOutColumn, ev: MouseEvent) {
   openFilterKey.value = col.key;
 }
 
-function applyFilterValues(pick: ValuePick | null) {
+function applyFilterValues(pick: ValuePick | null, range: NumberRange | null) {
   const key = openFilterKey.value;
   if (!key) return;
+  /* **범위를 먼저 올린다.** 받는 쪽은 값 선택이 올라올 때 조회하므로(`DataGrid.onFilterValues`),
+     순서가 반대면 새 범위 없이 한 번 조회하고 다시 조회한다. */
+  emit("update:filterRanges", { ...props.filterRanges, [key]: range });
   emit("update:filterValues", { ...props.filterValues, [key]: pick });
   openFilterKey.value = null;
 }
@@ -471,7 +491,7 @@ defineExpose({ close: () => (openFilterKey.value = null) });
               <button
                 type="button"
                 class="dg-fbtn"
-                :data-active="own(filterValues, col.key) != null"
+                :data-active="own(filterValues, col.key) != null || own(filterRanges, col.key) != null"
                 :disabled="!col.filterable"
                 :aria-label="t('grid.filter.aria', { label: col.label })"
                 :aria-expanded="openFilterKey === col.key"
@@ -603,7 +623,8 @@ defineExpose({ close: () => (openFilterKey.value = null) });
       :key="openFilterColumn.key"
       :column="openFilterColumn"
       :selected="own(filterValues, openFilterColumn.key) ?? null"
-      :load="(needle: string) => loadValues(openFilterColumn!.key, needle)"
+      :range="own(filterRanges, openFilterColumn.key) ?? null"
+      :load="(needle: string, range: NumberRange | null) => loadValues(openFilterColumn!.key, needle, range)"
       :x="popX"
       :y="popY"
       :max-height="popH"

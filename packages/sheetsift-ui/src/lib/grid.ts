@@ -135,6 +135,151 @@ export interface Filter {
    * 기재하면 바탕이 중단한다.
    */
   excluded?: string[] | null;
+  /**
+   * **숫자 열의 하한·상한.** 경계를 포함하고, 숫자로 판독되지 않는 값(공백·문자)은
+   * 하나라도 기재되면 탈락한다. 둘 다 생략하면 적용하지 않는다. 숫자 열이 아닌 열에
+   * 기재하거나 하한이 상한을 초과하면 바탕이 중단한다.
+   */
+  min?: number | null;
+  max?: number | null;
+}
+
+/** 숫자 열에 걸어 둔 범위. 하한이 상한을 넘지 않는다(`settleRange` 가 뒤집어 받는다). */
+export interface NumberRange {
+  min: number;
+  max: number;
+}
+
+/**
+ * 범위 입력의 눈금. **정수로 올리지 않는다** — 내신처럼 소수 둘째 자리까지 오는
+ * 자료에서 정수로 반올림하면 1.95 와 2.04 가 한 칸이 된다.
+ */
+export const RANGE_STEP = 0.01;
+
+/** 눈금의 소수 자릿수. `RANGE_STEP` 에서 끌어낸다 — 눈금을 따로 적지 않는다. */
+const RANGE_DIGITS = Math.round(-Math.log10(RANGE_STEP));
+
+/** 눈금 위의 수로 맞춘다. 부동소수의 잔여(`2.4099999`)를 남기지 않는다. */
+function onGrid(n: number): number {
+  return Number(n.toFixed(RANGE_DIGITS));
+}
+
+/**
+ * 슬라이더가 칸으로 삼는 범위. **자료의 범위를 눈금 바깥쪽으로 맞춘다.**
+ *
+ * 자료의 끝(`5.337`)이 눈금 위에 있지 않으면 브라우저가 슬라이더의 값을 눈금 위의
+ * 가장 가까운 안쪽(`5.33`)으로 끌어당기는데, 그러면 손잡이를 끝까지 밀어도 가장 큰
+ * 값의 행이 탈락한다. 바깥쪽으로 맞추면 끝까지 민 손잡이가 항상 자료 전체를 덮는다.
+ */
+export function snapSpan(span: NumberRange): NumberRange {
+  return {
+    min: onGrid(Math.floor(span.min / RANGE_STEP + 1e-9) * RANGE_STEP),
+    max: onGrid(Math.ceil(span.max / RANGE_STEP - 1e-9) * RANGE_STEP),
+  };
+}
+
+/**
+ * 범위 칸을 그리는가. **열의 성질만으로 정한다** — 숫자 열이고 수치가 하나라도 있으면(`span`)
+ * 언제나 그린다. 값 목록은 모든 열이 그린다(숫자 열은 범위 칸 아래에 둔다).
+ *
+ * 걸린 범위가 있는지, 자료의 폭이 있는지(최소 < 최대)로 정하지 않는다. 그것들은 지나가는
+ * 상태다. 그것으로 꼴을 정하면 같은 열의 깔대기가 조작에 따라 두 모양을 오간다. 폭이 0 이면
+ * 범위 칸은 그대로 두고 조작만 못 하게 한다.
+ *
+ * 수치가 하나도 없는 열(`span` 이 `null`)에 범위 칸이 없는 것은 **자료가 정하는 것이지
+ * 조작이 정하는 것이 아니다.** 같은 자료에서는 꼴이 오가지 않는다.
+ */
+export function showsRange(kind: ColumnKind, span: NumberRange | null): boolean {
+  return kind === "number" && span !== null;
+}
+
+/**
+ * 범위의 숫자를 **셀과 같은 표기**로. 「천 단위 쉼표」를 끈 사람에게 표는 `44850` 인데 안내만
+ * `44,850` 이면 같은 수가 둘로 보인다. `formatNumber` 는 화면이 산출한 개수용이라 자료의
+ * 값에 쓰지 않는다(그 함수의 주석).
+ */
+function rangeNumber(n: number): string {
+  return cellText({ kind: "number" }, n);
+}
+
+/**
+ * 범위를 한 글자열로. **구분 기호는 사전의 한 열쇠(`filter.range.sep`)에서만 온다** — 안내·
+ * 요약·인쇄가 각자 기재하면 한쪽만 바뀐다. 한쪽만 걸린 범위(바탕은 허용한다)는 없는 쪽을
+ * 비워 둔다.
+ */
+export function rangeText(min: number | null | undefined, max: number | null | undefined): string {
+  const at = (n: number | null | undefined) => (n == null ? "" : rangeNumber(n));
+  return `${at(min)} ${t("filter.range.sep")} ${at(max)}`.trim();
+}
+
+/**
+ * 그 값이 범위 안에 있는가. **자료의 값(글자)을 수치로 읽어** 판정한다 — 바탕이 범위를 거를 때와
+ * 같은 규칙이다(쉼표는 천 단위 구분으로 보고 지운다). 공백 표식과 수치가 아닌 글자는 어떤
+ * 범위에도 들지 않는다.
+ */
+export function inRange(value: string, range: NumberRange): boolean {
+  const text = value.replace(/,/g, "").trim();
+  if (text === "") return false;
+  const n = Number(text);
+  return Number.isFinite(n) && n >= range.min && n <= range.max;
+}
+
+export type PickMode = "all" | "include" | "exclude";
+
+/**
+ * 범위를 걸었을 때 **값 선택에서 범위 밖이 된 것을 거둔다.**
+ *
+ * 남겨 두면 보이지 않는 선택이 범위와 AND 로 겹쳐 조용히 0건이 된다(`include`). `exclude` 도
+ * 같다 — 범위 밖의 제외는 지금은 결과에 영향이 없지만, 범위를 풀면 보지 못한 제외가 되살아나
+ * 값들이 조용히 빠진다.
+ *
+ * **목록에 기대지 않고 수치로 판정한다.** 목록은 검색으로 줄거나 상한에서 절단될 수 있어, 목록에
+ * 없다는 것이 범위 밖이라는 뜻이 아니다.
+ *
+ * 거둔 뒤 선택이 비면 `all` 로 되돌린다 — 그때 사람의 뜻은 「범위 하나만」이다. 처음부터 비어
+ * 있던 `include`(전부 해제)는 건드리지 않는다.
+ */
+export function settleSelection(
+  mode: PickMode,
+  values: readonly string[],
+  range: NumberRange | null,
+): { mode: PickMode; values: string[] } {
+  if (!range || mode === "all" || values.length === 0) return { mode, values: [...values] };
+  const kept = values.filter((v) => inRange(v, range));
+  return kept.length === 0 ? { mode: "all", values: [] } : { mode, values: kept };
+}
+
+/**
+ * 적용할 수 있는가. **적용 단추와 엔터가 이 한 판정을 쓴다.** 단추만 막으면 엔터로 표를 통째로
+ * 비울 수 있다(열거한 것만 통과시키는데 하나도 열거하지 않은 상태). 불러오는 중에도 적용하지
+ * 않는다 — 화면에 보이는 목록이 아직 최신이 아니다.
+ */
+export function canApply(loading: boolean, mode: PickMode, picked: number): boolean {
+  return !loading && !(mode === "include" && picked === 0);
+}
+
+/**
+ * 범위 입력의 `change` 가 **즉시 확정하는가.** 입력칸의 `change` 는 벗어남·엔터뿐이라 즉시
+ * 확정해도 된다. 슬라이더는 방향키로도 `change` 를 매번 발신하므로, 손잡이를 잡았다 놓은
+ * 경우(`held`)만 즉시 확정하고 나머지는 지연 확정으로 보낸다 — 키를 누르고 있으면 초당
+ * 수십 번 확정되고 확정마다 목록 질의가 나간다.
+ */
+export function changeCommitsAtOnce(source: "slider" | "input", held: boolean): boolean {
+  return source === "input" || held;
+}
+
+/**
+ * 손잡이 둘이 가리키는 값을 하나의 범위로 확정한다.
+ *
+ * - **서로를 넘으면 뒤집어 받는다.** 하한을 상한 너머로 끌었을 때 막지 않고 두 값을
+ *   바꾸어 받으면, 사람이 의도한 구간이 그대로 선택된다.
+ * - **전체를 그대로 둔 것은 필터가 아니다.** `null` 을 반환한다 — 필터가 걸린 것으로
+ *   표시되면 아무것도 거르지 않는데 걸려 있다고 진술하게 된다.
+ */
+export function settleRange(a: number, b: number, span: NumberRange): NumberRange | null {
+  const min = Math.min(a, b);
+  const max = Math.max(a, b);
+  return min <= span.min && max >= span.max ? null : { min, max };
 }
 
 /**
@@ -157,6 +302,13 @@ export interface ColumnValuesResult {
   values: ColumnValue[];
   /** 상한을 초과해 절단되었는지. 상한은 바탕이 제시한다(`limits().maxValues`). */
   truncated: boolean;
+  /**
+   * 숫자 열의 **자료가 존재하는 범위.** 숫자 열이 아니거나 숫자 값이 부재하거나 축소 문자가 있는
+   * 요청이면 `null`
+   * 이거나 생략된다. 생략하는 바탕(범위를 산출하지 않는 받는 앱)에서는 범위 칸이
+   * 나타나지 않고 값 목록만 남는다.
+   */
+  range?: NumberRange | null;
   elapsedMs: number;
 }
 
@@ -440,11 +592,14 @@ export function dropColumnState(
     sorts: Sort[];
     filterText: Record<string, string>;
     filterValues: Record<string, ValuePick | null>;
+    /** 생략하면 범위가 없는 것이다. */
+    filterRanges?: Record<string, NumberRange | null>;
   },
 ): {
   sorts: Sort[];
   filterText: Record<string, string>;
   filterValues: Record<string, ValuePick | null>;
+  filterRanges: Record<string, NumberRange | null>;
 } {
   const gone = new Set(dropped);
   const omit = <V>(map: Record<string, V>): Record<string, V> =>
@@ -453,6 +608,7 @@ export function dropColumnState(
     sorts: state.sorts.filter((s) => !gone.has(s.key)),
     filterText: omit(state.filterText),
     filterValues: omit(state.filterValues),
+    filterRanges: omit(state.filterRanges ?? {}),
   };
 }
 

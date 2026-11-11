@@ -17,6 +17,7 @@ import {
   pageSize,
   type Filter,
   type HeaderSpec,
+  type NumberRange,
   type Row,
   type ScreenDef,
   type Sort,
@@ -40,6 +41,7 @@ const page = ref(0);
 const sorts = ref<Sort[]>([]);
 const filterText = ref<Record<string, string>>({});
 const filterValues = ref<Record<string, ValuePick | null>>({});
+const filterRanges = ref<Record<string, NumberRange | null>>({});
 /* 오류는 코드와 치환 값으로 보유한다. 문구로 보유하면 언어 전환을 추종하지 않는다. */
 const { message: errorMessage, capture: captureFault, clear: clearFault } = useFault();
 const busy = ref(false);
@@ -55,14 +57,25 @@ const activeFilters = computed<Filter[]>(() =>
   props.screen.columns
     .map((c) => {
       const pick = own(filterValues.value, c.key) ?? null;
+      const range = own(filterRanges.value, c.key) ?? null;
       return {
         key: c.key,
         contains: (own(filterText.value, c.key) ?? "").trim(),
         values: pick?.mode === "include" ? pick.values : null,
         excluded: pick?.mode === "exclude" ? pick.values : null,
+        // 숫자 열이 아니면 범위가 올라올 수 없다(그 팝오버에는 범위 칸이 없다).
+        min: range?.min ?? null,
+        max: range?.max ?? null,
       };
     })
-    .filter((f) => f.contains !== "" || f.values !== null || f.excluded !== null),
+    .filter(
+      (f) =>
+        f.contains !== "" ||
+        f.values !== null ||
+        f.excluded !== null ||
+        f.min !== null ||
+        f.max !== null,
+    ),
 );
 
 let token = 0;
@@ -107,14 +120,15 @@ function reload() {
  * 동일하다). 축소하는 문자까지 바탕에 전달한다 — 절단된 목록을 화면에서
  * 여과하면 안 된다.
  */
-function loadValues(columnKey: string, needle: string) {
-  return columnValues(
-    props.screen.id,
-    props.screen.header,
-    columnKey,
-    activeFilters.value,
-    needle,
-  );
+function loadValues(columnKey: string, needle: string, range: NumberRange | null) {
+  /* **팝오버가 지금 보유한 범위로 목록을 만든다.** 적용하기 전에 손잡이를 움직인 범위가 목록에
+     반영되어야 한다 — 적용된 범위(`activeFilters`)는 이전 것이다. 같은 열의 이전 필터는 바탕이
+     값 선택은 빼고 범위만 적용하므로, 그 열의 항목은 새 범위로만 갈아 끼운다. */
+  const others = activeFilters.value.filter((f) => f.key !== columnKey);
+  const ownRange: Filter[] = range
+    ? [{ key: columnKey, contains: "", values: null, excluded: null, min: range.min, max: range.max }]
+    : [];
+  return columnValues(props.screen.id, props.screen.header, columnKey, [...others, ...ownRange], needle);
 }
 
 /* ── 페이지 이동 ───────────────────────────────────────────── */
@@ -155,9 +169,16 @@ function onFilterValues(next: Record<string, ValuePick | null>) {
   reload();
 }
 
+function onFilterRanges(next: Record<string, NumberRange | null>) {
+  filterRanges.value = next;
+  /* 조회하지 않는다. 범위는 값 선택과 **같은 적용에서** 먼저 도달하고, 조회는 뒤따르는 값
+     선택이 수행한다(`GridTable.applyFilterValues`). 여기서도 부르면 같은 조회가 두 번 간다. */
+}
+
 function clearFilters() {
   filterText.value = {};
   filterValues.value = {};
+  filterRanges.value = {};
   reload();
 }
 
@@ -170,10 +191,12 @@ function applyColumns(next: { order: string[]; hidden: string[]; dropped: string
     sorts: sorts.value,
     filterText: filterText.value,
     filterValues: filterValues.value,
+    filterRanges: filterRanges.value,
   });
   sorts.value = kept.sorts;
   filterText.value = kept.filterText;
   filterValues.value = kept.filterValues;
+  filterRanges.value = kept.filterRanges;
   /* 정렬은 watch 가 다시 읽는다. 여과가 바뀌었을 때만 직접 다시 읽는다. */
   if (activeFilters.value.length !== had) reload();
 }
@@ -233,6 +256,7 @@ watch(
     sorts.value = [];
     filterText.value = {};
     filterValues.value = {};
+    filterRanges.value = {};
     reload();
   },
 );
@@ -295,12 +319,14 @@ watch(sorts, reload, { deep: true });
       :sorts="sorts"
       :filter-text="filterText"
       :filter-values="filterValues"
+      :filter-ranges="filterRanges"
       :pinned="layout.pinned.value"
       :load-values="loadValues"
       :busy="busy"
       @sort="onSort"
       @update:filter-text="onFilterText"
       @update:filter-values="onFilterValues"
+      @update:filter-ranges="onFilterRanges"
       @move="layout.move"
       @resize="layout.resize"
       @resize-end="layout.commit"

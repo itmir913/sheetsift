@@ -327,6 +327,143 @@
   color: var(--c-fg);
 }
 
+/* 요약은 한 줄에 고정한다. 범위를 확정하면 요약이 길어지는데, 줄이 바뀌면 팝오버 높이가
+   출렁인다. `min-width: 0` 이 없으면 플렉스 항목이 내용보다 줄어들지 못해 말줄임이 작동하지 않는다. */
+.dg-pop-sum {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ── 숫자 범위 ──────────────────────────────────────────────
+   팝오버는 `.dg` 바깥이라 표의 글자 크기(`--dg-font`)를 따르지 않고 앱 본문 글자를 따른다.
+   그래서 여기 크기는 `rem` 이다(셀의 `em` 규칙과 반대다). **값이 바뀌어도 줄 수와 칸 폭이
+   변하지 않아야 한다** — 끄는 동안 배치가 움직이면 손잡이가 손가락 밑에서 이동한다. */
+.dg-range {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border: 1px solid var(--c-border);
+  border-radius: 0.5rem;
+  background-color: var(--c-surface-sunken);
+}
+
+.dg-range-top {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.dg-range-inputs {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* 폭을 균등하게 고정한다. 내용(숫자의 자릿수)이 폭을 정하지 않는다. */
+.dg-range-num {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 손잡이 둘을 겹쳐 놓는다. 각 슬라이더는 막대 전체를 덮되 **손잡이만** 포인터를 받는다 —
+   그렇지 않으면 위의 슬라이더가 아래 손잡이를 가려 잡을 수 없다. 서로를 넘을 수 있으므로
+   둘 다 전 범위다. `--lo`·`--hi` 는 칠하는 구간일 뿐 배치에 관여하지 않는다. */
+.dg-range-slider {
+  --lo: 0%;
+  --hi: 100%;
+  position: relative;
+  height: 1.5rem;
+}
+
+.dg-range-slider::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 0.25rem;
+  transform: translateY(-50%);
+  border-radius: 0.25rem;
+  background: linear-gradient(
+    to right,
+    var(--c-border-strong) var(--lo),
+    var(--c-accent) var(--lo),
+    var(--c-accent) var(--hi),
+    var(--c-border-strong) var(--hi)
+  );
+}
+
+.dg-range-thumb {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: transparent;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.dg-range-thumb::-webkit-slider-runnable-track {
+  height: 100%;
+  background: transparent;
+}
+
+.dg-range-thumb::-moz-range-track {
+  height: 100%;
+  background: transparent;
+}
+
+.dg-range-thumb::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: 1.125rem;
+  height: 1.125rem;
+  /* 막대 높이(1.5rem)의 가운데. WebKit 은 손잡이를 막대의 위에 붙인다. */
+  margin-top: 0.1875rem;
+  border: 2px solid var(--c-accent);
+  border-radius: 50%;
+  background-color: var(--c-surface);
+  cursor: grab;
+}
+
+.dg-range-thumb::-moz-range-thumb {
+  pointer-events: auto;
+  box-sizing: border-box;
+  width: 1.125rem;
+  height: 1.125rem;
+  border: 2px solid var(--c-accent);
+  border-radius: 50%;
+  background-color: var(--c-surface);
+  cursor: grab;
+}
+
+.dg-range-thumb:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--c-focus);
+  outline-offset: 2px;
+}
+
+.dg-range-thumb:focus-visible::-moz-range-thumb {
+  outline: 2px solid var(--c-focus);
+  outline-offset: 2px;
+}
+
+/* 자료의 범위는 **한 줄에 고정한다.** 줄바꿈이 오가면 높이가 출렁인다. */
+.dg-range-data {
+  margin: 0;
+  overflow: hidden;
+  color: var(--c-fg-subtle);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
 /* 한 행의 높이. 화면과 코드가 동일한 수를 참조해야 한다(`ColumnFilter.vue`). */
 .dg-pop {
   --dg-pop-row-h: 1.875rem;
