@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath, URL } from "node:url";
+import { freshPkg } from "./stalePkg.ts";
 
 // **경계의 두 벌 중 하나를 선택한다.** 화면은 `sheetsift-book` 이라는 명칭으로
 // 반입하고 어느 쪽인지 인지하지 않는다 — 인지하게 하면 화면이 두 벌이 되고, 두
@@ -12,7 +13,10 @@ import { fileURLToPath, URL } from "node:url";
 // 환경 변수가 아니라 모드인 사유는 **운영체제마다 부여하는 방법이 상이하지
 // 않아서**다 — 명령 하나가 윈도와 리눅스에서 동일하게 작동한다.
 export default defineConfig(({ mode }) => ({
-  plugins: [vue(), tailwindcss()],
+  // **낡은 wasm 으로 기동하지 않는다.** `web/pkg` 가 `crates/` 보다 낡으면
+  // 정지한다(`stalePkg.ts`) — 화면만 수정하는 날에는 보이지 않다가 엔진을
+  // 수정한 날에만 묵시적으로 구 엔진의 결과를 제시하는 자리다.
+  plugins: [freshPkg(fileURLToPath(new URL("..", import.meta.url))), vue(), tailwindcss()],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

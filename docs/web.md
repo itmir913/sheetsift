@@ -54,6 +54,21 @@ npm run dev:web
 above produces `web/pkg` and lets you work with the UI locally — rerun
 `npm run pkg` only when the kernel changes; Vite picks up UI files immediately.
 
+### A stale build stops the dev server
+
+`npm run dev:web` recompiles the kernel first, so it never serves a stale one.
+Starting Vite directly does not — `npm run dev --workspace web`, and the window's
+own dev start (`beforeDevCommand` in `crates/tauri/tauri.conf.json`), both load
+whatever `web/pkg` happens to hold. The screen then talks to the **previous**
+kernel, and nothing says so: a UI-only day never notices, and the day the kernel
+changes it quietly answers from the old one. A 19-minute-old build once cost a
+bug report for a defect that did not exist.
+
+So Vite **stops** when `web/pkg` is older than `crates/`
+(`web/stalePkg.ts`), and names both times and the file that is newer. Recompile
+and start again. `crates/shell/tests/pkg_freshness.rs` keeps that guard mounted,
+and keeps its list of crates outside the wasm bundle honest.
+
 Where clang is absent, **there is no deployed build to work with either.**
 Deploying is releasing — it takes a tag, run by hand (`docs/desktop.md`) — so the
 site is the last thing someone released, and a change on a branch is not on it.
