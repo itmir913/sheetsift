@@ -763,9 +763,10 @@
   font-weight: 600;
 }
 
-/* 합격 가능성 밴드.
-   기본색을 배치해 두어, 순서가 색 규칙보다 증가해도 배지가 배경과 혼합되어
-   소멸하지 않는다. */
+/* 판정 칩의 배치.
+   **색은 이 양식이 보유하지 않는다** — 받는 앱이 자료(`cases` 마다 기재하는
+   `color`)에서 판독해 요소에 직접 부착한다. 여기 기본색을 존치하는 사유는
+   자료가 색을 누락했을 때 배지가 배경과 혼합되어 소멸하지 않게 하는 것이다. */
 .ss-band {
   background-color: var(--c-fg-subtle);
   display: inline-flex;
@@ -777,22 +778,6 @@
   white-space: nowrap;
 }
 
-/* 색은 **밴드 명칭이 아니라 출현 순서**로 부여한다. 명칭을 기재하면
-   screens.json 에서 밴드를 증가시키거나 key 를 변경하는 순간 규칙이 아무것도
-   적중하지 못하고 묵시적으로 기본색이 된다(조견표 막대에서 1회 경험했다).
-   순서는 `bands` 가 몇 개든, 명칭이 무엇이든 분기한다. */
-.ss-band[data-band-i="0"] {
-  background-color: var(--c-band-1);
-}
-.ss-band[data-band-i="1"] {
-  background-color: var(--c-band-2);
-}
-.ss-band[data-band-i="2"] {
-  background-color: var(--c-band-3);
-}
-.ss-band[data-band-i="3"] {
-  background-color: var(--c-band-4);
-}
 
 
 /* ── 학생 선택 바 ───────────────────────────────────────────── */
