@@ -530,20 +530,23 @@ defineExpose({ close: () => (openFilterKey.value = null) });
         </button>
       </div>
 
-      <div v-if="detailRow" class="rd-body" role="group" tabindex="0" aria-labelledby="rd-title">
+      <!-- **초점을 받지 않는다.** 받으면 Tab 으로 들어왔을 때 본문 전체에 초점 테두리가 그려진다.
+           행 이동 키는 `<dialog>` 가 받으므로(`onDetailKey`) 여기가 초점을 가질 까닭이 없다. -->
+      <div v-if="detailRow" class="rd-body" role="group" aria-labelledby="rd-title">
         <dl class="rd-list">
-          <div v-for="col in detailColumns" :key="col.key" class="rd-pair">
+          <!-- 열에 준 색은 **줄 전체**에 칠한다. 값 칸만 칠하면 이름과 값이 다른 줄처럼 보인다. -->
+          <div
+            v-for="col in detailColumns"
+            :key="col.key"
+            class="rd-pair"
+            :data-cvars="cellVars(col) ? '' : undefined"
+            :style="cellVars(col)"
+          >
             <dt class="rd-name">
               {{ col.label }}
               <span v-if="col.hidden" class="rd-tag">{{ t("detail.hidden") }}</span>
             </dt>
-            <dd
-              class="rd-value"
-              :data-kind="col.kind"
-              :data-blank="isBlank(detailRow[col.srcIndex])"
-              :data-cvars="cellVars(col) ? '' : undefined"
-              :style="cellVars(col)"
-            >
+            <dd class="rd-value" :data-kind="col.kind" :data-blank="isBlank(detailRow[col.srcIndex])">
               <!-- 표와 **동일한 슬롯**이다. 그러지 않으면 모달에서만 꼴이 상이해진다. -->
               <slot name="cell" :col="col" :row="detailRow" :value="detailRow[col.srcIndex]">
                 {{ cellText(col, detailRow[col.srcIndex]) }}

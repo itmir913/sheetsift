@@ -157,7 +157,7 @@ export const ui = {
   "detail.prev": "↑ 위 행",
   "detail.next": "아래 행 ↓",
   "detail.close": "닫기",
-  "detail.position": "보이는 행 {n} / {total}",
+  "detail.position": "현재 행 {n} / 전체 행 {total}",
   "picker.apply": "적용",
   "tools.columns": "열 선택",
   "tools.columns.tip": "화면에 표시할 열과 그 순서를 선택합니다",

@@ -91,10 +91,14 @@ nothing there. Press a row and every column of that row is listed vertically.
   app's chips and link buttons look the same in both places.
 - Styles live in `grid.css` with the `rd-*` prefix. No new stylesheet, so no
   receiving app has to add an `@import` it could forget.
-- Colours still come from the receiving app: the value cell carries `data-cvars`
-  and the variables, and the app's own rule paints it (goe-navi's `header-tint.css`).
+- Colours still come from the receiving app: the pair row carries `data-cvars`
+  and the variables, so the whole row is tinted, and the app's own rule paints it
+  (goe-navi's `header-tint.css`).
 - The dictionary needs the six `detail.*` keys; `detail.position` takes `n` and
-  `total`, counted within the page the table is showing.
+  `total`. `total` is the length of `rows` — the list the modal walks, which is
+  what the table itself is showing.
+- The body is not focusable. Row keys are handled by the `<dialog>`, so giving the
+  body a tab stop only drew a focus ring across the whole list.
 
 ## How the package is taken
 

@@ -128,7 +128,7 @@ export const ui: Record<UiKey, string> = {
   "detail.prev": "↑ Previous row",
   "detail.next": "Next row ↓",
   "detail.close": "Close",
-  "detail.position": "Row {n} of {total} shown",
+  "detail.position": "Row {n} of {total}",
   "picker.apply": "Apply",
   "tools.columns": "Choose columns",
   "tools.columns.tip": "Choose which columns to show, and in what order",
