@@ -542,8 +542,12 @@ fn build_where(
             let col = table
                 .column(key)
                 .ok_or_else(|| unknown_column(table, key, "unknown filter column"))?;
+            /* **못 쓰는 열의 조건을 폐기하지 않는다.** 폐기하면 조건을 걸지
+               않은 것이 되어 **더 많은 행이 산출되는데**, 화면은 조건이 걸렸다고
+               묘사한다. 바로 옆 「숫자 아닌 열에 범위」와 동급의 잘못이라 동일하게
+               중단한다. */
             if !col.filterable {
-                continue;
+                return Err(unknown_column(table, key, "a filter was given for a column that cannot be filtered"));
             }
             /* **숫자 열이 아닌 열의 범위는 중단한다.** 문자 열에 숫자 비교를 적용하면
                전 행이 탈락하는데, 그것이 오류로 출현하지 않는다. 오류 코드는 정렬·필터 열쇠
@@ -595,8 +599,9 @@ fn order_keys(
         let col = table
             .column(&s.key)
             .ok_or_else(|| unknown_column(table, &s.key, "unknown sort column"))?;
+        // 폐기하면 정렬하지 않은 순서가 산출되는데 화면은 그 열로 정렬했다고 묘사한다.
         if !col.sortable {
-            continue;
+            return Err(unknown_column(table, &s.key, "a sort was given for a column that cannot be sorted"));
         }
         let dir = match s.dir {
             SortDir::Asc => "ASC",
@@ -1636,6 +1641,26 @@ mod tests {
         };
         assign_aliases(t.columns.iter_mut());
         (conn, t)
+    }
+
+    /// **못 쓰는 열의 조건을 폐기하지 않는다.**
+    ///
+    /// 폐기하면 조건을 걸지 않은 것이 되어 **더 많은 행이 산출되는데**, 화면은
+    /// 조건이 걸렸다고 묘사한다. 바로 옆 「숫자 아닌 열에 범위」는 중단하므로,
+    /// 동급의 잘못을 상이하게 다루고 있었다.
+    #[test]
+    fn a_condition_on_a_column_that_cannot_take_it_stops() {
+        let (conn, mut t) = fixture();
+        t.columns[0].filterable = false;
+        t.columns[0].sortable = false;
+
+        let err = run(&conn, &t, BLANK, &query(vec![], vec![contains("name", "가")])).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidSortKey);
+        let err = run(&conn, &t, BLANK, &query(vec![s("name", SortDir::Asc)], vec![])).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidSortKey);
+        // 쓸 수 있는 열은 그대로 작동한다.
+        let page = run(&conn, &t, BLANK, &query(vec![s("score", SortDir::Desc)], vec![])).unwrap();
+        assert_eq!(page.total, 6);
     }
 
     /// **공백 한 칸이 기재된 셀도 공백이다.**
