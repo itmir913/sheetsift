@@ -724,7 +724,16 @@
   accent-color: var(--c-accent);
 }
 
-/* 권역·계열 선택 칩 */
+/* 선택 칩. **정본은 이 한 벌이다.** `.cp-chip`(열 선택 모달)과 `.ss-chip`(범위 차트의 권역·계열
+   선택)이 같은 규칙을 가리킨다 — 두 파일에 따로 적으면 한쪽만 바뀌고, 한 화면에 두 칩이 섞이는
+   때 모양이 어긋난다. 이 파일에 두는 사유: 받는 앱이 `grid.css` 와 `picker.css` 를 모두 싣지만
+   칩의 한 쪽(`.ss-chip`)은 원래 여기 있었고, 모달 전용 파일(`picker.css`)에 두면 모달을 쓰지
+   않는 화면이 칩을 쓸 때 의존이 거꾸로다.
+
+   - 꺼짐 글자는 `--c-fg-muted` 다. 꺼진 것이 꺼져 보여야 하고, 마우스를 올리면 `--c-fg`.
+   - 켜짐은 색만으로 가르지 않는다 — 굵기(`600`)를 더한다(색을 구분하기 어려운 사람).
+   - 한 줄에 고정한다(`nowrap`). */
+.cp-chip,
 .ss-chip {
   padding: 0.25rem 0.75rem;
   border: 1px solid var(--c-border);
@@ -732,14 +741,21 @@
   background-color: var(--c-surface);
   color: var(--c-fg-muted);
   font: inherit;
+  white-space: nowrap;
   cursor: pointer;
 }
 
+.cp-chip:hover,
 .ss-chip:hover {
   background-color: var(--c-surface-hover);
   color: var(--c-fg);
 }
 
+/* 켜짐은 `aria-pressed` 가 정본이다 — 읽어 주는 장치에 뜻이 전달된다.
+   `data-on` 은 코어(goe-navi)의 범위 차트가 `aria-pressed` 로 옮겨 올 때까지의 **한시적 수용**이다.
+   옮겨 온 뒤 다음 태그에서 거둔다. */
+.cp-chip[aria-pressed="true"],
+.ss-chip[aria-pressed="true"],
 .ss-chip[data-on="true"] {
   border-color: var(--c-accent);
   background-color: var(--c-accent);
