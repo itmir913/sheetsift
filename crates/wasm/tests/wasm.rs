@@ -105,3 +105,101 @@ fn the_limits_come_across() {
     let l = sheetsift_wasm::limits().expect("상한을 수령하지 못했습니다");
     assert!(l.contains("blankToken") && l.contains("maxPage"), "{l}");
 }
+
+/* ── 화면이 보내는 JSON 이 이 겹을 통과하는가 ──────────────────────
+   알맹이는 `sheetsift-shell` 이 JSON 을 역직렬화해 `Viewer` 에 넘기는 것까지
+   판정한다. 여기서만 판정할 수 있는 것은 **그 사이의 겹** 이다 — `parsed` 가
+   요청을 받고, `json` 이 응답을 문자로 환원하고, `thrown` 이 오류를 코드로
+   전달하는 자리. 그 겹에서 항목 하나가 탈락해도 양측의 시험은 전부 초록이다.
+
+   2026-11-11 에 실제로 겪은 것이 이 경로다. 「값 목록이 범위를 반영하지
+   않는다」는 결함이 보고되었고, 엔진에도 껍질에도 결함이 부재했다 — 낡은
+   산출물이었다. 그때 이 겹을 지나는 시험이 하나도 없었다. */
+
+/// 숫자 한 열. 범위를 거는 경로를 판정하는 데 필요한 최소다. `-` 는 숫자로
+/// 판독되지 않는 값이고, 범위가 걸리면 탈락해야 한다.
+const SCORES_CSV: &[u8] = "점수\n9\n-\n100\n20\n".as_bytes();
+
+/// 목록 문자에서 공백 표식을 취한다. 화면도 이것을 `limits()` 에서 수령한다.
+fn blank_token() -> String {
+    let l = sheetsift_wasm::limits().expect("상한을 수령하지 못했습니다");
+    l.split("\"blankToken\":\"")
+        .nth(1)
+        .expect("공백 표식이 부재합니다")
+        .split('"')
+        .next()
+        .unwrap()
+        .to_string()
+}
+
+fn scores() -> (Book, String) {
+    let book = Book::new(SCORES_CSV, "점수.csv").expect("csv 를 개방하지 못했습니다");
+    let catalog = book.list_screens("{}").expect("목록을 수령하지 못했습니다");
+    assert!(catalog.contains("\"kind\":\"number\""), "숫자 열로 판독되지 않았습니다: {catalog}");
+    let key = key_at(&catalog, 0);
+    (book, key)
+}
+
+/// **범위가 화면이 보내는 JSON 그대로 이 겹을 통과한다.** 항목 명칭(`min`·`max`)이
+/// 어긋나거나 중간에서 탈락하면 조건이 **묵시적으로 누락된 채** 질의된다 —
+/// 전부 통과하는 페이지가 도달하고, 아무 곳에서도 오류가 발생하지 않는다.
+#[wasm_bindgen_test]
+fn a_range_crosses_the_boundary_as_json() {
+    let (mut book, key) = scores();
+    let page = book
+        .query_rows(&format!(
+            r#"{{"screenId":"점수","limit":10,"filters":[{{"key":"{key}","min":10,"max":100}}]}}"#
+        ))
+        .expect("범위 조회가 동작하지 않았습니다");
+    assert!(page.contains("\"total\":2"), "20 과 100 만 통과해야 합니다: {page}");
+}
+
+/// **값 목록이 범위를 반영한다.** 목록이 범위 밖의 값을 담으면, 그것을 선택하는
+/// 순간 범위와 AND 로 겹쳐 **조용히 0건**이 된다. 실제로 보고된 결함이 이것이다.
+#[wasm_bindgen_test]
+fn the_value_list_follows_the_range_across_the_boundary() {
+    let (mut book, key) = scores();
+    let ranged = book
+        .column_values(&format!(
+            r#"{{"screenId":"점수","columnKey":"{key}","filters":[{{"key":"{key}","min":10,"max":100}}]}}"#
+        ))
+        .expect("값 목록이 도달하지 않았습니다");
+    assert!(ranged.contains("\"20\"") && ranged.contains("\"100\""), "{ranged}");
+    assert!(!ranged.contains("\"9\""), "범위 밖의 값이 목록에 있습니다: {ranged}");
+    assert!(!ranged.contains(&blank_token()), "범위가 걸렸는데 공백이 있습니다: {ranged}");
+
+    // **자료의 범위는 걸어 둔 범위에 좁아지지 않는다.** 손잡이의 양 끝이 이것이라,
+    // 좁아지면 범위를 조정할 때마다 조작 가능한 폭이 축소된다.
+    assert!(ranged.contains("\"range\""), "자료의 범위가 부재합니다: {ranged}");
+    assert!(ranged.contains("\"min\":9"), "{ranged}");
+
+    // 범위를 풀면 공백까지 전부로 복귀한다.
+    let all = book
+        .column_values(&format!(r#"{{"screenId":"점수","columnKey":"{key}"}}"#))
+        .expect("값 목록이 도달하지 않았습니다");
+    assert!(all.contains("\"9\"") && all.contains(&blank_token()), "{all}");
+}
+
+/// **문자 열에 범위를 걸면 중단한다.** 그대로 수행하면 모든 행이 탈락하는데,
+/// 그것은 오류로 출현하지 않고 「자료 없음」으로 표시된다.
+#[wasm_bindgen_test]
+fn a_range_on_a_text_column_is_thrown() {
+    let mut book = Book::new(TINY_XLSX, "tiny.xlsx").expect("양식을 개방하지 못했습니다");
+    let catalog = book.list_screens("{}").expect("목록을 수령하지 못했습니다");
+    // 2번째 열이 지역이다 — 문자 열이다.
+    let key = key_at(&catalog, 1);
+    let err = book.query_rows(&format!(
+        r#"{{"screenId":"사람","limit":10,"filters":[{{"key":"{key}","min":1}}]}}"#
+    ));
+    assert!(err.is_err(), "문자 열에 범위가 적용되었습니다");
+}
+
+/// **상한이 하한에 미달하면 중단한다.** 그 조건은 아무 행도 통과시키지 못한다.
+#[wasm_bindgen_test]
+fn an_upside_down_range_is_thrown() {
+    let (mut book, key) = scores();
+    let err = book.query_rows(&format!(
+        r#"{{"screenId":"점수","limit":10,"filters":[{{"key":"{key}","min":100,"max":10}}]}}"#
+    ));
+    assert!(err.is_err(), "뒤집힌 범위가 적용되었습니다");
+}
