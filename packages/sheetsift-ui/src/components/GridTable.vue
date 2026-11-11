@@ -441,6 +441,8 @@ defineExpose({ close: () => (openFilterKey.value = null) });
             class="dg-fcell"
             :data-pin="pinIndex(i)"
             :data-pin-last="i === pinned - 1"
+            :data-fvars="headerVars(col) ? '' : undefined"
+            :style="headerVars(col)"
           >
             <div class="dg-fwrap">
               <input

@@ -408,6 +408,10 @@
   z-index: 3;
   background-color: var(--c-surface-sunken);
 }
+/* 이 기본 배경의 특이도는 (0,2,0) 이다. 색을 부여한 열의 필터 칸(`data-fvars`)은 열 머리와
+   같은 원색 변수를 받고, 제품의 `header-tint.css` 가 `.dg-fcell[data-fvars][data-fvars]`
+   (0,3,0) 로 `--c-surface-sunken` 과 섞어 이 배경을 덮는다. 기준색이 이 기본 배경과 같으므로
+   고정된 칸도 불투명한 채로 남는다. */
 
 /* 고정 셀은 불투명해야 하단 내용이 투과 노출되지 않는다. 기저는 항상 `--c-surface`
    이고, 줄무늬·올림은 행이 전달한 `--dg-veil` 을 그 위에 한 겹 도포해 재현한다.

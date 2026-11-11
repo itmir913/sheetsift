@@ -44,7 +44,10 @@ export interface ColumnDef {
    *
    * 값은 이 패키지가 해석하지 않고 헤더 셀의 `style` 로 전달할 뿐이다. 색의 혼합
    * 규칙과 변수의 이름은 받는 앱의 CSS 가 결정한다 — 이 패키지는 색 값을 기재하지
-   * 않는다. 지정하지 않거나 비어 있으면 헤더 셀에 `style` 도 `data-hvars` 도 없다.
+   * 않는다. 지정하지 않거나 비어 있으면 헤더 셀(과 열 검색 칸)에 `style` 도 `data-hvars`(검색 칸은 `data-fvars`)도 없다.
+   *
+   * 열 검색·깔대기 칸(`.dg-fcell`)에도 같은 변수를 `data-fvars` 와 함께 싣는다. 색을 부여한 열이
+   * 머리에서 끊겼다가 본문에서 다시 이어지는 것처럼 보이지 않게 하려는 것이다.
    */
   headerVars?: Record<string, string>;
   /**
