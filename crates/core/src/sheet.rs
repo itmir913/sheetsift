@@ -118,7 +118,10 @@ fn cell(v: &calamine::Data) -> String {
 /// 것과 상이한 행이 통과한다. 유니코드가 문자로 배정하지 않는 위치라 그것을
 /// 제거해도 사람이 기재한 내용은 소멸하지 않는다.
 fn cell_text(s: &str) -> String {
-    let t = s.trim();
+    /* **절단은 한 곳에서 정의한다**([`crate::value::trim`]). 조회 엔진이 SQL 로
+       동일한 절단을 수행하므로, 여기서 상이한 집합을 제거하면 `" "` 한 칸이
+       일방에만 공백이 된다. */
+    let t = crate::value::trim(s);
     /* NUL 도 함께 제거한다. 문자로 수용되기는 하나 **열 검색이 그 위치에서
        정지해**, 그 이후에 기재된 문자를 탐색하지 못한다 — 자료는 존재하는데
        탐색하지 못하는 상태라 사람이 부재한다고 판단한다. */
@@ -485,7 +488,11 @@ pub fn build_dict(
                 if m.ty != ValueType::Dict {
                     continue;
                 }
-                let s = Sheet::at(row, at[i]);
+                /* **사전에 수록하는 값도 절단한다.** 절단하지 않으면 `" 가 "` 와
+                   `"가"` 가 상이한 id 를 수령해 **값 목록에 눈으로 구별할 수
+                   없는 두 항목**이 출현하고, 일방을 선택하면 타방의 행이 조용히
+                   탈락한다. 절단하는 것은 공백의 정의와 동일한 집합이다. */
+                let s = crate::value::trim(Sheet::at(row, at[i]));
                 if !is_blank(s, blank) {
                     words.insert(s.to_string());
                 }
@@ -579,7 +586,8 @@ pub fn build_dict_table(
     for row in sheet.body() {
         let mut vals: Vec<Value> = Vec::with_capacity(plan.map.len());
         for (i, m) in plan.map.iter().enumerate() {
-            let s = Sheet::at(row, at[i]);
+            // 사전에 수록할 때와 동일하게 절단한 값으로 탐색한다.
+            let s = crate::value::trim(Sheet::at(row, at[i]));
             vals.push(if is_blank(s, blank) {
                 Value::Null
             } else {
@@ -850,6 +858,38 @@ mod tests {
         let null: Option<i64> =
             conn.query_row("SELECT score FROM t WHERE name = 2", [], |r| r.get(0)).unwrap();
         assert_eq!(null, None);
+    }
+
+    /// **눈으로 구별할 수 없는 두 항목이 사전에 생성되지 않는다.**
+    ///
+    /// 절단하지 않고 수록하면 `" 가 "` 와 `"가"` 가 상이한 id 를 수령한다. 값
+    /// 목록에는 동일하게 묘사되는 두 항목이 출현하고, 일방을 선택하면 타방의
+    /// 행이 조용히 탈락한다.
+    #[test]
+    fn a_dictionary_holds_one_entry_for_values_that_look_the_same() {
+        let plan = TablePlan {
+            table: "t".into(),
+            map: vec![ColumnMap {
+                sheet: "이름".into(),
+                column: "name".into(),
+                ty: ValueType::Dict,
+            }],
+            indexes: vec![],
+        };
+        let s = sheet(&[&["이름"], &["가"], &[" 가 "], &["\u{a0}가"], &["나"]]);
+        let conn = mem();
+        let ids = build_dict(&conn, &[(&plan, &s)], "-").unwrap();
+        assert_eq!(ids.len(), 2, "사전의 항목은 둘이다: {ids:?}");
+
+        let made = build_dict_table(&conn, &s, &plan, &ids, "-").unwrap();
+        assert_eq!(made.rows, 4);
+        // 네 행 전부가 사전을 지시한다. 하나라도 판독하지 못하면 NULL 이 된다.
+        let nulls: i64 =
+            conn.query_row("SELECT COUNT(*) FROM t WHERE name IS NULL", [], |r| r.get(0)).unwrap();
+        assert_eq!(nulls, 0);
+        let kinds: i64 =
+            conn.query_row("SELECT COUNT(DISTINCT name) FROM t", [], |r| r.get(0)).unwrap();
+        assert_eq!(kinds, 2);
     }
 
     /// **쉼표가 기재된 수를 수치 열이 판독한다.**

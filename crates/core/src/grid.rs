@@ -901,7 +901,8 @@ pub fn column_values(
         let count: i64 = r.get(1)?;
         let text = match raw {
             Json::Null => BLANK_TOKEN.to_string(),
-            Json::String(s) if s.is_empty() || s == blank => BLANK_TOKEN.to_string(),
+            // 공백의 정의는 한 곳이다 — 여기 기재하면 SQL 의 판정과 어긋난다.
+            Json::String(s) if crate::value::is_blank(&s, blank) => BLANK_TOKEN.to_string(),
             Json::String(s) => s,
             other => other.to_string(),
         };
@@ -1635,6 +1636,44 @@ mod tests {
         };
         assign_aliases(t.columns.iter_mut());
         (conn, t)
+    }
+
+    /// **공백 한 칸이 기재된 셀도 공백이다.**
+    ///
+    /// Rust 는 절단해 판정하고 SQL 은 절단하지 않아, `" "` 한 칸이 일방에는
+    /// 공백이고 타방에는 값이 존재하는 칸이었다 — 정렬의 「공백은 후위」에
+    /// 포착되지 않고, `not_blank` 를 통과하고, 범위 필터에서는 탈락했다.
+    #[test]
+    fn a_cell_that_holds_only_a_space_is_blank_everywhere() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE people(name TEXT, score TEXT);
+             INSERT INTO people VALUES ('가', '90'), ('나', ' '), ('다', '70'), ('라', '');",
+        )
+        .unwrap();
+        let mut t = T {
+            base: "people".into(),
+            columns: vec![
+                col("name", ColumnKind::Text, false),
+                col("score", ColumnKind::Number, false),
+            ],
+        };
+        assign_aliases(t.columns.iter_mut());
+
+        // 값이 존재하는 행만 — 공백 한 칸은 통과하지 않는다.
+        let only = Filter { key: "score".into(), not_blank: true, ..Filter::default() };
+        let page = run(&conn, &t, BLANK, &query(vec![], vec![only])).unwrap();
+        assert_eq!(names(&page), ["가", "다"]);
+
+        // 정렬. 공백은 방향과 무관하게 후위다.
+        let page = run(&conn, &t, BLANK, &query(vec![s("score", SortDir::Asc)], vec![])).unwrap();
+        assert_eq!(names(&page), ["다", "가", "나", "라"]);
+
+        // 값 목록. 표기가 상이한 공백은 하나로 병합된다.
+        let got = column_values(&conn, &t, BLANK, "score", &[], "").unwrap();
+        let listed: Vec<(&str, u32)> =
+            got.values.iter().map(|v| (v.value.as_str(), v.count)).collect();
+        assert_eq!(listed, [(BLANK_TOKEN, 2), ("70", 1), ("90", 1)]);
     }
 
     /// **정렬 열쇠가 유일 열 꼬리로 종결한다.**
