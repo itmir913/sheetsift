@@ -1,6 +1,8 @@
 {
   "name": "sheetsift",
   "private": true,
+  "license": "MIT",
+  "author": "luminousky",
   "workspaces": [
     "web",
     "packages/sheetsift-ui"

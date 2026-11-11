@@ -2,6 +2,8 @@
   "name": "sheetsift-ui",
   "private": true,
   "version": "0.0.0",
+  "license": "MIT",
+  "author": "luminousky",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
