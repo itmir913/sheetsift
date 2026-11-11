@@ -919,6 +919,46 @@ mod tests {
         assert_eq!((n, score), (Some(1200), Some(1234.5)));
     }
 
+    /// **유한하지 않은 수가 수치 열의 어느 위치에도 삽입되지 않는다.**
+    ///
+    /// `NaN`·`inf` 라는 글자는 사람이 기재하는 것만이 아니라 **이 상자가
+    /// 산출한다** — 유한하지 않은 `f64` 가 셀에 도달하면 `number` 가 그것을
+    /// 문자화하고, 날짜 서식이 부여된 극단의 수도 거기로 경유한다. 그 글자를
+    /// 수로 판정하면 환산할 수 없었던 수가 수치 열의 어느 위치에 삽입되므로,
+    /// 공백으로 수용하고 **판독하지 못한 칸으로 계수한다.**
+    #[test]
+    fn a_number_that_is_not_finite_becomes_text_and_is_counted() {
+        use calamine::Data;
+        // 그 글자를 산출하는 것이 이 상자다.
+        assert_eq!(cell(&Data::Float(f64::NAN)), "NaN");
+        assert_eq!(cell(&Data::Float(f64::INFINITY)), "inf");
+        assert_eq!(cell(&Data::Float(f64::NEG_INFINITY)), "-inf");
+        // 지수 표기는 산출되지 않는다 — 수치 셀에서 `1e300` 은 301 자리로 기재된다.
+        assert!(!cell(&Data::Float(1e300)).contains('e'));
+
+        let plan = TablePlan {
+            table: "t".into(),
+            map: vec![ColumnMap {
+                sheet: "점수".into(),
+                column: "score".into(),
+                ty: ValueType::Real,
+            }],
+            indexes: vec![],
+        };
+        let s = sheet(&[&["점수"], &["90"], &["NaN"], &["inf"], &["-inf"], &["1e5"]]);
+        let conn = mem();
+        let made = build_dict_table(&conn, &s, &plan, &HashMap::new(), "-").unwrap();
+        assert_eq!(made.unread, 4);
+        let got: Vec<Option<f64>> = conn
+            .prepare("SELECT score FROM t")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(got, [Some(90.0), None, None, None, None]);
+    }
+
     /// **판독하지 못한 칸의 수를 통지한다.** 통지가 부재하면 행은 존치되고 수만
     /// 소멸한 표가 정상으로 판독된다.
     #[test]

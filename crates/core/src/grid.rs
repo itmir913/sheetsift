@@ -1643,6 +1643,55 @@ mod tests {
         (conn, t)
     }
 
+    /// **판정이 갈라졌던 입력들을 조회 엔진도 동일하게 다룬다.**
+    ///
+    /// `1,200` 은 수이고, `1,2,3`·`1e5`·`NaN`·`inf` 는 문자이고, `" "` 와
+    /// `" - "` 는 빈칸이다. 수치 열의 정렬에서 문자는 방향과 무관하게 후위이고
+    /// 빈칸은 그 후위이며, 범위 필터는 수만 통과시키고, 값 목록은 빈칸 표기를
+    /// 하나로 병합한다. 판정을 한 곳에 모은 것이 여기까지 도달하는지를 판정한다.
+    #[test]
+    fn the_inputs_that_used_to_split_are_handled_the_same_way_here() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE people(name TEXT, score TEXT);
+             INSERT INTO people VALUES
+               ('쉼표', '1,200'), ('열거', '1,2,3'), ('지수', '1e5'), ('엔', 'NaN'),
+               ('무한', 'inf'), ('한칸', ' '), ('없음', ' - '), ('칠십', '70');",
+        )
+        .unwrap();
+        let mut t = T {
+            base: "people".into(),
+            columns: vec![
+                col("name", ColumnKind::Text, false),
+                col("score", ColumnKind::Number, false),
+            ],
+        };
+        assign_aliases(t.columns.iter_mut());
+
+        // 정렬. 수 → 문자 → 빈칸 순이고, 수는 `1,200` 이 `70` 보다 크다.
+        let page = run(&conn, &t, BLANK, &query(vec![s("score", SortDir::Desc)], vec![])).unwrap();
+        let got = names(&page);
+        assert_eq!(&got[..2], ["쉼표", "칠십"], "{got:?}");
+        assert_eq!(&got[6..], ["한칸", "없음"], "빈칸은 후위다: {got:?}");
+
+        // 범위. 수만 통과한다 — 문자가 0 의 위치로 유입되지 않는다.
+        let range = Filter { key: "score".into(), min: Some(0.0), ..Filter::default() };
+        let page = run(&conn, &t, BLANK, &query(vec![], vec![range])).unwrap();
+        let mut inside = names(&page);
+        inside.sort();
+        assert_eq!(inside, ["쉼표", "칠십"]);
+
+        // 값 목록. 빈칸 표기 둘이 하나로 병합되고 문자는 그대로 열거된다.
+        let listed = column_values(&conn, &t, BLANK, "score", &[], "").unwrap();
+        let listed: Vec<(&str, u32)> =
+            listed.values.iter().map(|v| (v.value.as_str(), v.count)).collect();
+        assert_eq!(listed[0], (BLANK_TOKEN, 2), "{listed:?}");
+        assert_eq!(&listed[1..3], [("70", 1), ("1,200", 1)], "수가 선두다: {listed:?}");
+        let rest: std::collections::BTreeSet<&str> =
+            listed[3..].iter().map(|(v, _)| *v).collect();
+        assert_eq!(rest, ["1,2,3", "1e5", "NaN", "inf"].into_iter().collect());
+    }
+
     /// **못 쓰는 열의 조건을 폐기하지 않는다.**
     ///
     /// 폐기하면 조건을 걸지 않은 것이 되어 **더 많은 행이 산출되는데**, 화면은
