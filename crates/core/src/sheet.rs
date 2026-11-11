@@ -376,10 +376,10 @@ impl TablePlan {
 /* ── 바꾸기 ─────────────────────────────────────────────────────── */
 
 /// 값이 부재하는 셀인가. `blank` 는 양식이 "없음" 을 기재하는 문자다.
-pub fn is_blank(s: &str, blank: &str) -> bool {
-    let t = s.trim();
-    t.is_empty() || t == blank
-}
+///
+/// **정의는 [`crate::value`] 의 것이다.** 조회 엔진이 동일한 판정을 SQL 로
+/// 수행하므로, 여기 한 벌 더 기재하면 `" "` 한 칸이 일방에만 공백이 된다.
+pub use crate::value::is_blank;
 
 /// 헤더를 SQLite 열 명칭으로. 문자·숫자·밑줄만 존치하고, 숫자로 개시되면 앞에
 /// 밑줄을 부착한다. 동일한 명칭이 재차 출현하면 `_2`, `_3` 을 부착한다.
@@ -518,7 +518,7 @@ pub fn build_plain(
     sheet: &Sheet,
     table: &str,
     indexes: &[Vec<String>],
-) -> Result<(usize, Vec<(String, String)>)> {
+) -> Result<Made> {
     let header = column_names(sheet);
     check_width(conn, table, header.len())?;
     let decl = header.iter().map(|(_, n)| format!("\"{n}\"")).collect::<Vec<_>>().join(",");
@@ -538,7 +538,8 @@ pub fn build_plain(
     }
     drop(stmt);
     make_indexes(conn, table, indexes)?;
-    Ok((n, header))
+    // 값을 전부 문자로 수용하므로 판독하지 못하는 칸이 발생할 여지가 부재한다.
+    Ok(Made { rows: n, unread: 0, columns: header })
 }
 
 /// 사전으로 압축하는 표. 문자는 `dict` 에 집약하고 본문에는 정수 id 만 배치한다.
@@ -550,7 +551,7 @@ pub fn build_dict_table(
     plan: &TablePlan,
     ids: &HashMap<String, i64>,
     blank: &str,
-) -> Result<(usize, Vec<(String, String)>)> {
+) -> Result<Made> {
     use rusqlite::types::Value;
 
     let wanted: Vec<&str> = plan.map.iter().map(|m| m.sheet.as_str()).collect();
@@ -574,6 +575,7 @@ pub fn build_dict_table(
         .map_err(|e| failed(ErrorCode::SheetTableFailed, e).with("table", table))?;
 
     let mut n = 0usize;
+    let mut unread = 0usize;
     for row in sheet.body() {
         let mut vals: Vec<Value> = Vec::with_capacity(plan.map.len());
         for (i, m) in plan.map.iter().enumerate() {
@@ -583,11 +585,26 @@ pub fn build_dict_table(
             } else {
                 match m.ty {
                     ValueType::Dict => ids.get(s).map(|id| Value::Integer(*id)).unwrap_or(Value::Null),
-                    ValueType::Real => s.parse::<f64>().map(Value::Real).unwrap_or(Value::Null),
-                    ValueType::Int => s
-                        .parse::<f64>()
-                        .map(|v| Value::Integer(v.round() as i64))
-                        .unwrap_or(Value::Null),
+                    /* **판독은 [`crate::value`] 의 것이다.** 자체 파서는
+                       `1,200` 을 판독하지 못해 행을 존치한 채 수만 소멸시키고,
+                       정수 열에서는 `2.5` 를 조용히 3 으로 올리고 범위를 초과
+                       하는 수를 포화시킨다. 판독하지 못한 칸은 공백으로
+                       수용하되 **몇 칸이 그러했는지 부르는 곳에 통지한다**
+                       ([`Made::unread`]). */
+                    ValueType::Real => match crate::value::as_real(s) {
+                        Some(v) => Value::Real(v),
+                        None => {
+                            unread += 1;
+                            Value::Null
+                        }
+                    },
+                    ValueType::Int => match crate::value::as_int(s) {
+                        Some(v) => Value::Integer(v),
+                        None => {
+                            unread += 1;
+                            Value::Null
+                        }
+                    },
                 }
             });
         }
@@ -600,13 +617,21 @@ pub fn build_dict_table(
 
     // 사전 표는 DB 열 명칭이 헤더와 상이하다. 화면이 사용하는 것은 DB 열 명칭이다.
     let header = plan.map.iter().map(|m| (m.sheet.clone(), m.column.clone())).collect();
-    Ok((n, header))
+    Ok(Made { rows: n, unread, columns: header })
 }
 
 /// 표 하나를 생성한 뒤 판명되는 것.
 #[derive(Debug, Clone)]
 pub struct Made {
     pub rows: usize,
+    /// **수로 판독하지 못해 공백으로 수용한 칸의 수.**
+    ///
+    /// 수치 열(`Real`·`Int`)에 수로 판독되지 않는 문자가 기재되어 있으면 그
+    /// 칸은 공백이 된다 — 행은 존치되고 수만 소멸한다. 그것을 반환하지 않으면
+    /// **아무 진술 없이 유력한 수가 산출된다.** 여기서 중단하지 않는 사유는,
+    /// 사람이 기재한 표에 합계 행과 비고가 상존해 중단하면 파일 전체가 개방되지
+    /// 않기 때문이다. 0 이 아니면 부르는 곳이 통지한다.
+    pub unread: usize,
     /// (시트 헤더, DB 열 명칭) 쌍. 부르는 곳이 화면 정의를 작성할 때 사용한다.
     pub columns: Vec<(String, String)>,
 }
@@ -625,12 +650,12 @@ pub fn build(
 
     let mut out = BTreeMap::new();
     for (plan, sheet) in plans {
-        let (rows, columns) = if plan.dict_encoded() {
+        let made = if plan.dict_encoded() {
             build_dict_table(conn, sheet, plan, &ids, blank)?
         } else {
             build_plain(conn, sheet, &plan.table, &plan.indexes)?
         };
-        out.insert(plan.table.clone(), Made { rows, columns });
+        out.insert(plan.table.clone(), made);
     }
     Ok(out)
 }
@@ -680,7 +705,7 @@ mod tests {
 
         // 상한 이내는 그대로 생성된다.
         let s = sheet(&[&["가", "나", "다", "라", "마", "바"], &["1", "2", "3", "4", "5", "6"]]);
-        assert_eq!(build_plain(&conn, &s, "t", &[]).unwrap().0, 1);
+        assert_eq!(build_plain(&conn, &s, "t", &[]).unwrap().rows, 1);
     }
 
     /// **날짜는 일련번호가 아니다.** 이 시험이 정지하면 화면에 `45,659` 가
@@ -811,8 +836,10 @@ mod tests {
         let s = sheet(&[&["이름", "점수"], &["가", "90"], &["나", "-"]]);
         let conn = mem();
         let ids = build_dict(&conn, &[(&plan, &s)], "-").unwrap();
-        let (n, columns) = build_dict_table(&conn, &s, &plan, &ids, "-").unwrap();
+        let made = build_dict_table(&conn, &s, &plan, &ids, "-").unwrap();
+        let (n, columns) = (made.rows, made.columns);
         assert_eq!(n, 2);
+        assert_eq!(made.unread, 0);
         assert_eq!(columns, [("이름".to_string(), "name".to_string()), ("점수".into(), "score".into())]);
 
         let joined: String = conn
@@ -825,12 +852,86 @@ mod tests {
         assert_eq!(null, None);
     }
 
+    /// **쉼표가 기재된 수를 수치 열이 판독한다.**
+    ///
+    /// 자체 파서(`str::parse`)는 `1,200` 을 판독하지 못해 그 칸을 공백으로
+    /// 수용했다 — 행은 존치되고 수만 소멸하는데 어떠한 오류도 발생하지 않는다.
+    /// 구조를 식별하는 층과 조회 엔진은 그 값을 숫자로 판정하고 있어, 판독만
+    /// 분기한 것이었다.
+    #[test]
+    fn a_number_column_reads_thousands_separators() {
+        let plan = TablePlan {
+            table: "t".into(),
+            map: vec![
+                ColumnMap { sheet: "이름".into(), column: "name".into(), ty: ValueType::Dict },
+                ColumnMap { sheet: "인원".into(), column: "n".into(), ty: ValueType::Int },
+                ColumnMap { sheet: "점수".into(), column: "score".into(), ty: ValueType::Real },
+            ],
+            indexes: vec![],
+        };
+        let s = sheet(&[&["이름", "인원", "점수"], &["가", "1,200", "1,234.5"]]);
+        let conn = mem();
+        let ids = build_dict(&conn, &[(&plan, &s)], "-").unwrap();
+        let made = build_dict_table(&conn, &s, &plan, &ids, "-").unwrap();
+        assert_eq!(made.unread, 0);
+        let (n, score): (Option<i64>, Option<f64>) =
+            conn.query_row("SELECT n, score FROM t", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!((n, score), (Some(1200), Some(1234.5)));
+    }
+
+    /// **판독하지 못한 칸의 수를 통지한다.** 통지가 부재하면 행은 존치되고 수만
+    /// 소멸한 표가 정상으로 판독된다.
+    #[test]
+    fn cells_that_could_not_be_read_as_numbers_are_counted() {
+        let plan = TablePlan {
+            table: "t".into(),
+            map: vec![ColumnMap {
+                sheet: "점수".into(),
+                column: "score".into(),
+                ty: ValueType::Real,
+            }],
+            indexes: vec![],
+        };
+        // 공백과 "없음" 표기는 판독 대상이 아니다. 수를 의도한 것이 아니기 때문이다.
+        let s = sheet(&[&["점수"], &["90"], &["-"], &[""], &["총 44850점"], &["1e5"]]);
+        let conn = mem();
+        let made = build_dict_table(&conn, &s, &plan, &HashMap::new(), "-").unwrap();
+        assert_eq!(made.rows, 5);
+        assert_eq!(made.unread, 2);
+    }
+
+    /// **정수 열이 반올림도 포화도 수행하지 않는다.** 조용히 상이한 수가
+    /// 산출되는 쪽보다 판독하지 못한 것으로 통지하는 쪽이 양호하다.
+    #[test]
+    fn an_integer_column_neither_rounds_nor_saturates() {
+        let plan = TablePlan {
+            table: "t".into(),
+            map: vec![ColumnMap {
+                sheet: "값".into(),
+                column: "v".into(),
+                ty: ValueType::Int,
+            }],
+            indexes: vec![],
+        };
+        let s = sheet(&[&["값"], &["2.5"], &["99999999999999999999999"], &["7"]]);
+        let conn = mem();
+        let made = build_dict_table(&conn, &s, &plan, &HashMap::new(), "-").unwrap();
+        assert_eq!(made.unread, 2);
+        let got: Vec<Option<i64>> = conn
+            .prepare("SELECT v FROM t")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(got, [None, None, Some(7)]);
+    }
+
     #[test]
     fn a_plain_table_keeps_every_cell_as_text() {
         let s = sheet(&[&["가", "나"], &["1", "-"], &["2"]]);
         let conn = mem();
-        let (n, _) = build_plain(&conn, &s, "t", &[]).unwrap();
-        assert_eq!(n, 2);
+        assert_eq!(build_plain(&conn, &s, "t", &[]).unwrap().rows, 2);
         // 단축된 행의 부재하는 셀은 공백 문자다. 행을 폐기하지 않는다.
         let got: Vec<(String, String)> = conn
             .prepare("SELECT \"가\", \"나\" FROM t ORDER BY \"가\"")

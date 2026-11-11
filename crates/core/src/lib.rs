@@ -14,6 +14,7 @@ pub mod grid;
 pub mod seal;
 pub mod sheet;
 pub mod vault;
+pub mod value;
 
 /* 아래 층들은 **활성화해야 포함된다.** 사유는 상자 파일에 기재했다 — 요약하면,
    오류 코드가 단일 enum 이라 사용하지 않는 층의 코드까지 앱이 문구를 작성해야

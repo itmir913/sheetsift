@@ -24,7 +24,10 @@ use rusqlite::{types::ValueRef, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
 
-use crate::{Error, ErrorCode, Result};
+use crate::{
+    value::{is_blank_sql, is_number_sql, not_a_number_sql, number_sql},
+    Error, ErrorCode, Result,
+};
 
 /// 1회에 수령 가능한 행 수의 상한.
 ///
@@ -288,34 +291,6 @@ pub fn like_escape(s: &str) -> String {
     s.replace('\\', r"\\").replace('%', r"\%").replace('_', r"\_")
 }
 
-/// 값이 부재하는 셀을 식별하는 SQL 조각.
-///
-/// **무엇을 "부재" 로 간주할지는 자료가 결정한다**(`blank`). 여기에 문자를 고정하면,
-/// 자료가 `–` 나 `N/A` 로 변경되었을 때 값 선택 목록과 필터가 동일한 파일 내부에서
-/// 분기한다 — 후보에는 `(비어 있음)` 이 표시되는데 그것을 선택하면 0건이 되고, 어떠한
-/// 오류도 발생하지 않는다.
-fn is_blank_sql(base: &str, blank: &str) -> String {
-    // 자료가 결정하는 문자라 따옴표가 진입할 여지는 희소하나, SQL 에 그대로 주입하므로 차단한다.
-    let mark = blank.replace('\'', "''");
-    format!("({base} IS NULL OR {base} = '' OR {base} = '{mark}')")
-}
-
-/// 숫자 열의 정렬 열쇠.
-///
-/// 숫자 열도 TEXT 로 수용되어 있다(원자료에 "없음" 표기가 혼입한다). 그래서
-/// 변환해 정렬하는데, **구조를 식별할 때는 제거한 천 단위 구분을 여기서도
-/// 제거해야 한다** — `1,200` 을 숫자로 판정해 두고 변환만 그대로 수행하면
-/// SQLite 가 `1` 로 산출해 `50` 보다 앞에 배치한다.
-fn number_sql(base: &str) -> String {
-    format!("CAST(REPLACE({base}, ',', '') AS REAL)")
-}
-
-/// 수치로 판독되지 않는 값인가. **그런 값은 방향과 무관하게 후위로 배치한다.**
-///
-/// SQLite 의 변환은 판독하지 못한 문자를 `0` 으로 산출한다. 그대로 정렬하면
-/// `총 44850점` 같은 합계 행이 `0` 과 `1` 사이에 삽입되는데, 표를 판독하는
-/// 사람에게는 그것이 0점으로 보인다. 구조 식별이 표본(선두 일부)만 조사하므로
-/// 그런 행은 후단에 상존한다.
 /// 값 선택 목록의 정렬 열쇠.
 ///
 /// **공백을 선두로 보낸다.** 표기가 둘 이상이어도(`NULL`·공백 문자·표식) 인접
@@ -333,68 +308,6 @@ fn values_order_sql(expr: &str, blank: &str, numeric: bool) -> String {
     }
 }
 
-pub(crate) fn not_a_number_sql(base: &str) -> String {
-    format!("(CASE WHEN {} THEN 0 ELSE 1 END) ASC", is_number_sql(base))
-}
-
-/// 전체가 수치의 형태인지 판정하는 SQL 조건. 정렬([`not_a_number_sql`])과 범위 필터가
-/// **「무엇을 수치로 보는가」만 공유한다.** 한쪽이 수치로 판정한 값이 타방에서 문자로
-/// 취급되면 갈라지기 때문이다. 순서까지 같은 것은 아니다 — 사전 열의 정렬은 정수 id 로
-/// (가나다순) 수행하므로, 범위가 수치로 거르는 행과 정렬에서 보이는 순서는 사전 열에서 다르다.
-fn is_number_sql(base: &str) -> String {
-    /* **전체가 수치의 형태인지 판정한다.** 변환 결과가 0 이 아닌지로 판정하면
-       `3 apples`·`12abc`·`7점` 처럼 수치가 **접두사로** 기재된 문자가 그 수치의
-       위치로 정렬된다 — SQLite 의 변환이 접두사를 수용하기 때문이다.
-
-       규칙은 [`crate::infer`] 의 `is_number` 와 **동일해야 한다.** 한쪽이
-       수치로 판정한 값이 타방에서 문자로 취급되면 정렬이 자료와 상이한 순서를
-       산출한다. 부호는 선두에 1회까지, 소수점은 1회까지, 숫자가 하나 이상, 그
-       외의 문자는 부재. GLOB 에는 반복을 지정하는 수단이 부재하므로 "포함하지
-       않는가" 로 판정하고, 횟수는 문자를 제거한 길이로 판정한다. */
-    let bare = format!("REPLACE({base}, ',', '')");
-    let count = |ch: &str| format!("LENGTH({bare}) - LENGTH(REPLACE({bare}, '{ch}', ''))");
-    format!(
-        "{bare} GLOB '*[0-9]*' \
-         AND NOT {bare} GLOB '*[^0-9.+-]*' \
-         AND NOT {bare} GLOB '?*[+-]*' \
-         AND {} <= 1 \
-         AND NOT ({})",
-        count("."),
-        misgrouped(base)
-    )
-}
-
-/// 쉼표가 천 단위 구분으로 유효하지 않게 기재되었는가.
-///
-/// 제거만 수행하면 `1,2,3` 이 123 으로 판정되어 그 위치로 정렬된다. GLOB 에는
-/// 반복을 지정하는 수단이 부재하므로 **유효한 형태를 기재하지 않고, 유효하지
-/// 않은 국소 형태를 열거해 기각한다** — 쉼표 하나하나가 숫자 3 자리를 선행하고
-/// 후행하는지만 판정하면 전체의 유효성이 따라온다.
-///
-/// [`crate::infer`] 의 `grouped` 와 **동일한 집합이어야 한다.** 양자가
-/// 일치하는지는 그 모듈의 시험이 문자를 생성해 대조한다.
-fn misgrouped(base: &str) -> String {
-    [
-        // 쉼표 이후가 숫자 3 자리가 아니다.
-        "GLOB '*,[0-9][0-9][0-9][0-9]*'",
-        "GLOB '*,[0-9][^0-9]*'",
-        "GLOB '*,[0-9][0-9][^0-9]*'",
-        "GLOB '*,[^0-9]*'",
-        "GLOB '*,'",
-        "GLOB '*,[0-9]'",
-        "GLOB '*,[0-9][0-9]'",
-        // 쉼표 이전이 숫자 1~3 자리가 아니다.
-        "GLOB '*[0-9][0-9][0-9][0-9],*'",
-        "GLOB ',*'",
-        "GLOB '*[^0-9],*'",
-        // 소수부에 기재되었다.
-        "GLOB '*.*,*'",
-    ]
-    .iter()
-    .map(|p| format!("{base} {p}"))
-    .collect::<Vec<_>>()
-    .join(" OR ")
-}
 
 fn unknown_column(table: &dyn Table, key: &str, what: &str) -> Error {
     Error::new(ErrorCode::InvalidSortKey)

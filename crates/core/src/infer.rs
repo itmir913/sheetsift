@@ -83,64 +83,15 @@ pub struct Layout {
 
 /* ── 셀 하나를 어떻게 판정하는가 ────────────────────────────────── */
 
-/// 숫자로 판독되는가.
-///
-/// **규칙을 문자로 기재한다.** 파서에 위임하면 그 파서가 수용하는 모든 형태가
-/// 규칙이 되는데(`inf`·`NaN`·`1e5`), 조회 엔진은 SQL 로 동일한 판정을
-/// 수행하므로 양측이 어긋난다 — 한쪽이 수치로 판정한 값이 타방에서 문자로
-/// 취급되면 **정렬이 자료와 상이한 순서를 산출한다.**
-///
-/// 규칙: 천 단위 구분을 제거한 뒤 — 부호는 선두에 1회까지, 소수점은 1회까지,
-/// 숫자가 하나 이상, 그 외의 문자는 부재. 지수 표기(`1e5`)는 **문자다** —
-/// 엑셀이 수로 수용한 셀은 수 그대로 도달하므로, 그 문자가 기재된 셀은 수를
-/// 의도한 것이 아니다. [`crate::grid`] 의 `not_a_number_sql` 이 동일한 규칙을
-/// SQL 로 기재한다.
-///
-/// **쉼표가 기재되어 있으면 천 단위 구분으로 유효해야 한다.** 제거만 수행하면
-/// `1,2,3` 이 123 으로 판정되어 그 위치로 정렬된다 — 사람이 열거를 기재한 셀을
-/// 수치로 간주하는 셈이다. 쉼표가 부재하는 값은 그 검증과 무관하므로, 자릿수가
-/// 다수인 식별자(`20231234`)는 그대로 수치다.
-pub(crate) fn is_number(s: &str) -> bool {
-    /* **절단하지 않는다.** SQL 은 절단을 수행할 수 없어(Rust 와 공백의 정의가
-       상이하다) 여기서 절단하면 양측의 판정이 선후 공백에서 어긋난다. 셀은
-       이미 절단되어 도달한다(`crate::sheet` 의 `cell_text`) — xlsx 도 csv 도
-       그 문을 경유하므로, 절단할 대상이 잔존하는 값은 자료에서 유래할 수 없다. */
-    let raw = s;
-    if raw.contains(',') && !grouped(raw) {
-        return false;
-    }
-    let t = raw.replace(',', "");
-    let body = t.strip_prefix(['+', '-']).unwrap_or(&t);
-    body.chars().any(|c| c.is_ascii_digit())
-        && body.chars().all(|c| c.is_ascii_digit() || c == '.')
-        && body.matches('.').count() <= 1
-}
-
-/// 쉼표가 천 단위 구분으로 유효하게 기재되었는가.
-///
-/// 정수부의 선두 묶음은 1~3 자리, 그 이후의 묶음은 정확히 3 자리다. 소수부에는
-/// 기재되지 않는다. **소수점 이후가 공백인 것(`1,000.`)은 수용한다** — 쉼표가
-/// 부재하는 `5.` 를 수용하고 있어, 여기서 기각하면 쉼표 유무로 판정이 분기한다.
-fn grouped(raw: &str) -> bool {
-    let body = raw.strip_prefix(['+', '-']).unwrap_or(raw);
-    let (int, frac) = match body.split_once('.') {
-        Some((i, f)) => (i, f),
-        None => (body, ""),
-    };
-    if frac.contains(',') || !frac.chars().all(|c| c.is_ascii_digit()) {
-        return false;
-    }
-    let mut groups = int.split(',');
-    let first = groups.next().unwrap_or_default();
-    if first.is_empty() || first.len() > 3 || !first.chars().all(|c| c.is_ascii_digit()) {
-        return false;
-    }
-    groups.all(|g| g.len() == 3 && g.chars().all(|c| c.is_ascii_digit()))
-}
+/* **판정은 이 층의 것이 아니다.** 무엇을 수로 보고 무엇을 공백으로 보는지는
+   [`crate::value`] 가 정의하고, 조회 엔진의 SQL 거울도 거기 소재한다 — 판정이
+   여기 한 벌 더 기재되면 일방만 수정되는 미래에 **구조를 식별한 결과와 조회한
+   결과가 분기한다.** 그 분기는 오류로 출현하지 않는다. */
+use crate::value::is_number;
 
 /// 값이 부재하는 셀인가. 양식이 "없음" 을 기재하는 문자(`blank`)도 공백으로 판정한다.
 fn empty(s: &str, blank: &str) -> bool {
-    crate::sheet::is_blank(s, blank)
+    crate::value::is_blank(s, blank)
 }
 
 /// 헤더 행으로 적합한가.
@@ -645,68 +596,6 @@ mod tests {
     fn inf_and_nan_are_words_not_numbers() {
         let s = sheet(&[&["값"], &["inf"], &["NaN"]]);
         assert_eq!(kinds(&layout(&s, "-")), [Kind::Text]);
-    }
-
-    /// **무엇이 수치인가를 두 층이 동일하게 판정한다.**
-    ///
-    /// 구조를 식별하는 층은 Rust 로, 조회 엔진은 SQL 로 동일한 판정을 수행한다.
-    /// 어긋나면 한쪽이 수치로 판정한 값이 타방에서 문자로 취급되어 **정렬이
-    /// 자료와 상이한 순서를 산출한다.**
-    #[test]
-    fn both_layers_agree_on_what_a_number_is() {
-        let named = [
-            "0", "-0", "007", "1,200", "+5", "3.14", ".5", "5.", "-42", "9007199254740993",
-            "1e5", "1E5", "2024-01-01", "010-1234-5678", "1 200", "1.2.3", "3 apples", "12abc",
-            "7점", "총 44850점", "--5", "+", ".", "inf", "NaN", "0x10", "１２",
-            // 천 단위 구분. 열거를 기재한 셀이 수치로 판정되어서는 안 된다.
-            "1,2,3", "1,23", "12,34,567", "1234,567", "1,000,000", "-1,234.50", "1,000.",
-            "1,000,00", ",123", "1,,000", "12,3456", "1.000,50",
-        ];
-        /* **문자를 생성해 전수 대조한다.** 명칭을 부여한 표본만으로는 양측이
-           어긋나는 위치를 발견하지 못한다 — 쉼표의 유효성은 국소 형태의
-           열거로 기재되어 있어(`grid` 의 `misgrouped`), 그 열거가 한 항목
-           누락된 것은 특정 길이의 특정 조합에서만 발현한다. 공백도 생성한다 —
-           양측 모두 절단을 수행하지 않아야 한다. */
-        let alphabet = b"01,.+- ";
-        let mut generated: Vec<String> = Vec::new();
-        for len in 1..=5u32 {
-            for n in 0..alphabet.len().pow(len) {
-                let mut at = n;
-                let bytes: Vec<u8> = (0..len)
-                    .map(|_| {
-                        let c = alphabet[at % alphabet.len()];
-                        at /= alphabet.len();
-                        c
-                    })
-                    .collect();
-                generated.push(String::from_utf8(bytes).unwrap());
-            }
-        }
-        let samples: Vec<&str> =
-            named.iter().copied().chain(generated.iter().map(String::as_str)).collect();
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        conn.execute_batch("CREATE TABLE t(v TEXT);").unwrap();
-        {
-            let mut ins = conn.prepare("INSERT INTO t VALUES (?)").unwrap();
-            for v in &samples {
-                ins.execute([v]).unwrap();
-            }
-        }
-        let expr = crate::grid::not_a_number_sql("t.v");
-        let expr = expr.trim_end_matches(" ASC");
-        let sql = format!("SELECT v, {expr} FROM t t");
-        let mut stmt = conn.prepare(&sql).unwrap();
-        let mut rows = stmt.query([]).unwrap();
-        let mut differ: Vec<String> = Vec::new();
-        while let Some(r) = rows.next().unwrap() {
-            let v: String = r.get(0).unwrap();
-            let sql_says_number = r.get::<_, i64>(1).unwrap() == 0;
-            let rust_says_number = is_number(&v);
-            if sql_says_number != rust_says_number {
-                differ.push(format!("{v:?}: SQL={sql_says_number} Rust={rust_says_number}"));
-            }
-        }
-        assert!(differ.is_empty(), "판정이 어긋납니다: {differ:#?}");
     }
 
     /// **연도를 열 명칭으로 기재한 헤더를 기각하지 않는다.**
