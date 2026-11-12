@@ -252,7 +252,7 @@ pub fn fits_real(v: f64) -> bool {
         return true;
     }
     let a = v.abs();
-    a < 1e15 && a >= 1e-4
+    (1e-4..1e15).contains(&a)
 }
 
 /// 셀의 문자를 정수로. **반올림도 포화도 수행하지 않는다.**
@@ -484,7 +484,7 @@ mod tests {
                 conn.query_row("SELECT CAST(? AS TEXT)", [v], |r| r.get(0)).unwrap();
             if fits_real(v) {
                 assert!(is_number(&text), "{v:e} 를 SQLite 가 {text:?} 로 기재한다");
-                assert_eq!(as_real(&text).is_some(), true, "{text:?}");
+                assert!(as_real(&text).is_some(), "{text:?}");
             }
         }
         // 유한하지 않은 수는 보관하지 않는다. 그 글자(`Inf`·`NaN`)도 수가 아니다.
