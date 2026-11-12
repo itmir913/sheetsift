@@ -90,6 +90,24 @@ The viewer in this repository declares an all-text plan, so `unread` cannot be
 non-empty there; `crates/shell` stops with `SheetTableFailed` if it ever is,
 rather than letting it pass.
 
+### The value-selection list's order
+
+A number column's distinct values are listed **numerically**, not as text: a
+list reading `1 · 10 · 100` cannot be scanned by a person against a table
+ordered by value, and when the distinct values exceed `MAX_VALUES` a text sort
+makes the cut drop genuinely different entries. An application that builds such
+a list in Rust rather than through `grid::column_values` must order it with
+
+```rust
+grid::compare_values(a: &str, b: &str, blank: &str, numeric: bool) -> Ordering
+```
+
+Blanks first, then — for a number column — the values the predicate reads as
+numbers in numeric order, then the rest in text order; equal numbers written
+differently (`90`, `90.0`) are ordered by text so neither vanishes. A text
+column gets blanks first and text order. `values_order_sql` is the same rule in
+SQL, and a test sorts the same samples both ways and compares.
+
 ### Column names that shadow the rowid
 
 Paging is ordered with a unique tail — the base table's `rowid` — because

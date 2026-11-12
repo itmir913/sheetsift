@@ -291,23 +291,71 @@ pub fn like_escape(s: &str) -> String {
     s.replace('\\', r"\\").replace('%', r"\%").replace('_', r"\_")
 }
 
-/// 값 선택 목록의 정렬 열쇠.
+/// **값 선택 목록의 순서.** 이 상자 밖에서도 그 목록을 구성하므로 노출한다.
 ///
-/// **공백을 선두로 보낸다.** 표기가 둘 이상이어도(`NULL`·공백 문자·표식) 인접
-/// 하므로 하나로 병합되고, 절단이 발생해도 목록에서 소멸하지 않는다.
+/// 목록을 Rust 로 구성하는 곳이 `a.cmp(b)` 로 정렬하면, 동일한 열이 한 화면에서
+/// `1 · 10 · 100` 이고 타 화면에서 `1 · 2 · 10 · 100` 이 된다. 사람은 목록에서
+/// 판독한 순서로 표를 탐색할 수 없고, 고유값이 다수인 열에서는 [`MAX_VALUES`]
+/// 의 절단이 **상이한 항목을 폐기한다.**
 ///
-/// 숫자 열은 표와 동일한 순서여야 한다 — 목록이 `1 · 10 · 100` 인데 표는
-/// `1 · 10 · 100` 이 아니면, 사람이 목록에서 판독한 순서로 표를 탐색할 수 없다.
+/// 순서는 넷이다.
+/// 1. **빈칸이 선두다.** 표기가 둘 이상이어도(`NULL`·공백 문자·표식) 인접하므로
+///    하나로 병합되고, 절단이 발생해도 목록에서 소멸하지 않는다.
+/// 2. 수치 열이면 **수로 판독되는 값이 그 다음**이고, 수의 크기순이다.
+/// 3. 수로 판독되지 않는 값이 그 후위다 — 문자순이다.
+/// 4. 동일한 수치인 표기(`90` 과 `90.0`)의 순서는 문자로 고정한다.
+///
+/// 문자 열이면 1 과 4 만 작용한다.
+///
+/// `numeric` 은 **그 열이 수치 열인가**이고(열의 종류는 정의가 결정한다),
+/// `blank` 는 양식이 "없음" 을 기재하는 문자다. 무엇을 수로 보고 무엇을 빈칸으로
+/// 보는지는 [`crate::value`] 하나가 판정한다.
+///
+/// SQL 로 동일한 순서를 산출하는 것은 [`values_order_sql`] 이고, 양자가 동일한
+/// 순서를 산출하는지는 이 모듈의 시험이 대조한다.
+pub fn compare_values(a: &str, b: &str, blank: &str, numeric: bool) -> std::cmp::Ordering {
+    use crate::value::{as_real, is_blank};
+    use std::cmp::Ordering;
+
+    // ① 빈칸이 선두다.
+    let order = is_blank(b, blank).cmp(&is_blank(a, blank));
+    if order != Ordering::Equal {
+        return order;
+    }
+    if numeric {
+        let (x, y) = (as_real(a), as_real(b));
+        // ② 수가 선두이고, ③ 수의 크기순이다.
+        let order = y.is_some().cmp(&x.is_some());
+        if order != Ordering::Equal {
+            return order;
+        }
+        if let (Some(x), Some(y)) = (x, y) {
+            // 양자 모두 유한하다 — `as_real` 이 유한하지 않은 값을 판독하지 않는다.
+            let order = x.partial_cmp(&y).unwrap_or(Ordering::Equal);
+            if order != Ordering::Equal {
+                return order;
+            }
+        }
+    }
+    // ④ 나머지는 문자순이다.
+    a.cmp(b)
+}
+
+/// 값 선택 목록의 정렬 열쇠. [`compare_values`] 를 SQL 로 기재한 것이다.
 fn values_order_sql(expr: &str, blank: &str, numeric: bool) -> String {
     let first = format!("{} DESC", is_blank_sql(expr, blank));
     if numeric {
-        // 동일한 수치인 표기(`90` 과 `90.0`)의 순서는 문자로 고정한다.
-        format!("{first}, {}, {}, {expr}", not_a_number_sql(expr), number_sql(expr))
+        /* **수로 판독되지 않는 값은 변환하지 않는다.** SQLite 의 변환은 판독하지
+           못한 문자에서 접두사의 수를 산출하므로(`7점` → 7), 그대로 정렬 열쇠에
+           기재하면 그 집단이 **허위의 수로** 정렬된다. 수를 판독하는 문은 하나이고
+           (`crate::value::as_real`), 그 문이 판독하지 않는 값에는 수가 부재한다.
+           전 행이 NULL 인 열쇠는 순서에 작용하지 않고, 그 집단은 문자순이 된다. */
+        let num = format!("CASE WHEN {} THEN {} END", is_number_sql(expr), number_sql(expr));
+        format!("{first}, {}, {num}, {expr}", not_a_number_sql(expr))
     } else {
         format!("{first}, {expr}")
     }
 }
-
 
 fn unknown_column(table: &dyn Table, key: &str, what: &str) -> Error {
     Error::new(ErrorCode::InvalidSortKey)
@@ -1648,6 +1696,67 @@ mod tests {
         };
         assign_aliases(t.columns.iter_mut());
         (conn, t)
+    }
+
+    /// **값 목록의 순서가 수의 크기순이다.** `a.cmp(b)` 로 정렬하면 동일한 열이
+    /// 한 화면에서 `1 · 10 · 100` 이고 타 화면에서 `1 · 2 · 10 · 100` 이 된다.
+    #[test]
+    fn the_value_list_order_is_numeric_for_a_number_column() {
+        let mut got = vec!["100", "2", "10", "1"];
+        got.sort_by(|a, b| compare_values(a, b, BLANK, true));
+        assert_eq!(got, ["1", "2", "10", "100"]);
+
+        // 문자 열은 문자순이다 — 그 열의 값은 수가 아니다.
+        let mut text = vec!["100", "2", "10", "1"];
+        text.sort_by(|a, b| compare_values(a, b, BLANK, false));
+        assert_eq!(text, ["1", "10", "100", "2"]);
+
+        // 빈칸이 선두, 수가 그 다음, 수로 판독되지 않는 값이 후위다.
+        let mut mixed = vec!["총 44850점", "90", "", "1,200", "-", "7점", " ", "85.5"];
+        mixed.sort_by(|a, b| compare_values(a, b, BLANK, true));
+        assert_eq!(mixed, ["", " ", "-", "85.5", "90", "1,200", "7점", "총 44850점"]);
+
+        // 동일한 수치인 표기의 순서는 문자로 고정한다 — 목록에서 소멸하지 않는다.
+        assert_eq!(compare_values("90", "90.0", BLANK, true), std::cmp::Ordering::Less);
+        assert_eq!(compare_values("90", "90", BLANK, true), std::cmp::Ordering::Equal);
+    }
+
+    /// **Rust 와 SQL 이 동일한 순서를 산출한다.**
+    ///
+    /// 목록을 구성하는 경로가 둘이다 — 이 상자의 질의와, 목록을 Rust 로 구성하는
+    /// 곳. 순서가 어긋나면 동일한 열이 화면마다 상이한 순서로 묘사되고, 고유값이
+    /// 다수인 열에서는 절단이 상이한 항목을 폐기한다.
+    #[test]
+    fn rust_and_sql_put_the_value_list_in_the_same_order() {
+        let samples = [
+            "90", "90.0", "85.5", "1,200", "100", "2", "10", "1", "", " ", "-", "7점",
+            "총 44850점", "NaN", "inf", "1e5", "1,2,3", "0", "-5", "+5", "가", "나", "100%",
+        ];
+        for numeric in [true, false] {
+            let conn = Connection::open_in_memory().unwrap();
+            conn.execute_batch("CREATE TABLE t(v TEXT);").unwrap();
+            {
+                let mut ins = conn.prepare("INSERT INTO t VALUES (?)").unwrap();
+                for v in samples {
+                    ins.execute([v]).unwrap();
+                }
+            }
+            let sql = format!(
+                "SELECT v FROM t t ORDER BY {}",
+                values_order_sql("v", BLANK, numeric)
+            );
+            let from_sql: Vec<String> = conn
+                .prepare(&sql)
+                .unwrap()
+                .query_map([], |r| r.get(0))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect();
+
+            let mut from_rust: Vec<String> = samples.iter().map(|s| (*s).to_string()).collect();
+            from_rust.sort_by(|a, b| compare_values(a, b, BLANK, numeric));
+            assert_eq!(from_sql, from_rust, "numeric={numeric}");
+        }
     }
 
     /// **판정이 갈라졌던 입력들을 조회 엔진도 동일하게 다룬다.**
