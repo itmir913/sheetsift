@@ -114,6 +114,13 @@ into the visible rect, sideways as well as vertically, and it is a pure function
 in `lib/grid.ts` so the rule is pinned by tests rather than by looking at a
 screen.
 
+Height is **not one number for both kinds of column**: a number column carries
+the range block (slider plus two inputs) above the value list, and giving it the
+text column's height left two value rows on the owner's screen. `POP_MAX_H`
+holds both numbers in one place, `POP_MIN_H` is the height asked for even where
+there is no room (the popover scrolls itself past that), and the value list keeps
+`POP_MIN_ROWS` rows through a `min-height` in `grid.css` that cites the same
+reason.
 
 ## How the package is taken
 

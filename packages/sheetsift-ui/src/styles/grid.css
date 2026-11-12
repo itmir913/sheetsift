@@ -474,7 +474,10 @@
 
 .dg-pop-list {
   flex: 1 1 auto;
-  min-height: 0;
+  /* **목록이 축소되다가 소멸하지 않게 한다.** 숫자 열은 범위 칸이 상단을
+     점유해 두 행만 남은 적이 있다. 행 수는 `POP_MIN_ROWS` 와 동일한 근거다 —
+     그 수를 변경하면 양측을 함께 변경한다. */
+  min-height: calc(var(--dg-pop-row-h) * 6);
   overflow-y: scroll;
   /* 상위의 `.dg-pop` 에서 이미 연쇄가 절단된다. 이 선언은 **예비**다 — Chromium 실측으로는
      불요하나 WKWebView 는 미실측이다(goe-navi 는 macOS 도 배포한다). */

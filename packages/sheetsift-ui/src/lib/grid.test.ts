@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  POP_MAX_H,
+  POP_MIN_H,
   POP_W,
   placePop,
   dropColumnState,
@@ -247,31 +249,46 @@ describe("where the funnel popover goes", () => {
   it("is measured against the visible area, not the scrolling box", () => {
     // 화면 기준이므로 헤더 단추의 자리가 그대로 근거다. 표가 구르면 단추의
     // 자리가 변동하고, 그때 다시 호출하면 팝오버가 헤더을 따라간다.
-    const a = placePop(btn(200, 150), view);
-    const b = placePop(btn(200, 300), view);
+    const a = placePop(btn(200, 150), view, "text");
+    const b = placePop(btn(200, 300), view, "text");
     expect(a.y).toBeLessThan(b.y);
     expect(b.y).toBe(324 + 4);
   });
 
   it("sticks at the edge when the header scrolls out of the visible area", () => {
     // 상단으로 이탈한 헤더. 폐쇄하지 않는다 — 고르던 선택이 소멸한다.
-    const out = placePop(btn(200, -400), view);
+    const out = placePop(btn(200, -400), view, "text");
     expect(out.y).toBeGreaterThanOrEqual(view.top);
     expect(out.y + out.h).toBeLessThanOrEqual(view.bottom);
     // 하단으로 이탈한 헤더도 동일하다.
-    const low = placePop(btn(200, 2000), view);
+    const low = placePop(btn(200, 2000), view, "text");
     expect(low.y + low.h).toBeLessThanOrEqual(view.bottom);
     expect(low.y).toBeGreaterThanOrEqual(view.top);
   });
 
   it("stays inside the visible area sideways, however far the grid is scrolled", () => {
-    expect(placePop(btn(980, 150), view).x).toBe(1000 - POP_W - 12);
-    expect(placePop(btn(-300, 150), view).x).toBe(12);
+    expect(placePop(btn(980, 150), view, "text").x).toBe(1000 - POP_W - 12);
+    expect(placePop(btn(-300, 150), view, "text").x).toBe(12);
   });
 
   it("draws above the header when there is more room above", () => {
-    const up = placePop(btn(200, 650), view);
+    const up = placePop(btn(200, 650), view, "text");
     expect(up.y + up.h).toBeLessThanOrEqual(650);
   });
 
+  it("gives a number column a taller box than a text column", () => {
+    // 범위 칸이 상단을 점유하므로 동일한 높이로는 값 목록에 두 행만 남는다.
+    const tall = { left: 0, right: 1000, top: 0, bottom: 2000 };
+    const text = placePop(btn(200, 100), tall, "text");
+    const number = placePop(btn(200, 100), tall, "number");
+    expect(number.h).toBeGreaterThan(text.h);
+    expect(text.h).toBe(POP_MAX_H.text);
+    expect(number.h).toBe(POP_MAX_H.number);
+  });
+
+  it("keeps a usable list height even where there is no room", () => {
+    // 축소하다가 목록이 소멸하는 쪽보다, 팝오버 자신이 구르는 쪽이다.
+    const tight = { left: 0, right: 1000, top: 300, bottom: 420 };
+    expect(placePop(btn(200, 310), tight, "number").h).toBe(POP_MIN_H);
+  });
 });

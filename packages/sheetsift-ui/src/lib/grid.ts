@@ -189,8 +189,26 @@ const POP_MARGIN = 12;
 /** 깔대기 단추와 팝오버 사이의 간격(px). */
 const POP_GAP = 4;
 
-/** 팝오버의 최대 높이(px). */
-export const POP_MAX_H = 420;
+/**
+ * 팝오버의 최대 높이(px). **문자 열과 숫자 열을 하나로 두지 않는다.**
+ *
+ * 숫자 열은 범위 칸(슬라이더와 입력칸 둘)이 상단을 점유하므로, 동일한 높이를
+ * 부여하면 값 목록에 두 행만 남는다 — 실측으로 `57.5` 와 `59` 두 행이었다.
+ * 목록에서 고르는 작업이 그 높이로는 성립하지 않는다.
+ *
+ * **두 수를 여기 함께 둔다.** 사용하는 곳마다 기재하면 한쪽만 수정된다.
+ */
+export const POP_MAX_H: Record<ColumnKind, number> = { text: 420, number: 560 };
+
+/**
+ * 공간이 협소해도 이 높이까지는 요구한다(px). 값 목록이 `POP_MIN_ROWS` 행을
+ * 보유하는 높이다 — 그보다 축소되면 목록이 아니라 틈이 된다. 가시 영역을
+ * 초과하는 분량은 팝오버 자신이 구른다(`.dg-pop` 의 `overflow-y`).
+ */
+export const POP_MIN_H = 300;
+
+/** 값 목록이 최소한 보유하는 행 수. 양식의 `min-height` 와 동일한 근거다. */
+export const POP_MIN_ROWS = 6;
 
 /** 가시 영역·단추의 자리. `DOMRect` 중 배치에 사용하는 부분만이다. */
 export interface Box {
@@ -219,12 +237,13 @@ export interface PopPlace {
  * 구를 때 폐쇄하지 않는 것과 동일하다 — 고르던 선택을 소멸시키지 않는다.
  * 그래서 산출한 자리를 가시 영역 내부로 고정한다(`clamp`). 수평도 동일하다.
  */
-export function placePop(btn: Box, view: Box): PopPlace {
-  const cap = POP_MAX_H;
+export function placePop(btn: Box, view: Box, kind: ColumnKind): PopPlace {
+  const cap = POP_MAX_H[kind];
   const below = view.bottom - btn.bottom - POP_MARGIN - POP_GAP;
   const above = btn.top - view.top - POP_MARGIN - POP_GAP;
   const room = Math.max(below, above);
-  const h = Math.min(cap, room);
+  // 공간이 협소해도 최소 높이는 요구한다. 초과하는 분량은 팝오버가 구른다.
+  const h = Math.max(POP_MIN_H, Math.min(cap, room));
   const y = below >= above ? btn.bottom + POP_GAP : btn.top - POP_GAP - h;
   return {
     x: clamp(btn.left, view.left + POP_MARGIN, view.right - POP_W - POP_MARGIN),

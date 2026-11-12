@@ -283,7 +283,7 @@ function placeFilter() {
     top: 0,
     bottom: window.innerHeight,
   };
-  const at = placePop(btn.getBoundingClientRect(), view);
+  const at = placePop(btn.getBoundingClientRect(), view, col.kind);
   popX.value = at.x;
   popY.value = at.y;
   popH.value = at.h;
