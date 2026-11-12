@@ -40,4 +40,6 @@ fn an_embedding_app_can_ask_for_the_same_trim_and_the_same_number() {
     assert!(value::trim_sql("x").starts_with("TRIM(x, char("));
     assert!(value::is_number("1,200") && !value::is_number("1e5"));
     assert_eq!(value::as_real("1,200"), Some(1200.0));
+    // 보관해도 환원되는 규모인지의 판정(`REAL` 열에 보관하는 앱이 요구한다).
+    assert!(value::fits_real(1234.5) && !value::fits_real(1e15));
 }

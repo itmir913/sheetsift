@@ -82,9 +82,25 @@ SQL must be able to ask this crate what blank is, instead of writing
 `x IS NULL OR CAST(x AS TEXT) = ''` beside it — that spelling trims nothing and
 knows nothing of the data's blank marker, and it agrees only while the imported
 values happen to arrive trimmed. `value::is_blank_sql`, `value::trim_sql`,
-`value::trim`, `value::is_number`, `value::as_real`, `value::as_int` are the callable form of those rules;
+`value::trim`, `value::is_number`, `value::as_real`, `value::as_int` and
+`value::fits_real` are the callable form of those rules;
 `crates/core/tests/embedding.rs` lives outside the crate, so making any of them
 private again stops the gate.
+
+### A `real` column only holds what reads back as a number
+
+SQLite writes an extreme `real` back as text in exponent form (`1.0e+17`), and
+the predicate above calls that text. Storing such a value would mean the build
+read the cell as a number while the query engine reads it as text — the same
+cell, two answers, no error anywhere. So the build **refuses to store it**
+rather than the predicate loosening to accept exponent notation:
+`value::fits_real` is the boundary, and a refused cell is counted in
+`Made::unread` like any other cell that could not be read. The boundary is
+written narrower than today's SQLite (`1e-4` up to `1e15`), because the
+rendering differs between SQLite versions and this crate does not pin the
+version the embedding app links; narrower can only refuse too much, which is a
+path with a statement on it. 요강 data never reaches those magnitudes — that is
+why this is small, not why it was left open.
 
 ### `Made::unread` is a warning you have to pass on
 

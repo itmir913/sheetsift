@@ -640,7 +640,13 @@ pub fn build_dict_table(
                        하는 수를 포화시킨다. 판독하지 못한 칸은 공백으로
                        수용하되 **몇 칸이 그러했는지 부르는 곳에 통지한다**
                        ([`Made::unread`]). */
-                    ValueType::Real => match crate::value::as_real(s) {
+                    /* **환원하면 수가 아닌 규모는 보관하지 않는다.** SQLite
+                       가 지수로 기재하는 규모를 보관하면 구축한 쪽은 수로
+                       간주하고 조회하는 쪽은 문자로 판정한다
+                       ([`crate::value::fits_real`]). */
+                    ValueType::Real => match crate::value::as_real(s)
+                        .filter(|v| crate::value::fits_real(*v))
+                    {
                         Some(v) => Value::Real(v),
                         None => {
                             unread[i] += 1;
@@ -1002,6 +1008,52 @@ mod tests {
         let kinds: i64 =
             conn.query_row("SELECT COUNT(DISTINCT name) FROM t", [], |r| r.get(0)).unwrap();
         assert_eq!(kinds, 2);
+    }
+
+    /// **`REAL` 열에 보관한 수를 조회하는 쪽이 수로 판독한다.**
+    ///
+    /// 규모가 극단인 수(`1e17`·`1e-5`)는 SQLite 가 문자로 환원할 때 지수로
+    /// 기재하는데, 그 글자는 조회 엔진이 **문자로 판정한다.** 보관을 그대로
+    /// 수용하면 구축한 쪽은 수로 간주하고 조회하는 쪽은 수가 아니라고 판정해,
+    /// 동일한 셀이 경로에 따라 두 가지로 판독된다 — 정렬은 그 셀을 후위로
+    /// 배치하고 범위 필터는 탈락시키는데, 어떠한 오류도 발생하지 않는다.
+    /// 판독하지 못한 칸으로 계수해 통지한다([`crate::value::fits_real`]).
+    #[test]
+    fn a_number_too_large_to_read_back_is_counted_instead_of_stored() {
+        let plan = TablePlan {
+            table: "t".into(),
+            map: vec![ColumnMap {
+                sheet: "점수".into(),
+                column: "score".into(),
+                ty: ValueType::Real,
+            }],
+            indexes: vec![],
+        };
+        // 전부 `is_number` 가 수로 판정하는 글자다 — 자리 그대로 기재되어 있다.
+        let s = sheet(&[
+            &["점수"],
+            &["90"],
+            &["100000000000000000000"],
+            &["0.00001"],
+            &["-100000000000000000000"],
+        ]);
+        let conn = mem();
+        let ids = build_dict(&conn, &[(&plan, &s)], "-").unwrap();
+        let made = build_dict_table(&conn, &s, &plan, &ids, "-").unwrap();
+        assert_eq!(made.unread, vec![("score".to_string(), 3)]);
+
+        // 보관된 것은 전부 수로 환원된다.
+        let mut q =
+            conn.prepare("SELECT CAST(score AS TEXT) FROM t WHERE score IS NOT NULL").unwrap();
+        let mut texts: Vec<String> = Vec::new();
+        let mut rows = q.query([]).unwrap();
+        while let Some(r) = rows.next().unwrap() {
+            texts.push(r.get(0).unwrap());
+        }
+        assert_eq!(texts, vec!["90.0".to_string()]);
+        for t in &texts {
+            assert!(crate::value::is_number(t), "{t:?} 가 수로 판독되지 않는다");
+        }
     }
 
     /// **쉼표가 기재된 수를 수치 열이 판독한다.**
