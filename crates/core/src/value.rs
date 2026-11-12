@@ -42,9 +42,12 @@ pub fn trim(s: &str) -> &str {
 
 /// 선후의 공백을 제거하는 SQL 식. [`trim`] 의 거울이다.
 ///
+/// **반출한다**(`is_blank_sql` 와 동일한 사유). 조회 문을 자체로 구성하는 앱이
+/// 이 상자와 동일한 공백 집합을 제거해야 한다.
+///
 /// 제거할 문자를 `char()` 로 구성한다 — 제어 문자를 SQL 문자열에 그대로
 /// 기재하면 로그와 편집기에서 판독되지 않는다.
-pub(crate) fn trim_sql(expr: &str) -> String {
+pub fn trim_sql(expr: &str) -> String {
     let codes = SPACE.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
     format!("TRIM({expr}, char({codes}))")
 }
@@ -63,7 +66,12 @@ pub fn is_blank(s: &str, blank: &str) -> bool {
 /// 고정하면, 자료가 `–` 나 `N/A` 로 변경되었을 때 값 선택 목록과 필터가 동일한
 /// 파일 내부에서 분기한다 — 후보에는 `(비어 있음)` 이 표시되는데 그것을 선택하면
 /// 0건이 되고, 어떠한 오류도 발생하지 않는다.
-pub(crate) fn is_blank_sql(base: &str, blank: &str) -> String {
+///
+/// **반출한다 — 이 상자 외부에서 조회 문을 구성하는 앱이 존재한다.**
+/// 비공개로 두었을 때 받는 앱이 `x IS NULL OR CAST(x AS TEXT) = ''` 를 자체로
+/// 기재했는데, 그것은 공백을 제거하지도 않고 자료의 공백 표식을 인지하지도
+/// 않는다. 반입한 값이 절단되어 도달하는 동안에만 양측의 판정이 일치한다.
+pub fn is_blank_sql(base: &str, blank: &str) -> String {
     // 자료가 결정하는 문자라 따옴표가 진입할 여지는 희소하나, SQL 에 그대로 주입하므로 차단한다.
     let mark = blank.replace('\'', "''");
     let t = trim_sql(base);
@@ -418,4 +426,5 @@ mod tests {
         assert_eq!(as_int("99999999999999999999999"), None);
         assert_eq!(as_int("-99999999999999999999999"), None);
     }
+
 }

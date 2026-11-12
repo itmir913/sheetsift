@@ -77,6 +77,15 @@ The rule is the query engine's, not `f64::parse`'s. `1,200` is a number;
 `1,2,3`, `1e5`, `NaN` and `inf` are text. `as_real` / `as_int` only read what
 the predicate accepts, and `as_int` refuses to round or saturate.
 
+These are `pub`, not crate-private: an embedding engine that builds its own
+SQL must be able to ask this crate what blank is, instead of writing
+`x IS NULL OR CAST(x AS TEXT) = ''` beside it — that spelling trims nothing and
+knows nothing of the data's blank marker, and it agrees only while the imported
+values happen to arrive trimmed. `value::is_blank_sql`, `value::trim_sql`,
+`value::trim`, `value::is_number`, `value::as_real`, `value::as_int` are the callable form of those rules;
+`crates/core/tests/embedding.rs` lives outside the crate, so making any of them
+private again stops the gate.
+
 ### `Made::unread` is a warning you have to pass on
 
 `sheet::build` returns a `Made` per table. Its `unread` lists `(column, cells)`
