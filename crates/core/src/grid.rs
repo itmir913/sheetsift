@@ -178,6 +178,36 @@ pub struct Sort {
     pub dir: SortDir,
 }
 
+/// 그 조건을 **어느 조작이 기재했는가.**
+///
+/// 값 선택 목록은 「그 열 자신의 선택」을 제외해 산출한다 — 그러지 않으면 하나를
+/// 고른 순간 후보가 그 하나로 축소되어 선택을 변경할 수단이 소멸한다. 그런데
+/// **무엇이 「자신의 것」인지를 열 명칭으로 추정했다.** 한 열을 조작부 둘이
+/// 좁히는 화면에서 그 추정이 파손된다 — 상위의 검색 조건 카드가 `대학` 을
+/// 좁혀 표는 축소되었는데, 그 열의 깔대기는 전체 대학을 전체 건수와 함께
+/// 열거한다. 엔진은 카드와 깔대기를 판별할 수단을 보유하지 않았다.
+///
+/// 그래서 **추정을 중단하고 조건 자체가 진술한다.** 이 저장소의 화면도 한 열을
+/// 조작부 둘이 좁히는 날 동일한 상황에 도달하므로, 받는 앱의 특례가 아니라
+/// 엔진의 개념으로 배치한다.
+///
+/// 기재하지 않으면 [`Origin::OwnPicker`] 다 — **종전과 동일하게 동작한다.**
+/// 반입하는 앱이 아무것도 변경하지 않았을 때 동작이 변동하는 쪽은, 그 변동이
+/// 자기 선택에 갇히는 형태로 발현한다(고른 값 하나만 남은 목록). 진술을
+/// 추가하는 쪽이 그것을 인지하고 기재하는 작업이다.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Origin {
+    /// 그 열의 값 선택 팝오버 자신이 기재한 조건. **그 열의 값 목록에서
+    /// 제외한다**(범위와 `not_blank` 은 적용한다).
+    #[default]
+    OwnPicker,
+    /// 그 열 외부의 조작이 기재한 조건(상위의 검색 조건 카드 등). **그 열의 값
+    /// 목록에도 적용한다** — 표가 축소되었는데 목록만 전체를 열거하면, 사람은
+    /// 거기 열거된 값을 선택해 놓고 0건을 수령한다.
+    Elsewhere,
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Filter {
@@ -226,6 +256,10 @@ pub struct Filter {
     /// 기재해도 유효하나, 하한이 상한을 초과하면 중단한다.
     #[serde(default)]
     pub max: Option<f64>,
+    /// **이 조건을 기재한 조작.** 값 목록이 자기 선택을 제외할 때 판별한다.
+    /// 기재하지 않으면 그 열 자신의 팝오버로 간주한다([`Origin`]).
+    #[serde(default)]
+    pub origin: Origin,
 }
 
 impl Filter {
@@ -551,10 +585,14 @@ fn build_where(
 
     for f in filters {
         let names = |k: &str| k == f.key || f.keys.iter().any(|x| x == k);
+        let own_picker = f.origin == Origin::OwnPicker;
         let only_range;
         let f = match own {
-            Own::SkipAll(k) if names(k) => continue,
-            Own::SkipPick(k) if names(k) => {
+            /* **「자신의 것」은 조건이 진술한다.** 열 명칭으로 추정하면, 한 열을
+               조작부 둘이 좁히는 화면에서 외부의 조건까지 제외되어 목록만 전체를
+               열거한다(`Origin`). */
+            Own::SkipAll(k) if names(k) && own_picker => continue,
+            Own::SkipPick(k) if names(k) && own_picker => {
                 if f.min.is_none() && f.max.is_none() && !f.not_blank {
                     continue;
                 }
@@ -569,6 +607,7 @@ fn build_where(
                     not_blank: f.not_blank,
                     min: f.min,
                     max: f.max,
+                    origin: f.origin,
                 };
                 &only_range
             }
@@ -1416,6 +1455,71 @@ mod tests {
         assert_eq!(run(&conn, &t, BLANK, &query(vec![], vec![f])).unwrap().total, 1);
         let f = Filter { keys: vec!["name".into(), "city".into()], contains: "서".into(), ..Default::default() };
         assert_eq!(run(&conn, &t, BLANK, &query(vec![], vec![f])).unwrap().total, 2);
+    }
+
+    /// **한 열을 조작부 둘이 좁힐 때, 값 목록이 외부의 조건을 반영한다.**
+    ///
+    /// 「자신의 것」을 열 명칭으로 추정했을 때, 상위의 검색 조건 카드가 그 열을
+    /// 좁혀 표는 축소되었는데 그 열의 깔대기는 전체 값을 전체 건수와 함께
+    /// 열거했다 — 거기 열거된 값을 선택하면 둘이 AND 로 겹쳐 조용히 0건이 된다.
+    /// 엔진은 카드와 깔대기를 판별할 수단을 보유하지 않았으므로, **조건이 자기
+    /// 유래를 진술한다**(`Origin`).
+    #[test]
+    fn a_value_list_applies_the_conditions_that_came_from_elsewhere() {
+        let (conn, t) = fixture();
+        // 외부의 조작(카드)이 도시를 좁힌다. 그 열의 목록도 축소되어야 한다.
+        let card = Filter { origin: Origin::Elsewhere, ..picked("city", &["서울"]) };
+        let res = column_values(&conn, &t, BLANK, "city", std::slice::from_ref(&card), "").unwrap();
+        assert_eq!(
+            res.values.iter().map(|v| v.value.as_str()).collect::<Vec<_>>(),
+            ["서울"],
+            "외부의 조건을 반영하지 않았다"
+        );
+
+        // 그 열 자신의 팝오버가 기재한 것은 종전대로 제외한다 — 그러지 않으면
+        // 고른 값 하나만 남아 선택을 변경할 수단이 소멸한다.
+        let own = picked("city", &["서울"]);
+        assert_eq!(own.origin, Origin::OwnPicker, "기재하지 않으면 자기 팝오버다");
+        let res = column_values(&conn, &t, BLANK, "city", std::slice::from_ref(&own), "").unwrap();
+        // 셋과 공백 한 행이다(도시가 부재하는 행이 존재한다).
+        assert_eq!(res.values.len(), 4, "자기 선택을 제외하지 않았다");
+
+        /* 한 열에 조건이 둘이고 한쪽만 자기 것인 경우. 목록은 **기재하지 않은
+           쪽만** 반영한다 — 자기 선택(대구)은 제외하고 카드(부산·서울)는 적용해
+           둘이 남는다. */
+        let two = vec![
+            Filter { origin: Origin::Elsewhere, ..picked("city", &["부산", "서울"]) },
+            picked("city", &["대구"]),
+        ];
+        let res = column_values(&conn, &t, BLANK, "city", &two, "").unwrap();
+        assert_eq!(
+            res.values.iter().map(|v| v.value.as_str()).collect::<Vec<_>>(),
+            ["부산", "서울"]
+        );
+
+        // 조회 자체는 양측을 전부 적용한다 — 목록의 규칙이 행을 증가시키지 않는다.
+        assert_eq!(run(&conn, &t, BLANK, &query(vec![], two)).unwrap().total, 0);
+    }
+
+    /// **자료가 존재하는 범위도 외부의 조건을 반영한다.** 손잡이의 양 끝이 표에
+    /// 부재하는 값까지 덮으면, 끝까지 민 손잡이가 조용히 0건을 산출한다.
+    ///
+    /// 그 열 자신의 범위는 종전대로 제외한다 — 자기 범위가 자기 범위를 좁히면
+    /// 손잡이의 양 끝이 걸어 둔 범위로 축소된다.
+    #[test]
+    fn the_span_of_a_number_column_follows_the_conditions_from_elsewhere() {
+        let (conn, t) = fixture();
+        // 외부의 조작이 그 수치 열 자체를 좁힌 경우.
+        let card = Filter { origin: Origin::Elsewhere, ..picked("score", &["90", "85.5"]) };
+        let res = column_values(&conn, &t, BLANK, "score", &[card], "").unwrap();
+        let span = res.range.expect("수치 열의 범위");
+        assert_eq!((span.min, span.max), (85.5, 90.0), "외부의 조건을 반영하지 않았다");
+
+        // 자기 팝오버가 기재한 범위는 제외한다. 자료 전체의 폭이 그대로 나온다.
+        let mine = ranged("score", Some(88.0), Some(92.0));
+        let res = column_values(&conn, &t, BLANK, "score", &[mine], "").unwrap();
+        let span = res.range.expect("수치 열의 범위");
+        assert_eq!((span.min, span.max), (70.0, 100.0));
     }
 
     /// 값 목록은 자체 열 필터를 제외하고 산정한다. 공백은 한 행으로 병합한다.

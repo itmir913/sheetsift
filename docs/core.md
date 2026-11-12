@@ -115,6 +115,27 @@ The viewer in this repository declares an all-text plan, so `unread` cannot be
 non-empty there; `crates/shell` stops with `SheetTableFailed` if it ever is,
 rather than letting it pass.
 
+### A filter says which control wrote it
+
+A column's value list is built with **that column's own selection left out** —
+otherwise picking one value shrinks the candidates to that one value and there is
+no way back. Which filters are "its own" used to be inferred from the key, and
+that inference breaks the moment two controls filter one column: a card above the
+table narrows 대학, the table narrows with it, and the column's funnel still
+lists every university with its full count. Select one of those and you get an
+empty table with no error.
+
+So the inference is gone and `Filter::origin` states it. `Origin::OwnPicker` is
+the default, which is what every existing caller gets: the filter belongs to that
+column's own popover and the value list leaves it out. `Origin::Elsewhere` is
+anything else — a card, a global search, a second control — and the value list
+**and the column's data span** apply it like any other column's filter. An app
+that has two controls on one column marks the outer one; an app that has one
+control writes nothing and nothing changes for it. The engine cannot tell two
+controls apart by itself, and this is not specific to any embedding app: this
+repository's own screen reaches the same situation the day it grows a second
+control.
+
 ### The value-selection list's order
 
 A number column's distinct values are listed **numerically**, not as text: a
