@@ -135,10 +135,32 @@ about the request, judged once when it is decomposed, and a short row is read as
 if the missing cells were blank.
 
 `Match::compile` takes the caller's own column order as `(key, is_number)`, and
-`row` takes cells in that order. A dict-encoded column's cell is its stored form
-— trimmed text, blank stored as blank — because that is what the query compares.
-Whether a column can be filtered at all is this crate's own notion, so that
-rejection stays with the query side.
+`row` takes cells in that order. Whether a column can be filtered at all is this
+crate's own notion, so that rejection stays with the query side.
+
+**Both sides compare one string, and it is the one the column expression
+produces.** The storage type is the definition's choice, so a number column may
+hold `1200.0` where the sheet said `1200`; comparing stored values directly let
+SQLite's affinity match `'1200'` while a text comparison in `row` did not — the
+same condition, two sets of rows, no error anywhere. So the query casts its
+comparison target to text, the value list hands out that same text, and `row`
+expects it: the stored text for a TEXT column, SQLite's rendering for a
+`REAL`/`INTEGER` one, the dictionary's trimmed text for a dict column, and an
+empty string for a cell that is not there. Do not re-format it on the way in —
+Rust's own float formatting differs by magnitude (`1e14` against
+`100000000000000.0`), and `value::fits_real` is the test for whether a value is
+in the range where the two renderings agree.
+
+This is the one behaviour that changed beyond the rejections moving into
+`compile`: a `values` request spelling a number differently from the stored
+rendering no longer matches. Nothing a person can pick from the value list is
+spelled that way, and that request is exactly where the two layers used to
+disagree.
+
+Two filters on one column, one selecting and one excluding, are legal — filters
+are ANDed, so the meaning is defined — and a generated test holds both renderings
+to it. What `compile` refuses is `values` and `excluded` **inside one filter**,
+where there is no precedence to appeal to.
 
 `where_sql` is public too, and the **caller supplies each column's SQL
 expression** (`where_sql(&|i| ...)`, `i` being that same column order), because

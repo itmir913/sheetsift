@@ -457,6 +457,17 @@ fn bad_column(code: ErrorCode, table: &dyn Table, key: &str, what: &str) -> Erro
 fn filter_clause(at: &Place, f: &Test, blank: &str, binds: &mut Vec<String>) -> Option<String> {
     let base = at.expr.clone();
     let dict = at.dict;
+    /* **비교하는 글자를 하나로 고정한다.** 보관 유형은 정의가 결정해서(`REAL`·
+       `INTEGER`·`TEXT`) 수치 열의 `1200` 은 `1200.0` 으로 보관될 수 있다. 그
+       상태로 값을 그대로 비교하면 SQLite 의 유형 친화(affinity)가 `'1200'` 을
+       수로 환원해 적중시키는데, **행 판정은 글자를 비교하므로 탈락시킨다** —
+       동일한 조건이 경로에 따라 상이한 행을 산출하고 어떠한 오류도 발생하지
+       않는다. 글자로 환원해 비교하면 양측이 동일한 하나를 본다.
+
+       `TEXT` 로 보관된 열에서는 아무것도 변동하지 않는다(글자의 환원이
+       자신이다). 변동하는 것은 수치 열에 **값 목록이 노출하지 않는 표기**로
+       기재한 조건뿐이고, 그것은 종전에 양측이 어긋나던 바로 그 요청이다. */
+    let text = format!("CAST({base} AS TEXT)");
     let mut parts: Vec<String> = Vec::new();
 
     // ① 열 검색 (부분일치)
@@ -467,7 +478,7 @@ fn filter_clause(at: &Place, f: &Test, blank: &str, binds: &mut Vec<String>) -> 
             // 사전에서 우선 id 집합을 산출한 뒤 정수 비교한다.
             format!(r"{base} IN (SELECT id FROM dict WHERE s LIKE ? ESCAPE '\')")
         } else {
-            format!(r"{base} LIKE ? ESCAPE '\'")
+            format!(r"{text} LIKE ? ESCAPE '\'")
         });
     }
 
@@ -489,11 +500,11 @@ fn filter_clause(at: &Place, f: &Test, blank: &str, binds: &mut Vec<String>) -> 
             alt.push(if dict {
                 format!("{base} IN (SELECT id FROM dict WHERE s IN ({holes}))")
             } else {
-                format!("{base} IN ({holes})")
+                format!("{text} IN ({holes})")
             });
         }
         if has_blank {
-            alt.push(if dict { format!("{base} IS NULL") } else { is_blank_sql(&base, blank) });
+            alt.push(if dict { format!("{base} IS NULL") } else { is_blank_sql(&text, blank) });
         }
         parts.push(format!("({})", alt.join(" OR ")));
     }
@@ -516,13 +527,13 @@ fn filter_clause(at: &Place, f: &Test, blank: &str, binds: &mut Vec<String>) -> 
                 all.push(if dict {
                     format!("({base} IS NULL OR {base} NOT IN (SELECT id FROM dict WHERE s IN ({holes})))")
                 } else {
-                    format!("({base} IS NULL OR {base} NOT IN ({holes}))")
+                    format!("({base} IS NULL OR {text} NOT IN ({holes}))")
                 });
             }
             if has_blank {
                 all.push(format!(
                     "NOT {}",
-                    if dict { format!("({base} IS NULL)") } else { is_blank_sql(&base, blank) }
+                    if dict { format!("({base} IS NULL)") } else { is_blank_sql(&text, blank) }
                 ));
             }
             parts.push(format!("({})", all.join(" AND ")));
@@ -534,7 +545,7 @@ fn filter_clause(at: &Place, f: &Test, blank: &str, binds: &mut Vec<String>) -> 
         parts.push(if dict {
             format!("{base} IS NOT NULL")
         } else {
-            format!("NOT {}", is_blank_sql(&base, blank))
+            format!("NOT {}", is_blank_sql(&text, blank))
         });
     }
 
@@ -558,7 +569,7 @@ fn filter_clause(at: &Place, f: &Test, blank: &str, binds: &mut Vec<String>) -> 
         parts.push(if dict {
             format!("{base} IN (SELECT id FROM dict WHERE {})", inside("s", binds))
         } else {
-            format!("({})", inside(&base, binds))
+            format!("({})", inside(&text, binds))
         });
     }
 
@@ -748,8 +759,14 @@ impl Match {
     /// [`Match::row`] 에 전달하는 셀 묶음의 순서가 그 순서다.
     ///
     /// 거절하는 것 — 정의에 부재하는 열, 하한이 상한을 초과하는 범위, 수치 열이
-    /// 아닌 열의 범위, `values` 와 `excluded` 의 동시 기재. 오류 코드는 각각
-    /// [`ErrorCode::InvalidFilterKey`] 와 [`ErrorCode::InvalidRange`] 다.
+    /// 아닌 열의 범위, **조건 하나**에 `values` 와 `excluded` 의 동시 기재. 오류
+    /// 코드는 각각 [`ErrorCode::InvalidFilterKey`] 와 [`ErrorCode::InvalidRange`] 다.
+    ///
+    /// **동일한 열에 조건이 둘이고 한쪽이 선택, 한쪽이 제외인 것은 거절하지
+    /// 않는다.** 조건 상호간은 AND 라 겹치는 의미가 정의되어 있다 — 선택한
+    /// 집합에서 제외한 것을 뺀 것이다. 거절하는 것은 **조건 하나 내부의** 동시
+    /// 기재다. 거기에는 우선순위가 부재해, 어느 쪽이 적용되었는지 사람도 코드도
+    /// 판별할 수 없다. 양 번역이 그 쌍을 동일하게 적용하는지는 시험이 고정한다.
     ///
     /// **아무것도 기재하지 않은 조건은 조건이 아니다**(`Filter::is_empty`).
     /// 그것까지 보유하면 WHERE 에 항상 참인 조각이 기재되고, 행 판정에서도
@@ -806,12 +823,29 @@ impl Match {
 
     /// 행 하나가 조건 전부를 통과하는가. **정지하지 않는다.**
     ///
-    /// `cells[i]` 는 `compile` 에 전달한 `columns[i]` 의 **기재된 글자**다. 셀이
-    /// 부재하면 공백 문자열과 동일하게 취급한다 — 짧은 묶음을 전달해도 정지하지
-    /// 않고, 그 열이 공백인 행으로 판정한다.
+    /// # 셀에 무엇을 전달하는가
     ///
-    /// 사전 인코딩 열은 **사전에 보관된 형태**(선후의 공백을 제거한 글자, 공백은
-    /// 공백 문자열)로 전달한다. 조회 문이 비교하는 것이 그 형태다.
+    /// `cells[i]` 는 `compile` 에 전달한 `columns[i]` 의 글자이고, 그 글자는
+    /// **[`Match::where_sql`] 의 열 식이 산출하는 글자**다. 조회 문과 이 판정이
+    /// 동일한 하나를 비교해야 하므로 그것이 기준이다.
+    ///
+    /// - 보관 유형이 `TEXT` 인 열은 보관된 글자 그대로다.
+    /// - **보관 유형이 `REAL`·`INTEGER` 인 열은 기재된 글자가 아니다** — 정의가
+    ///   보관 유형을 결정하므로(`sheet` 의 `ValueType`) `1200` 은 `1200.0` 으로
+    ///   보관되고, 조회 문이 비교하는 것도 값 목록이 노출하는 것도 그 글자다
+    ///   ([`column_values`]). 그 글자를 전달한다 — 재차 서식하지 않는다(`.0` 을
+    ///   제거하지 않고, 천 단위 구분을 부착하지 않는다).
+    /// - 사전 인코딩 열은 사전에 보관된 형태다(선후의 공백을 제거한 글자,
+    ///   공백은 공백 문자열).
+    /// - 셀이 부재하면 공백 문자열과 동일하게 취급한다 — 짧은 묶음을 전달해도
+    ///   정지하지 않고, 그 열이 공백인 행으로 판정한다.
+    ///
+    /// **Rust 의 부동소수 서식을 사용하지 않는다.** 환원 방법이 상이해 규모에
+    /// 따라 어긋난다(`1e14` 와 `100000000000000.0`). 이 상자가 반환하는 칸
+    /// ([`run`] 의 행, [`column_values`] 의 값)을 그대로 사용하는 것이 안전하고,
+    /// 수치 셀을 자체로 보관하는 앱은 그 환원이 SQLite 와 동일한 규모인지를
+    /// [`crate::value::fits_real`] 로 판정할 수 있다 — 이 상자의 구축은 그
+    /// 범위를 초과하는 값을 `REAL` 열에 보관하지 않는다.
     pub fn row(&self, cells: &[&str]) -> bool {
         self.conds.iter().all(|c| {
             c.on.iter().any(|i| c.test.hits(cells.get(*i).copied().unwrap_or(""), &self.blank))
@@ -1294,8 +1328,14 @@ pub fn column_values(
     } else {
         // 기준 테이블에서만 GROUP BY 한 뒤, 축소된 목록에만 dict 를 조인한다.
         let order = values_order_sql("v", blank, numeric);
+        /* **목록이 노출하는 글자는 조건이 비교하는 글자여야 한다.** 보관 유형이
+           `REAL` 인 열을 보관된 값으로 반환하면, 이 상자가 환원하는 글자와 조회
+           문이 비교하는 글자가 상이해질 수 있다(`1e14` 와 `100000000000000.0`).
+           사람이 목록에서 판독해 선택한 값이 적중하지 않는 경로다. 사전 열의
+           `v` 는 정수 id 라 환원하지 않는다 — 조인해 글자를 수령한다. */
+        let pick = if col.dict { base.clone() } else { format!("CAST({base} AS TEXT)") };
         let inner = format!(
-            "SELECT {base} AS v, COUNT(*) AS n FROM {table} t{where_sql} \
+            "SELECT {pick} AS v, COUNT(*) AS n FROM {table} t{where_sql} \
              GROUP BY v ORDER BY {order} LIMIT {over}",
             table = table.base(),
         );
@@ -2761,6 +2801,17 @@ mod tests {
 
         // ④ 필터 상호간(AND). 공백 조건까지 섞는다.
         out.push(vec![contains("name", "가"), picked("city", &["서울"])]);
+        /* **동일한 열에 조건 둘.** 한쪽이 선택이고 한쪽이 제외다 — 조건 상호간은
+           AND 이라 겹치는 의미가 정의되어 있다(조건 하나 내부의 동시 기재는
+           우선순위가 부재해 거절한다). 양 번역이 동일하게 적용하는지 고정한다. */
+        out.push(vec![
+            picked("city", &["서울", "부산"]),
+            Filter { key: "city".into(), excluded: Some(vec!["부산".into()]), ..Filter::default() },
+        ]);
+        out.push(vec![
+            Filter { key: "name".into(), excluded: Some(vec![BLANK_TOKEN.into()]), ..Filter::default() },
+            contains("name", "가"),
+        ]);
         out.push(vec![picked("city", &[BLANK_TOKEN]), ranged("score", Some(0.0), None)]);
         out.push(vec![Filter::default()]);
         out.push(vec![]);
@@ -2810,6 +2861,115 @@ mod tests {
                 .collect();
             assert_eq!(by_sql, by_row, "{filters:?} 에서 반출한 번역이 어긋난다");
         }
+    }
+
+    /// 수치 열을 **`REAL` 로 보관한 표.** 보관 유형은 정의가 결정하므로 받는
+    /// 앱의 표에는 이 형태가 존재한다.
+    ///
+    /// 종전의 대조는 수치 열을 `TEXT` 로 보관해 이 어긋남에 도달하지 못했다 —
+    /// 조건을 더 생성해도 도달하지 못한다. **간극은 조건이 아니라 표의 보관
+    /// 유형이었다.**
+    fn agree_fixture_real() -> (Connection, T, Vec<Vec<String>>) {
+        /* 셀의 글자는 **조회 문이 비교하는 글자**다. 수치 열을 `REAL` 로
+           보관하면 `1200` 이 `1200.0` 으로 환원된다 — 사람이 값 목록에서
+           판독하는 것도 그 글자다. */
+        let nums: [Option<f64>; 8] =
+            [Some(1200.0), Some(85.5), None, Some(0.0), Some(-5.0), Some(70.0), Some(0.0001), Some(712.5)];
+        let names = ["가", "나", "다", "라", "마", "바", "사", "아"];
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE rows(name TEXT, city TEXT, score REAL);").unwrap();
+        let mut cells = Vec::new();
+        for (n, v) in names.iter().zip(nums) {
+            conn.execute(
+                "INSERT INTO rows(name, city, score) VALUES(?, ?, ?)",
+                rusqlite::params![n, "서울", v],
+            )
+            .unwrap();
+            /* 셀의 글자를 **이 상자가 반환하는 그대로** 산출한다(`run` 의 칸과
+               값 목록이 동일한 변환을 경유한다) — 시험이 조회 문의 환원을
+               차용하면 양측이 동일한 것을 대조하는 셈이 된다. */
+            let text = match v {
+                None => String::new(),
+                Some(x) => Json::from(x).to_string(),
+            };
+            cells.push(vec![n.to_string(), "서울".to_string(), text]);
+        }
+        let t = T {
+            base: "rows".into(),
+            columns: vec![
+                col("name", ColumnKind::Text, false),
+                col("city", ColumnKind::Text, false),
+                col("score", ColumnKind::Number, false),
+            ],
+        };
+        (conn, t, cells)
+    }
+
+    /// **보관 유형이 `REAL` 인 열에서도 두 번역이 동일한 행을 선택한다.**
+    ///
+    /// 조회 문은 **보관된 값**을 비교하고 행 판정은 **기재된 글자**를 비교하는데,
+    /// 그 둘이 동일한 글자가 아니면 동일한 조건이 경로에 따라 상이한 행을
+    /// 산출한다 — 건수조차 정합할 수 있어 눈에 출현하지 않는다.
+    #[test]
+    fn the_two_renderings_agree_on_a_column_stored_as_real() {
+        let (conn, t, cells) = agree_fixture_real();
+        let cols: Vec<(&str, bool)> =
+            t.columns().map(|c| (c.key.as_str(), c.kind == ColumnKind::Number)).collect();
+        let mut extra = agree_filters();
+        // 보관된 수와 기재된 글자가 상이한 조건들.
+        for v in [vec!["1200.0"], vec!["1200"], vec!["1,200"], vec!["85.5"], vec!["0.0"]] {
+            let pick: Vec<String> = v.iter().map(|s| s.to_string()).collect();
+            extra.push(vec![Filter {
+                key: "score".into(),
+                values: Some(pick.clone()),
+                ..Filter::default()
+            }]);
+            extra.push(vec![Filter { key: "score".into(), excluded: Some(pick), ..Filter::default() }]);
+        }
+        for n in ["1,2", ".", "0", "1200", "e"] {
+            extra.push(vec![contains("score", n)]);
+        }
+        for filters in extra {
+            let m = Match::compile(&filters, &cols, BLANK).unwrap();
+            let by_sql = sql_hits_pub(&conn, &t, &m);
+            let by_row: Vec<usize> = cells
+                .iter()
+                .enumerate()
+                .filter(|(_, r)| {
+                    let refs: Vec<&str> = r.iter().map(String::as_str).collect();
+                    m.row(&refs)
+                })
+                .map(|(i, _)| i)
+                .collect();
+            assert_eq!(by_sql, by_row, "{filters:?} 에서 두 번역이 어긋난다");
+        }
+    }
+
+    /// **목록에서 판독한 값을 선택하면 그 행이 산출된다** — 보관 유형이
+    /// `REAL` 인 열에서도.
+    ///
+    /// 목록이 노출하는 글자와 조건이 비교하는 글자가 상이하면, 사람이 목록에서
+    /// 고른 값이 0건을 산출한다. 어느 쪽도 오류를 발생시키지 않는다.
+    #[test]
+    fn a_value_read_from_the_list_selects_its_rows_when_it_is_picked_back() {
+        let (conn, t, _) = agree_fixture_real();
+        let got = column_values(&conn, &t, BLANK, "score", &[], "").unwrap();
+        for v in &got.values {
+            if v.value == BLANK_TOKEN {
+                continue;
+            }
+            let page = run(
+                &conn,
+                &t,
+                BLANK,
+                &query(vec![], vec![picked("score", &[v.value.as_str()])]),
+            )
+            .unwrap();
+            assert_eq!(page.total, v.count, "{:?} 를 선택하면 그 건수여야 한다", v.value);
+        }
+        // 목록이 노출하는 글자가 보관된 값의 환원이다.
+        let shown: Vec<&str> = got.values.iter().map(|v| v.value.as_str()).collect();
+        assert!(shown.contains(&"1200.0"), "{shown:?}");
     }
 
     /// **짧은 셀 묶음을 전달해도 정지하지 않는다.** 부재하는 셀은 공백이다.
