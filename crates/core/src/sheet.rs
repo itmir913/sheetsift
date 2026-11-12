@@ -384,8 +384,27 @@ impl TablePlan {
 /// 수행하므로, 여기 한 벌 더 기재하면 `" "` 한 칸이 일방에만 공백이 된다.
 pub use crate::value::is_blank;
 
+/// **행 하나를 유일하게 지시하는 열의 명칭.** 조회 엔진이 쪽을 나눠 판독할 때
+/// 정렬 열쇠의 꼬리로 사용한다([`crate::grid`] 의 `RID`).
+///
+/// SQLite 에서 `rowid` 는 **동일한 명칭의 열이 존재하면 그 열을 지시한다**
+/// (`_rowid_`·`oid` 도 동일하다). 양식의 헤더가 그 글자이면 꼬리가 유일하지
+/// 않은 열을 지시하게 되고, 전순서가 **조용히** 소멸한다 — 쪽을 이어 붙인
+/// 결과에 중복과 누락이 발생하는데 건수는 정합한다.
+const SHADOWS_ROWID: [&str; 4] = ["rowid", "_rowid_", "oid", crate::grid::RID];
+
+/// 그 명칭이 `rowid` 를 가리는가. SQLite 의 열 명칭은 대소문자를 구별하지 않는다.
+pub fn shadows_rowid(name: &str) -> bool {
+    let name = name.to_lowercase();
+    SHADOWS_ROWID.iter().any(|r| *r == name)
+}
+
 /// 헤더를 SQLite 열 명칭으로. 문자·숫자·밑줄만 존치하고, 숫자로 개시되면 앞에
 /// 밑줄을 부착한다. 동일한 명칭이 재차 출현하면 `_2`, `_3` 을 부착한다.
+///
+/// **`rowid` 를 가리는 명칭은 산출하지 않는다**([`SHADOWS_ROWID`]). 앞에 밑줄을
+/// 부착해 회피한다 — 기각하면 그 열이 소멸하고, 그대로 사용하면 쪽을 나눠
+/// 판독하는 길의 전순서가 소멸한다.
 pub fn sanitize(header: &str, seen: &mut HashMap<String, usize>) -> String {
     let mut out = String::with_capacity(header.len());
     for ch in header.trim().chars() {
@@ -399,6 +418,9 @@ pub fn sanitize(header: &str, seen: &mut HashMap<String, usize>) -> String {
         out.push('_');
     }
     if out.starts_with(|c: char| c.is_ascii_digit()) {
+        out.insert(0, '_');
+    }
+    while shadows_rowid(&out) {
         out.insert(0, '_');
     }
     /* **생성한 명칭이 유일할 때까지 번호를 증가시킨다.**
@@ -453,6 +475,16 @@ pub fn locate(sheet: &Sheet, wanted: &[&str]) -> Result<Vec<usize>> {
                 .ok_or_else(|| Error::new(ErrorCode::SheetColumnMissing).with("column", w))
         })
         .collect()
+}
+
+/// `rowid` 를 가리는 열 명칭을 기각하는 오류. 코드를 증가시키지 않고 사유를
+/// `detail` 이 진술한다 — 코드가 단일 enum 이라 하나 더하면 이 층을 사용하지
+/// 않는 앱까지 문구를 기재해야 한다.
+fn failed_name(table: &str, column: &str) -> Error {
+    Error::new(ErrorCode::SheetTableFailed)
+        .with("table", table)
+        .with("column", column)
+        .detail("a column name that shadows the rowid cannot be used")
 }
 
 fn make_indexes(conn: &Connection, table: &str, indexes: &[Vec<String>]) -> Result<()> {
@@ -566,6 +598,14 @@ pub fn build_dict_table(
     let table = &plan.table;
 
     check_width(conn, table, plan.map.len())?;
+    /* **`rowid` 를 가리는 열 명칭은 기각한다.** 이 명칭은 부르는 곳의 정의가
+       기재하므로 절단으로 회피할 수 없다. 그대로 생성하면 쪽을 나눠 판독하는
+       길의 전순서가 조용히 소멸한다. */
+    for m in &plan.map {
+        if shadows_rowid(&m.column) {
+            return Err(failed_name(table, &m.column));
+        }
+    }
     let decl = plan
         .map
         .iter()
@@ -858,6 +898,66 @@ mod tests {
         let null: Option<i64> =
             conn.query_row("SELECT score FROM t WHERE name = 2", [], |r| r.get(0)).unwrap();
         assert_eq!(null, None);
+    }
+
+    /// **`rowid` 라는 헤더가 쪽 나누기의 꼬리를 가리지 않는다.**
+    ///
+    /// SQLite 에서 `rowid` 는 동일한 명칭의 열이 존재하면 그 열을 지시한다
+    /// (`_rowid_`·`oid` 도 동일하다). 양식의 헤더가 그 글자이면 조회 엔진의
+    /// 정렬 꼬리가 유일하지 않은 열을 지시하게 되고, **전순서가 조용히
+    /// 소멸한다** — 쪽을 이어 붙인 결과에 중복과 누락이 발생하는데 건수는
+    /// 정합하다.
+    #[test]
+    fn a_header_named_rowid_does_not_shadow_the_ordering_tail() {
+        // 헤더마다 신규 상태로 판정한다. 중복 번호는 별도 사안이다.
+        for (header, want) in [
+            ("rowid", "_rowid"),
+            ("ROWID", "_ROWID"),
+            ("oid", "_oid"),
+            ("_rowid_", "__rowid_"),
+            ("_sheetsift_rid", "__sheetsift_rid"),
+            // 가리지 않는 명칭은 변경하지 않는다.
+            ("rowid_", "rowid_"),
+            ("행", "행"),
+        ] {
+            assert_eq!(sanitize(header, &mut HashMap::new()), want, "{header}");
+        }
+
+        // 생성한 표에도 그 명칭이 부재한다.
+        let s = sheet(&[&["rowid", "점수"], &["가", "90"], &["나", "80"]]);
+        let conn = mem();
+        let made = build_plain(&conn, &s, "t", &[]).unwrap();
+        assert_eq!(made.columns[0].1, "_rowid");
+        // 실제 `rowid` 가 여전히 행을 유일하게 지시한다.
+        let ids: Vec<i64> = conn
+            .prepare("SELECT rowid FROM t ORDER BY rowid")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(ids, [1, 2]);
+    }
+
+    /// 사전 표의 열 명칭은 부르는 곳의 정의가 기재한다. 절단으로 회피할 수 없어
+    /// **중단한다** — 그대로 생성하면 전순서가 조용히 소멸한다.
+    #[test]
+    fn a_plan_that_names_a_column_rowid_stops() {
+        for name in ["rowid", "RowId", "_rowid_", "oid", "_sheetsift_rid"] {
+            let plan = TablePlan {
+                table: "t".into(),
+                map: vec![ColumnMap {
+                    sheet: "값".into(),
+                    column: name.into(),
+                    ty: ValueType::Int,
+                }],
+                indexes: vec![],
+            };
+            let s = sheet(&[&["값"], &["1"]]);
+            let conn = mem();
+            let err = build_dict_table(&conn, &s, &plan, &HashMap::new(), "-").unwrap_err();
+            assert_eq!(err.code, ErrorCode::SheetTableFailed, "{name}");
+        }
     }
 
     /// **눈으로 구별할 수 없는 두 항목이 사전에 생성되지 않는다.**

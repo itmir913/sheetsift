@@ -641,6 +641,13 @@ pub(crate) const RID: &str = "_sheetsift_rid";
 /// 열쇠가 `rowid` 다.** 기재하면 동일한 열쇠를 두 번 기재하는 것이 되고, 그러면
 /// 색인 명칭의 지문과 ORDER BY 의 글자가 어긋나 색인이 정렬에 사용되지 않는다.
 fn build_order(table: &dyn Table, sorts: &[Sort], blank: &str, rid: &str) -> Result<String> {
+    /* **꼬리가 유일한 열을 지시하는지 확인한다.** SQLite 의 `rowid` 는 동일한
+       명칭의 열이 존재하면 그 열을 지시한다 — 그러면 꼬리가 유일하지 않고
+       전순서가 조용히 소멸한다. 표를 생성하는 층이 그런 명칭을 산출하지 않으나
+       (`sheet` 의 `shadows_rowid`), 정의를 기재하는 곳은 이 상자 밖이다. */
+    if let Some(col) = table.columns().find(|c| crate::sheet::shadows_rowid(&c.column)) {
+        return Err(unknown_column(table, &col.key, "a column name shadows the rowid used to order pages"));
+    }
     let mut parts = order_keys(table, sorts, blank, true)?;
     parts.push(format!("{rid} ASC"));
     Ok(format!(" ORDER BY {}", parts.join(", ")))
@@ -1822,6 +1829,82 @@ mod tests {
             assert_eq!(unique.len(), got.len(), "동일한 행이 두 번 실렸습니다: {sorts:?}");
             assert_eq!(unique, expected, "누락된 행이 존재합니다: {sorts:?}");
         }
+    }
+
+    /// **`rowid` 라는 열이 기재된 양식도 쪽을 나눠 전부 판독한다.**
+    ///
+    /// SQLite 의 `rowid` 는 동일한 명칭의 열이 존재하면 그 열을 지시한다. 그
+    /// 양식을 그대로 생성하면 정렬 꼬리가 유일하지 않은 열(전 행이 동일한 값인
+    /// 열이어도 무방하다)을 지시하게 되고, 전순서가 조용히 소멸한다. 표를
+    /// 생성하는 층이 명칭을 회피하므로 꼬리는 실제 `rowid` 를 유지한다.
+    #[test]
+    fn a_workbook_with_a_column_named_rowid_still_pages_without_loss() {
+        let rows = 1_200usize;
+        let conn = Connection::open_in_memory().unwrap();
+        let mut sheet_rows: Vec<Vec<String>> = vec![vec!["rowid".into(), "점수".into()]];
+        for i in 0..rows {
+            // `rowid` 열의 값은 전 행이 동일하다 — 그 열을 꼬리로 삼으면 전순서가 부재한다.
+            sheet_rows.push(vec!["같음".into(), format!("{}", i % 3)]);
+        }
+        let book = crate::sheet::Sheet { rows: sheet_rows, ..Default::default() };
+        let plan = crate::sheet::TablePlan {
+            table: "t".into(),
+            map: Vec::new(),
+            indexes: Vec::new(),
+        };
+        let made = crate::sheet::build(&conn, &[(plan, book)], BLANK).unwrap();
+        let keys: Vec<String> = made["t"].columns.iter().map(|(_, db)| db.clone()).collect();
+        assert_eq!(keys[0], "_rowid", "그 명칭을 회피해야 한다");
+
+        let mut t = T {
+            base: "t".into(),
+            columns: vec![
+                col(&keys[0], ColumnKind::Text, false),
+                col(&keys[1], ColumnKind::Number, false),
+            ],
+        };
+        assign_aliases(t.columns.iter_mut());
+
+        // 전 행이 동점인 열로 정렬해 쪽을 끝까지 이어 붙인다.
+        let mut seen: Vec<i64> = Vec::new();
+        let mut offset = 0u32;
+        loop {
+            let q = Query {
+                sorts: vec![s(&keys[1], SortDir::Asc)],
+                filters: vec![],
+                offset,
+                limit: MAX_LIMIT,
+            };
+            let page = run(&conn, &t, BLANK, &q).unwrap();
+            if page.rows.is_empty() {
+                break;
+            }
+            // 실제 `rowid` 로 행을 식별한다. 산출된 열에는 그것이 부재하므로 질의로 대조한다.
+            for r in &page.rows {
+                let score = r[1].as_str().unwrap().to_string();
+                seen.push(score.parse::<i64>().unwrap());
+            }
+            offset += MAX_LIMIT;
+            if offset >= page.total {
+                break;
+            }
+        }
+        assert_eq!(seen.len(), rows, "건수가 상이합니다");
+        // 동점군의 크기가 보전되었는가 — 중복이 발생하면 어느 군이 비대해진다.
+        let mut counts = [0usize; 3];
+        for v in &seen {
+            counts[*v as usize] += 1;
+        }
+        assert_eq!(counts, [400, 400, 400], "동점군의 크기가 상이합니다: {counts:?}");
+
+        // 열 정의가 그 명칭을 기재하면 중단한다 — 정의는 이 상자 밖에서 작성된다.
+        let mut shadowed = T {
+            base: "t".into(),
+            columns: vec![Column { column: "rowid".into(), ..col("x", ColumnKind::Text, false) }],
+        };
+        assign_aliases(shadowed.columns.iter_mut());
+        let err = run(&conn, &shadowed, BLANK, &query(vec![], vec![])).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidSortKey);
     }
 
     /// **색인을 생성하는 경계의 양측이 동일한 순서를 산출한다.**
