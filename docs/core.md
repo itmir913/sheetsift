@@ -140,6 +140,24 @@ if the missing cells were blank.
 Whether a column can be filtered at all is this crate's own notion, so that
 rejection stays with the query side.
 
+### Row order has its own comparison
+
+`grid::compare_sorted(a, b, blank, numeric, dir)` is the Rust twin of the
+`ORDER BY` keys: blanks last whatever the direction, then — in a numeric column —
+values that are not numbers after the ones that are, then the directed
+comparison. `compare_values` cannot stand in for it: that one orders the
+**value-selection list**, where blanks come first.
+
+Among values that are not numbers, the order is whatever SQLite's
+`CAST(… AS REAL)` makes of them, because that is the query's own key and it has
+no text tiebreak after it. `value::cast_real` mirrors that cast (leading-prefix
+parse, `0` when nothing parses) and a differential test asks SQLite to confirm
+it. That mirror is not a loosening of what counts as a number — `is_number`
+still decides that — it only orders the values that are not.
+
+A dict-encoded column passes `numeric: false` even when it holds numbers: the
+query sorts it by dictionary id, and those ids are assigned in collation order.
+
 ### A filter says which control wrote it
 
 A column's value list is built with **that column's own selection left out** —

@@ -222,6 +222,72 @@ pub fn as_real(s: &str) -> Option<f64> {
     t.parse::<f64>().ok().filter(|v| v.is_finite())
 }
 
+/// SQLite 의 `CAST(x AS REAL)` 이 산출하는 수. [`number_sql`] 의 거울이다.
+///
+/// **[`as_real`] 과 상이하다.** `as_real` 은 수로 판독되는 것만 판독한다
+/// (`7점` → 없음). 이것은 SQLite 가 수행하는 것을 그대로 기재한다 — 선두부터
+/// 수로 판독되는 만큼만 판독하고, 하나도 판독되지 않으면 0 이다(`7점` → 7,
+/// `총 44850점` → 0).
+///
+/// **그것이 필요한 사유는 행의 정렬이다.** 수치 열의 정렬 열쇠는
+/// `CASE WHEN 수인가 THEN 0 ELSE 1 END, CAST(…)` 라, 수로 판독되지 않는 값들
+/// **상호간**의 순서는 이 변환이 결정한다. 그 순서를 `as_real` 로 기재하면
+/// 조회 문과 Rust 가 어긋나고, 그 어긋남은 동일한 자료가 화면마다 상이한
+/// 순서로 묘사되는 형태로 발현한다.
+///
+/// 판정을 완화하는 것이 아니다 — 무엇이 수인지는 [`is_number`] 가 결정하고,
+/// 이것은 수가 아닌 것들의 순서를 결정할 때만 사용한다.
+pub(crate) fn cast_real(s: &str) -> f64 {
+    let t = trim(s).replace(',', "");
+    let b = t.as_bytes();
+    let mut i = 0;
+    /* **선두의 공백을 경과시킨다.** SQLite 의 변환이 그렇게 수행한다 — 쉼표를
+       제거하면 그 자리에 공백이 선두로 노출되는 경우가 존재한다(`, 1`).
+       경과시키는 것은 **ASCII 공백뿐이다** — SQLite 가 그만큼만 경과시키고,
+       `trim` 의 집합(유니코드 공백 전부)으로 경과시키면 `,\u{a0}1` 에서
+       어긋난다. */
+    while i < b.len() && b[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    let from = i;
+    if i < b.len() && (b[i] == b'+' || b[i] == b'-') {
+        i += 1;
+    }
+    let mut digits = 0;
+    while i < b.len() && b[i].is_ascii_digit() {
+        i += 1;
+        digits += 1;
+    }
+    if i < b.len() && b[i] == b'.' {
+        i += 1;
+        while i < b.len() && b[i].is_ascii_digit() {
+            i += 1;
+            digits += 1;
+        }
+    }
+    if digits == 0 {
+        return 0.0;
+    }
+    // 지수부는 **숫자가 선행할 때만** 수용한다. `e` 만으로 종결되면 그 이전까지다.
+    let head = i;
+    if i < b.len() && (b[i] == b'e' || b[i] == b'E') {
+        let mut j = i + 1;
+        if j < b.len() && (b[j] == b'+' || b[j] == b'-') {
+            j += 1;
+        }
+        let mut exp = 0;
+        while j < b.len() && b[j].is_ascii_digit() {
+            j += 1;
+            exp += 1;
+        }
+        if exp > 0 {
+            i = j;
+        }
+    }
+    let cut = if i >= head { i } else { head };
+    t[from..cut].parse::<f64>().ok().filter(|v| v.is_finite()).unwrap_or(0.0)
+}
+
 /// `REAL` 열에 보관해도 **문자로 환원할 때 지수 표기가 되지 않는가.**
 ///
 /// SQLite 는 `REAL` 을 문자로 환원할 때 규모가 극단이면 `1.0e+17` 처럼
@@ -495,5 +561,36 @@ mod tests {
         // 규모(1e15·1e16)도 거부한다.
         assert!(fits_real(1e-4) && fits_real(999_999_999_999_999.0));
         assert!(!fits_real(1e-5) && !fits_real(1e15) && !fits_real(1e16));
+    }
+
+    /// **수가 아닌 값들 상호간의 순서를 결정하는 변환이 SQLite 와 동일하다.**
+    ///
+    /// 수치 열의 행 정렬은 수가 아닌 값들을 후위로 보낸 뒤 그것들 상호간을
+    /// `CAST(… AS REAL)` 로 정렬한다. 그 변환을 Rust 쪽이 상이하게 기재하면
+    /// 동일한 자료가 화면마다 상이한 순서로 묘사되고, 어떠한 오류도 발생하지
+    /// 않는다. 그래서 전수 표본으로 SQLite 에 질의해 대조한다.
+    #[test]
+    fn rust_and_sql_cast_the_same_text_to_the_same_number() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let mut extra: Vec<String> = [
+            "7점", "총 44850점", "3 apples", "12abc", "1e", "1e+", "2.5e3", "-2.5E-2", ".", "-",
+            "+", "1,200원", "0x10", " 90 ", "\u{a0}90", "1.2.3", "--5", "inf", "NaN", "1e400",
+            "-1e400", "", " ", "1,200", "1,2,3",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        extra.extend(samples());
+        for s in extra {
+            let sql: f64 = conn
+                .query_row("SELECT CAST(REPLACE(?, ',', '') AS REAL)", [trim(&s)], |r| r.get(0))
+                .unwrap();
+            let mine = cast_real(&s);
+            // 유한하지 않은 수는 양측 모두 산출하지 않는다(SQLite 는 포화시킨다).
+            if !sql.is_finite() {
+                continue;
+            }
+            assert_eq!(mine, sql, "{s:?} 의 변환이 어긋난다");
+        }
     }
 }

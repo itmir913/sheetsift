@@ -78,3 +78,30 @@ fn an_embedding_app_can_compile_a_request_once_and_judge_its_own_rows() {
     let err = grid::Match::compile(&both, &columns, "-").unwrap_err();
     assert_eq!(err.code, sheetsift_core::ErrorCode::InvalidFilterKey);
 }
+
+/// **행 정렬의 순서를 조회 문과 동일하게 산출할 수 있다.**
+///
+/// 값 선택 목록의 순서(`compare_values`)와 상이하다 — 그쪽은 공백을 선두에
+/// 배치한다. 행은 공백을 후위에 배치하고, 수치 열에서 수로 판독되지 않는 값을
+/// 수 뒤에 둔다.
+#[test]
+fn an_embedding_app_can_order_rows_the_way_the_query_does() {
+    use std::cmp::Ordering;
+    let asc = grid::SortDir::Asc;
+    // 공백은 방향과 무관하게 후위다.
+    assert_eq!(grid::compare_sorted("", "90", "-", true, asc), Ordering::Greater);
+    assert_eq!(
+        grid::compare_sorted("", "90", "-", true, grid::SortDir::Desc),
+        Ordering::Greater
+    );
+    // 수가 아닌 값은 수 뒤다(방향과 무관하다).
+    assert_eq!(grid::compare_sorted("총 44850점", "90", "-", true, asc), Ordering::Greater);
+    // 수치 열은 수의 크기순이다.
+    assert_eq!(grid::compare_sorted("90", "1,200", "-", true, asc), Ordering::Less);
+    // 문자 열은 문자순이다.
+    assert_eq!(grid::compare_sorted("10", "9", "-", false, asc), Ordering::Less);
+
+    let mut rows = vec!["90", "", "1,200", "총 44850점", "85.5"];
+    rows.sort_by(|a, b| grid::compare_sorted(a, b, "-", true, asc));
+    assert_eq!(rows, ["85.5", "90", "1,200", "총 44850점", ""]);
+}

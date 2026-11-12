@@ -375,6 +375,57 @@ pub fn compare_values(a: &str, b: &str, blank: &str, numeric: bool) -> std::cmp:
     a.cmp(b)
 }
 
+/// **행 정렬의 순서.** `ORDER BY` 가 기재하는 것과 동일한 순서를 Rust 로
+/// 산출한다([`order_keys`] 의 거울).
+///
+/// 행을 Rust 로 보유한 화면(인쇄·내보내기)이 자체로 정렬하면, 동일한 자료가
+/// 화면마다 상이한 순서로 묘사된다 — 그것은 오류로 출현하지 않는다.
+///
+/// [`compare_values`] 로 대체할 수 없다. 그쪽은 **값 선택 목록**의 순서라 공백을
+/// 선두에 배치하고, 동일한 수치의 표기를 문자로 고정한다. 행의 순서는 공백을
+/// **후위**에 배치하고(방향과 무관하다), 수로 판독되지 않는 값을 수 뒤에 둔다.
+///
+/// 규칙 — ① 공백은 방향과 무관하게 후위. ② 수치 열이면 수로 판독되지 않는 값이
+/// 방향과 무관하게 수 뒤. ③ 그 다음이 방향을 적용하는 비교다.
+///
+/// `numeric` 은 **수치로 정렬하는 열인가**다. 사전 인코딩 열은 조회 문이 id 로
+/// 정렬하므로(id 가 가나다순이다) 수치 열이어도 `false` 를 전달한다.
+pub fn compare_sorted(
+    a: &str,
+    b: &str,
+    blank: &str,
+    numeric: bool,
+    dir: SortDir,
+) -> std::cmp::Ordering {
+    use crate::value::{is_blank, is_number};
+    // ① 값 부재는 방향과 무관하게 후위다. 무엇이 부재인지는 자료가 결정한다.
+    let (x, y) = (is_blank(a, blank), is_blank(b, blank));
+    if x != y {
+        return x.cmp(&y);
+    }
+    let ord = if numeric {
+        /* ② 수로 판독되지 않는 값은 방향과 무관하게 수 뒤다. 그러지 않으면
+           `총 44850점` 같은 합계 행이 변환값 0 으로 0 과 1 사이에 삽입되는데,
+           표를 판독하는 사람에게는 그것이 0점으로 보인다. */
+        let (nx, ny) = (!is_number(a), !is_number(b));
+        if nx != ny {
+            return nx.cmp(&ny);
+        }
+        /* ③ 수치 비교. **수가 아닌 값들 상호간도 이 변환이 순서를 결정한다** —
+           조회 문의 열쇠가 `CAST(…)` 이고, 거기에는 문자 비교가 후행하지 않는다. */
+        crate::value::cast_real(a)
+            .partial_cmp(&crate::value::cast_real(b))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    } else {
+        // 문자 비교. SQLite 의 기본 조합(BINARY)이 바이트 비교다.
+        a.cmp(b)
+    };
+    match dir {
+        SortDir::Asc => ord,
+        SortDir::Desc => ord.reverse(),
+    }
+}
+
 /// 값 선택 목록의 정렬 열쇠. [`compare_values`] 를 SQL 로 기재한 것이다.
 fn values_order_sql(expr: &str, blank: &str, numeric: bool) -> String {
     let first = format!("{} DESC", is_blank_sql(expr, blank));
@@ -2705,5 +2756,38 @@ mod tests {
         }
         // 아무것도 기재하지 않은 조건은 조건이 아니다 — 거절하지 않는다.
         assert!(Match::compile(&[Filter::default()], &cols, BLANK).is_ok());
+    }
+
+    /// **행 정렬의 순서가 조회 문과 동일하다.**
+    ///
+    /// 열쇠를 글자로 대조하지 않고 **SQLite 에 정렬을 요구해** 결과의 순서를
+    /// 대조한다 — 동점은 양측 모두 삽입 순서로 종결된다(조회 문은 `rowid` 꼬리,
+    /// Rust 는 안정 정렬).
+    #[test]
+    fn the_two_renderings_of_one_sort_put_the_rows_in_the_same_order() {
+        let (conn, t, cells) = agree_fixture();
+        for (at, key) in ["name", "city", "score"].iter().enumerate() {
+            let col = t.column(key).unwrap();
+            // 사전 열은 조회 문이 id 로 정렬한다(id 가 가나다순이다).
+            let numeric = col.kind == ColumnKind::Number && !col.dict;
+            for dir in [SortDir::Asc, SortDir::Desc] {
+                let order = order_keys(&t, &[s(key, dir)], BLANK, true).unwrap();
+                let sql =
+                    format!("SELECT rowid FROM rows t ORDER BY {}, t.rowid ASC", order.join(", "));
+                let mut q = conn.prepare(&sql).unwrap();
+                let mut by_sql = Vec::new();
+                let mut rows = q.query([]).unwrap();
+                while let Some(r) = rows.next().unwrap() {
+                    let id: i64 = r.get(0).unwrap();
+                    by_sql.push(id as usize - 1);
+                }
+
+                let mut by_rust: Vec<usize> = (0..cells.len()).collect();
+                by_rust.sort_by(|i, j| {
+                    compare_sorted(&cells[*i][at], &cells[*j][at], BLANK, numeric, dir)
+                });
+                assert_eq!(by_sql, by_rust, "{key} {dir:?} 에서 두 순서가 어긋난다");
+            }
+        }
     }
 }
