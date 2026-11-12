@@ -130,8 +130,8 @@ fn an_embedding_app_can_put_the_same_conditions_on_its_own_table() {
     let m = grid::Match::compile(&filters, &columns, "-").unwrap();
 
     // 그 표의 열 식은 그 표가 제시한다.
-    let expr = ["s.name".to_string(), "s.score".to_string()];
-    let (where_sql, binds) = m.where_sql(&|i| expr[i].clone());
+    let expr = ["s.name", "s.score"];
+    let (where_sql, binds) = m.where_sql(&|i| grid::Place::of(expr[i]));
     let sql = format!("SELECT name FROM students s{where_sql} ORDER BY s.rowid");
     let params: Vec<&dyn rusqlite::ToSql> =
         binds.iter().map(|b| b as &dyn rusqlite::ToSql).collect();
@@ -151,4 +151,61 @@ fn an_embedding_app_can_put_the_same_conditions_on_its_own_table() {
         .map(|(n, _)| n.to_string())
         .collect();
     assert_eq!(by_sql, by_row);
+}
+
+/// **열이 자기 바인딩을 보유해도 조건을 적용할 수 있다.**
+///
+/// 받는 앱의 미리보기 열은 표의 열이 아니라 상관 부질의이고, 교과 묶음·학기·월을
+/// 바인딩한다. 값을 식에 글자로 합성하는 경로는 사람이 기재한 값을 SQL 에 직접
+/// 기재하는 셈이라 수용하지 않는다 — `Place::params` 로 전달하고, 반환하는
+/// 바인딩은 **산출한 SQL 의 `?` 출현 순서**다.
+#[test]
+fn an_embedding_app_can_filter_a_column_that_is_a_correlated_subquery() {
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        "CREATE TABLE s(id INTEGER PRIMARY KEY, name TEXT);
+         INSERT INTO s VALUES(1, '가'), (2, '나'), (3, '다');
+         CREATE TABLE n(student_id INTEGER, subject_set TEXT, grade_avg REAL);
+         INSERT INTO n VALUES(1, '전교과', 2.41), (1, '국영수', 1.8),
+                             (2, '전교과', 3.5), (3, '국영수', 2.41);",
+    )
+    .unwrap();
+
+    let columns = [("내신", true)];
+    let filters = vec![grid::Filter {
+        key: "내신".into(),
+        max: Some(3.0),
+        ..Default::default()
+    }];
+    let m = grid::Match::compile(&filters, &columns, "-").unwrap();
+    let at = grid::Place {
+        expr: "(SELECT n.grade_avg FROM n WHERE n.student_id = s.id AND n.subject_set = ?)"
+            .to_string(),
+        params: vec!["전교과".to_string()],
+        dict: false,
+    };
+    let (where_sql, binds) = m.where_sql(&|_| at.clone());
+    /* **글자의 순서다.** 범위 조건은 식을 여러 번 기재하므로(수치 판정과 변환)
+       교과 묶음이 그만큼 출현하고, 상한이 마지막이다. 글자 안의 `?` 를 계수하지
+       않는다 — 수치 판정의 GLOB 패턴이 상수로 `?` 를 보유한다. */
+    assert_eq!(binds.first().map(String::as_str), Some("전교과"));
+    assert_eq!(binds.last().map(String::as_str), Some("3"));
+    assert!(binds.iter().filter(|b| *b == "전교과").count() >= 2, "{binds:?}");
+
+    let sql = format!("SELECT s.name FROM s{where_sql} ORDER BY s.id");
+    let params: Vec<&dyn rusqlite::ToSql> =
+        binds.iter().map(|b| b as &dyn rusqlite::ToSql).collect();
+    let mut q = conn.prepare(&sql).unwrap();
+    let mut got: Vec<String> = Vec::new();
+    let mut rows = q.query(params.as_slice()).unwrap();
+    while let Some(r) = rows.next().unwrap() {
+        got.push(r.get(0).unwrap());
+    }
+    // 국영수만 보유한 학생은 그 열이 공백이라 범위에서 탈락한다.
+    assert_eq!(got, ["가".to_string()]);
+    // 행 판정도 동일하다.
+    let cells = [("가", "2.41"), ("나", "3.5"), ("다", "")];
+    let by_row: Vec<String> =
+        cells.iter().filter(|(_, v)| m.row(&[v])).map(|(n, _)| n.to_string()).collect();
+    assert_eq!(got, by_row);
 }

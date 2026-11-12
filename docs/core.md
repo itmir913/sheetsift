@@ -162,14 +162,31 @@ are ANDed, so the meaning is defined — and a generated test holds both renderi
 to it. What `compile` refuses is `values` and `excluded` **inside one filter**,
 where there is no precedence to appeal to.
 
-`where_sql` is public too, and the **caller supplies each column's SQL
-expression** (`where_sql(&|i| ...)`, `i` being that same column order), because
-the same conditions are also applied to a different table in an embedding app —
+`where_sql` is public too, and the caller says **where** each column lives
+(`where_sql(&|i| Place { .. })`, `i` being that same column order), because the
+same conditions are also applied to a different table in an embedding app —
 which had a third copy of this assembly, and that copy applied `values` and
-`excluded` together where this one refuses. Only values the person typed are
-bound as parameters; the expression a caller supplies must come from its own
-definitions. Dict-encoded columns are this crate's storage shape, so the engine
-renders those itself.
+`excluded` together where this one refuses.
+
+A `Place` is an expression plus **the bindings that expression needs**, because
+such a column is not always a table column: it can be a correlated subquery that
+binds its own values (a student's 내신 average for one subject set and term).
+Splicing those values into the expression as text is not an option — values the
+person chose are bound, never written into SQL.
+
+So the returned bindings are **in the order the `?` appear in the returned
+SQL**: for each occurrence of a column expression, its `params` first, then the
+values that condition uses, and a column written N times contributes its
+`params` N times (a blank test alone writes it three times). The assembly walks
+the finished text once and emits both together rather than counting occurrences,
+and it steps over string literals, because the blank marker comes from the data
+and may itself contain a `?` — as the numeric test's GLOB patterns do. The
+parameters are anonymous `?`, which is what this assembly has always emitted;
+numbered ones would make both sides keep a counter in step, and SQLite says
+nothing when they drift.
+
+Dict-encoded columns are this crate's storage shape, so the engine renders those
+itself.
 
 ### Row order has its own comparison
 

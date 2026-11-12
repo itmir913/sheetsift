@@ -454,9 +454,15 @@ fn bad_column(code: ErrorCode, table: &dyn Table, key: &str, what: &str) -> Erro
 
 /// 분해해 둔 검사 하나를 WHERE 조각으로 변환한다. [`Match::row`] 와 **동일한
 /// 분해의 타 번역**이다 — 조건을 판독하는 코드는 [`Match::compile`] 하나다.
-fn filter_clause(at: &Place, f: &Test, blank: &str, binds: &mut Vec<String>) -> Option<String> {
-    let base = at.expr.clone();
+fn filter_clause(at: &Place, f: &Test, blank: &str, out: &mut Vec<String>) -> Option<String> {
+    /* **식을 여기서 기재하지 않는다.** 대리 글자로 조립한 뒤 `splice` 가 한 번
+       훑으면서 식과 바인딩을 동시에 산출한다 — 열이 자기 바인딩을 보유하면
+       (상관 부질의) 그 값들이 조건의 값들보다 **먼저** 기재되어야 하고, 한
+       조건이 식을 여러 번 기재한다. */
+    let base = MARK.to_string();
     let dict = at.dict;
+    let mut vals: Vec<String> = Vec::new();
+    let binds = &mut vals;
     /* **비교하는 글자를 하나로 고정한다.** 보관 유형은 정의가 결정해서(`REAL`·
        `INTEGER`·`TEXT`) 수치 열의 `1200` 은 `1200.0` 으로 보관될 수 있다. 그
        상태로 값을 그대로 비교하면 SQLite 의 유형 친화(affinity)가 `'1200'` 을
@@ -574,10 +580,11 @@ fn filter_clause(at: &Place, f: &Test, blank: &str, binds: &mut Vec<String>) -> 
     }
 
     if parts.is_empty() {
-        None
-    } else {
-        Some(parts.join(" AND "))
+        return None;
     }
+    let (sql, mut mine) = splice(&parts.join(" AND "), at, &vals);
+    out.append(&mut mine);
+    Some(sql)
 }
 
 /// 숫자 열의 자료가 존재하는 범위. `where_sql` 은 그 열 자신의 필터를 제외한 조건이다.
@@ -720,12 +727,82 @@ impl Test {
 }
 
 /// 조건을 **어디에 적용하는가.** 부르는 곳의 표마다 상이하다.
-struct Place {
-    /// SQL 에서 그 열을 참조하는 식.
-    expr: String,
+///
+/// 열이 표의 열이 아니라 **자기 바인딩을 보유한 상관 부질의**인 경우가 존재
+/// 한다(받는 앱의 학생 미리보기 열이 그것이다 — 교과 묶음·학기·월을 바인딩
+/// 한다). 그래서 식만으로는 부족하다. 값을 식에 글자로 합성해 전달하는 쪽은
+/// 사람이 기재한 값을 SQL 에 직접 기재하는 셈이라 수용하지 않는다.
+#[derive(Debug, Clone)]
+pub struct Place {
+    /// SQL 에서 그 열을 참조하는 식. 익명 매개변수(`?`)를 보유할 수 있다.
+    pub expr: String,
+    /// 그 식이 요구하는 바인딩 값. **식 안의 `?` 순서대로** 기재한다.
+    pub params: Vec<String>,
     /// 사전 인코딩 열인가. 해당하면 값이 정수 id 라 조건을 사전의 글자에
-    /// 적용한 뒤 id 로 비교한다.
-    dict: bool,
+    /// 적용한 뒤 id 로 비교한다. 이 상자의 보관 형태이므로 받는 앱은 거짓이다.
+    pub dict: bool,
+}
+
+impl Place {
+    /// 바인딩이 부재하는 열.
+    pub fn of(expr: impl Into<String>) -> Place {
+        Place { expr: expr.into(), params: Vec::new(), dict: false }
+    }
+}
+
+/// 조립하는 동안 열의 식을 대리하는 글자.
+///
+/// **식을 조립 중에 기재하지 않는 사유는 바인딩의 순서다.** 반환하는 값들은
+/// 산출한 SQL 의 `?` 출현 순서여야 하는데, 한 조건이 열의 식을 여러 번
+/// 기재한다(`is_blank_sql` 은 셋이다). 식을 대리 글자로 두고 **한 번 훑으면서**
+/// 글자와 값을 동시에 산출하면, 출현 횟수를 계수하는 코드가 부재해도 순서가
+/// 성립한다 — 계수하는 코드는 조건이 하나 더해질 때 갱신되지 않는다.
+///
+/// 자료가 산출할 수 없는 글자다 — 유니코드가 제어 문자로 배정한 위치다.
+const MARK: char = '\u{1}';
+
+/// 대리 글자를 식으로 치환하면서 **바인딩을 글자의 순서대로** 산출한다.
+///
+/// `vals` 는 그 조건이 기재한 값들이고 `?` 출현 순서대로다. 훑는 동안
+/// **문자열 상수의 내부는 경과시킨다** — 공백 표식은 자료가 결정하므로 `?` 가
+/// 상수 안에 출현할 여지가 존재하고, 그것을 매개변수로 계수하면 바인딩이
+/// 밀린다. 그 어긋남은 오류를 발생시키지 않고 조건이 상이한 값으로 적용된다.
+fn splice(fragment: &str, at: &Place, vals: &[String]) -> (String, Vec<String>) {
+    let mut sql = String::with_capacity(fragment.len());
+    let mut binds: Vec<String> = Vec::new();
+    let mut next = 0usize;
+    let mut quoted = false;
+    for ch in fragment.chars() {
+        if quoted {
+            sql.push(ch);
+            /* 상수가 종결되었는가. 상수 내부의 따옴표는 두 벌로 기재되므로
+               (`''`) 상태가 두 번 뒤집혀 결과가 동일하다. */
+            if ch == '\'' {
+                quoted = false;
+            }
+            continue;
+        }
+        match ch {
+            '\'' => {
+                quoted = true;
+                sql.push(ch);
+            }
+            MARK => {
+                sql.push_str(&at.expr);
+                binds.extend(at.params.iter().cloned());
+            }
+            '?' => {
+                sql.push('?');
+                if let Some(v) = vals.get(next) {
+                    binds.push(v.clone());
+                }
+                next += 1;
+            }
+            _ => sql.push(ch),
+        }
+    }
+    debug_assert_eq!(next, vals.len(), "기재한 값의 수와 `?` 의 수가 상이하다");
+    (sql, binds)
 }
 
 /// 조건 하나. `keys` 로 결합한 열들은 **OR** 로 묶인다.
@@ -855,20 +932,33 @@ impl Match {
     /// 동일한 분해를 **WHERE 절로 번역한다.** 부르는 곳이 자기 표의 열 식을
     /// 제시한다.
     ///
-    /// `col_expr(i)` 는 `compile` 에 전달한 `columns[i]` 를 SQL 에서 참조하는
-    /// 식이다(`t."환산점"` 등). 번호가 열쇠인 사유는 **부르는 곳의 표가 상이
-    /// 하기 때문**이다 — 동일한 조건을 이 상자의 표에도, 받는 앱의 학생 표에도
+    /// `col(i)` 는 `compile` 에 전달한 `columns[i]` 를 어디에 적용할지다
+    /// ([`Place`]) — SQL 의 식과 **그 식이 요구하는 바인딩**이다. 표의 열이
+    /// 아니라 자기 바인딩을 보유한 상관 부질의인 열이 존재하므로 식만으로는
+    /// 부족하다. 번호가 열쇠인 사유는 **부르는 곳의 표가 상이하기 때문**이다 — 동일한 조건을 이 상자의 표에도, 받는 앱의 학생 표에도
     /// 적용한다. 조건을 조립하는 코드가 거기 한 벌 더 기재되어 있었고, 그 벌은
     /// `values` 와 `excluded` 를 동시에 기재한 요청을 거절하지 않았다.
     ///
     /// 반환하는 것은 `" WHERE …"`(조건이 부재하면 공백)와 **바인딩 값**이다.
-    /// 사람이 기재한 값은 전부 바인딩으로만 진입한다 — 식을 제시하는 쪽은
-    /// 자기 정의에서 유래한 글자만 기재해야 한다.
+    /// 사람이 기재한 값은 전부 바인딩으로만 진입한다 — 식을 제시하는 쪽도
+    /// 값을 식에 합성하지 않고 [`Place::params`] 로 전달한다.
+    ///
+    /// # 바인딩의 순서
+    ///
+    /// 반환하는 값들은 **산출한 SQL 의 `?` 출현 순서**다. 열의 식이 출현할
+    /// 때마다 그 식의 `params` 가 먼저이고, 이어서 그 조건이 사용하는 값들이다.
+    /// 한 열이 N 회 기재되면 그 `params` 도 N 벌이다 — 한 조건이 식을 여러 번
+    /// 기재하고(공백 판정은 셋이다), 동일한 열에 조건이 둘이면 그만큼 더
+    /// 기재된다.
+    ///
+    /// 매개변수는 **익명(`?`)이다.** 번호(`?N`)로 기재하면 양측이 계수기를
+    /// 맞추어야 하는데, 어긋나도 SQLite 가 진술하지 않는다 — 조건이 상이한
+    /// 값으로 적용되고 어떠한 오류도 발생하지 않는다.
     ///
     /// 사전 인코딩 열은 이 상자의 보관 형태라 여기서 수용하지 않는다. 그 열을
     /// 보유한 표는 이 상자가 조회한다(`build_where`).
-    pub fn where_sql(&self, col_expr: &dyn Fn(usize) -> String) -> (String, Vec<String>) {
-        self.render(&|i| Place { expr: col_expr(i), dict: false })
+    pub fn where_sql(&self, col: &dyn Fn(usize) -> Place) -> (String, Vec<String>) {
+        self.render(col)
     }
 
     /// 열마다 어디에 적용하는가. 사전 인코딩 열은 **정수 id 를 보관**하므로
@@ -904,7 +994,11 @@ impl Match {
     /// 목록의 번호다.
     pub(crate) fn where_sql_on(&self, table: &dyn Table) -> (String, Vec<String>) {
         let cols: Vec<&Column> = table.columns().collect();
-        self.render(&|i| Place { expr: cols[i].base_ref(), dict: cols[i].dict })
+        self.render(&|i| Place {
+            expr: cols[i].base_ref(),
+            params: Vec::new(),
+            dict: cols[i].dict,
+        })
     }
 }
 
@@ -1291,7 +1385,7 @@ pub fn column_values(
             min: None,
             max: None,
         };
-        let at = Place { expr: col.base_ref(), dict: col.dict };
+        let at = Place { expr: col.base_ref(), params: Vec::new(), dict: col.dict };
         if let Some(clause) = filter_clause(&at, &only, blank, &mut binds) {
             where_sql = if where_sql.is_empty() {
                 format!(" WHERE {clause}")
@@ -2715,7 +2809,7 @@ mod tests {
     /// 반출한 `where_sql` 로 조회한 행의 번호. 열 식을 부르는 곳이 제시한다.
     fn sql_hits_pub(conn: &Connection, t: &T, m: &Match) -> Vec<usize> {
         let keys: Vec<String> = t.columns().map(|c| c.base_ref()).collect();
-        let (where_sql, binds) = m.where_sql(&|i| keys[i].clone());
+        let (where_sql, binds) = m.where_sql(&|i| Place::of(keys[i].clone()));
         let sql = format!("SELECT rowid FROM rows t{where_sql} ORDER BY rowid");
         let params: Vec<&dyn rusqlite::ToSql> =
             binds.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
@@ -3118,5 +3212,164 @@ mod tests {
         // 동일한 값은 어느 열에서도 동점이다.
         assert_eq!(compare_sorted("90", "90", BLANK, true, SortDir::Asc), Equal);
         assert_eq!(compare_sorted("가", "가", BLANK, false, SortDir::Desc), Equal);
+    }
+
+    /* ── 자기 바인딩을 보유한 열 ─────────────────────────────────
+       받는 앱의 미리보기 열은 표의 열이 아니라 **상관 부질의**이고 자기 값을
+       바인딩한다. 그 열에 조건이 둘이면 식이 여러 번 기재되므로, 바인딩이
+       글자의 순서와 어긋나는 순간 **조건이 상이한 값으로 적용된다** — SQLite 는
+       개수만 맞으면 진술하지 않는다. */
+
+    /// 문자열 상수의 외부에 소재하는 `?` 의 수. **상수 안의 것은 매개변수가
+    /// 아니다** — 수치 판정의 GLOB 패턴이 상수로 `?` 를 보유한다(`'?*[+-]*'`).
+    fn holes(sql: &str) -> usize {
+        let mut n = 0;
+        let mut quoted = false;
+        for ch in sql.chars() {
+            match ch {
+                '\'' => quoted = !quoted,
+                '?' if !quoted => n += 1,
+                _ => {}
+            }
+        }
+        n
+    }
+
+    /// 학생 표와 내신 표. 미리보기 열은 교과 묶음과 학기를 바인딩한다.
+    fn subquery_fixture() -> (Connection, Place, Vec<(String, String)>) {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE s(id INTEGER PRIMARY KEY, name TEXT);
+             INSERT INTO s VALUES(1, '가'), (2, '나'), (3, '다'), (4, '가나');
+             CREATE TABLE n(student_id INTEGER, subject_set TEXT, term TEXT, grade_avg REAL);
+             INSERT INTO n VALUES
+               (1, '전교과', '1학년 1학기', 2.41), (1, '국영수', '1학년 1학기', 1.8),
+               (2, '전교과', '1학년 1학기', 3.5),  (2, '전교과', '1학년 2학기', 9.9),
+               (3, '국영수', '1학년 1학기', 2.41),
+               (4, '전교과', '1학년 1학기', 2.41);",
+        )
+        .unwrap();
+        let at = Place {
+            expr: "(SELECT n.grade_avg FROM n WHERE n.student_id = s.id \
+                    AND n.subject_set = ? AND n.term = ?)"
+                .to_string(),
+            params: vec!["전교과".to_string(), "1학년 1학기".to_string()],
+            dict: false,
+        };
+        /* 셀의 글자는 조회 문이 비교하는 글자다 — `REAL` 이라 `2.41` 은
+           `2.41`, 값이 부재하는 학생은 공백이다. */
+        let cells = vec![
+            ("가".to_string(), "2.41".to_string()),
+            ("나".to_string(), "3.5".to_string()),
+            ("다".to_string(), String::new()),
+            ("가나".to_string(), "2.41".to_string()),
+        ];
+        (conn, at, cells)
+    }
+
+    /// **열의 바인딩과 조건의 바인딩이 글자의 순서대로 산출된다.**
+    ///
+    /// 한 열에 조건이 둘이면(축소 문자와 값 선택) 식이 그만큼 더 기재되고, 그
+    /// 벌마다 열의 바인딩이 선행해야 한다. 어긋나면 교과 묶음 자리에 검색어가
+    /// 바인딩되는데, 개수가 정합하면 SQLite 는 진술하지 않는다.
+    #[test]
+    fn a_column_that_carries_its_own_bindings_binds_in_the_order_of_the_sql() {
+        let (conn, at, cells) = subquery_fixture();
+        let columns = [("내신", true)];
+        let filters = vec![
+            contains("내신", "2."),
+            Filter { key: "내신".into(), values: Some(vec!["2.41".into()]), ..Filter::default() },
+        ];
+        let m = Match::compile(&filters, &columns, BLANK).unwrap();
+        let (where_sql, binds) = m.where_sql(&|_| at.clone());
+
+        /* **글자의 순서를 그대로 고정한다.** 식이 기재된 횟수만큼 교과 묶음과
+           학기가 출현하고, 그 사이사이에 조건의 값이 위치한다. */
+        let mut want: Vec<String> = Vec::new();
+        for ch in where_sql.chars() {
+            if ch == '?' {
+                want.push(String::new());
+            }
+        }
+        assert_eq!(binds.len(), want.len(), "`?` 의 수와 바인딩의 수가 상이하다\n{where_sql}");
+        // 선두는 축소 문자 조건이다 — 식의 바인딩 둘이 선행하고 검색어가 후행한다.
+        assert_eq!(&binds[..3], ["전교과", "1학년 1학기", "%2.%"], "{where_sql}");
+        // 값 선택도 동일하다 — 식의 바인딩이 먼저다.
+        assert_eq!(&binds[3..6], ["전교과", "1학년 1학기", "2.41"], "{where_sql}");
+        assert!(!where_sql.contains("?1"), "번호 매개변수를 기재하지 않는다");
+
+        // 실제로 질의해 행 판정과 대조한다. 바인딩이 밀리면 결과가 상이하다.
+        let sql = format!("SELECT s.name FROM s{where_sql} ORDER BY s.id");
+        let params: Vec<&dyn rusqlite::ToSql> =
+            binds.iter().map(|b| b as &dyn rusqlite::ToSql).collect();
+        let mut q = conn.prepare(&sql).unwrap();
+        let mut by_sql: Vec<String> = Vec::new();
+        let mut rows = q.query(params.as_slice()).unwrap();
+        while let Some(r) = rows.next().unwrap() {
+            by_sql.push(r.get(0).unwrap());
+        }
+        let by_row: Vec<String> =
+            cells.iter().filter(|(_, v)| m.row(&[v])).map(|(n, _)| n.clone()).collect();
+        assert_eq!(by_sql, by_row);
+        assert_eq!(by_sql, ["가".to_string(), "가나".to_string()]);
+    }
+
+    /// **공백 판정도 식을 여러 번 기재한다.** 그 벌마다 바인딩이 선행한다 —
+    /// 출현 횟수를 계수하는 코드를 두지 않고 글자를 훑어 산출하는 사유다.
+    #[test]
+    fn a_blank_test_on_such_a_column_binds_once_per_occurrence() {
+        let (conn, at, cells) = subquery_fixture();
+        let columns = [("내신", true)];
+        let filters =
+            vec![Filter { key: "내신".into(), not_blank: true, ..Filter::default() }];
+        let m = Match::compile(&filters, &columns, BLANK).unwrap();
+        let (where_sql, binds) = m.where_sql(&|_| at.clone());
+
+        assert_eq!(binds.len(), holes(&where_sql), "{where_sql}");
+        // 공백 판정은 식을 셋으로 기재한다 — 바인딩도 세 벌이다.
+        assert_eq!(binds.len(), 6, "{where_sql}");
+        assert_eq!(binds[0], "전교과");
+        assert_eq!(binds[5], "1학년 1학기");
+
+        let sql = format!("SELECT s.name FROM s{where_sql} ORDER BY s.id");
+        let params: Vec<&dyn rusqlite::ToSql> =
+            binds.iter().map(|b| b as &dyn rusqlite::ToSql).collect();
+        let mut q = conn.prepare(&sql).unwrap();
+        let mut by_sql: Vec<String> = Vec::new();
+        let mut rows = q.query(params.as_slice()).unwrap();
+        while let Some(r) = rows.next().unwrap() {
+            by_sql.push(r.get(0).unwrap());
+        }
+        let by_row: Vec<String> =
+            cells.iter().filter(|(_, v)| m.row(&[v])).map(|(n, _)| n.clone()).collect();
+        assert_eq!(by_sql, by_row);
+        // 내신이 부재하는 학생만 탈락한다.
+        assert_eq!(by_sql, ["가".to_string(), "나".to_string(), "가나".to_string()]);
+    }
+
+    /// **문자열 상수 내부의 `?` 를 매개변수로 계수하지 않는다.**
+    ///
+    /// 공백 표식은 자료가 결정하므로 `?` 가 상수 안에 출현할 여지가 존재한다.
+    /// 계수하면 그 이후의 바인딩이 전부 한 자리 밀리는데, 개수가 정합하면
+    /// SQLite 는 진술하지 않는다.
+    #[test]
+    fn a_question_mark_inside_a_string_literal_is_not_a_parameter() {
+        let (conn, at, _) = subquery_fixture();
+        let columns = [("내신", true)];
+        // 공백을 `?` 로 기재한 자료. 그 글자가 조건에 상수로 진입한다.
+        let filters =
+            vec![Filter { key: "내신".into(), not_blank: true, ..Filter::default() }];
+        let m = Match::compile(&filters, &columns, "?").unwrap();
+        let (where_sql, binds) = m.where_sql(&|_| at.clone());
+        assert!(where_sql.contains("'?'"), "{where_sql}");
+        // 상수 안의 하나를 제외한 수다.
+        assert_eq!(binds.len(), 6, "{where_sql}");
+        assert_eq!(binds, ["전교과", "1학년 1학기", "전교과", "1학년 1학기", "전교과", "1학년 1학기"]);
+        // 질의가 성립한다 — 밀렸으면 유형이 어긋나거나 행이 상이하다.
+        let sql = format!("SELECT COUNT(*) FROM s{where_sql}");
+        let params: Vec<&dyn rusqlite::ToSql> =
+            binds.iter().map(|b| b as &dyn rusqlite::ToSql).collect();
+        let n: i64 = conn.query_row(&sql, params.as_slice(), |r| r.get(0)).unwrap();
+        assert_eq!(n, 3);
     }
 }
