@@ -15,6 +15,7 @@ export const errors: Record<ErrorCode, string> = {
   DB_QUERY_FAILED: "Could not run the query.",
   INVALID_SORT_KEY: "The column used for sorting was not found.",
   INVALID_FILTER_KEY: "The column used for filtering cannot be used.",
+  TABLE_DEFINITION_INVALID: "This table cannot be queried. Its column definition is wrong.",
   INVALID_RANGE:
     "That range cannot be used. Check that the column holds numbers and that the minimum is not above the maximum.",
 

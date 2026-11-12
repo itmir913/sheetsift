@@ -18,6 +18,7 @@ export const errors: Record<ErrorCode, string> = {
   DB_QUERY_FAILED: "조회하지 못했습니다.",
   INVALID_SORT_KEY: "정렬 기준으로 지정한 열을 찾지 못했습니다.",
   INVALID_FILTER_KEY: "필터로 지정한 열을 사용할 수 없습니다.",
+  TABLE_DEFINITION_INVALID: "이 표를 조회할 수 없습니다. 열 구성에 문제가 있습니다.",
   INVALID_RANGE: "지정한 범위를 사용할 수 없습니다. 숫자 열인지, 최솟값이 최댓값보다 크지 않은지 확인해 주십시오.",
 
   SHEET_WORKBOOK_UNREADABLE:

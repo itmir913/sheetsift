@@ -601,9 +601,10 @@ fn build_where(
                 return Err(bad_column(ErrorCode::InvalidFilterKey, table, key, "a filter was given for a column that cannot be filtered"));
             }
             /* **숫자 열이 아닌 열의 범위는 중단한다.** 문자 열에 숫자 비교를 적용하면
-               전 행이 탈락하는데, 그것이 오류로 출현하지 않는다. 오류 코드는 정렬·필터 열쇠
-               오류(`InvalidSortKey`)를 쓰고 **사유는 `detail` 이 진술한다** — 코드가 단일
-               enum 이라 하나 더하면 이 층을 쓰지 않는 앱까지 문구를 기재해야 한다. */
+               전 행이 탈락하는데, 그것이 오류로 출현하지 않는다. 코드는 범위 전용
+               (`InvalidRange`)이다 — 종전에는 정렬 열쇠 오류를 차용하고 사유를 영문
+               `detail` 에만 기재했고, 그래서 범위를 잘못 기재한 사람에게 정렬 열을
+               찾지 못했다는 문구가 묘사되었다. */
             if (f.min.is_some() || f.max.is_some()) && col.kind != ColumnKind::Number {
                 return Err(bad_column(ErrorCode::InvalidRange, table, key, "a range was given for a column that is not a number"));
             }
@@ -695,9 +696,13 @@ fn build_order(table: &dyn Table, sorts: &[Sort], blank: &str, rid: &str) -> Res
     /* **꼬리가 유일한 열을 지시하는지 확인한다.** SQLite 의 `rowid` 는 동일한
        명칭의 열이 존재하면 그 열을 지시한다 — 그러면 꼬리가 유일하지 않고
        전순서가 조용히 소멸한다. 표를 생성하는 층이 그런 명칭을 산출하지 않으나
-       (`sheet` 의 `shadows_rowid`), 정의를 기재하는 곳은 이 상자 밖이다. */
+       (`sheet` 의 `shadows_rowid`), 정의를 기재하는 곳은 이 상자 밖이다.
+
+       **사람이 지시한 것의 잘못이 아니라 정의의 결함이라 코드가 상이하다**
+       (`TableDefinitionInvalid`). 정렬 열쇠 오류를 차용하면 「정렬 기준으로 지정한
+       열을 찾지 못했습니다」가 묘사되는데, 사람이 변경할 수 있는 것이 부재하다. */
     if let Some(col) = table.columns().find(|c| crate::sheet::shadows_rowid(&c.column)) {
-        return Err(bad_column(ErrorCode::InvalidSortKey, table, &col.key, "a column name shadows the rowid used to order pages"));
+        return Err(bad_column(ErrorCode::TableDefinitionInvalid, table, &col.key, "a column name shadows the rowid used to order pages"));
     }
     let mut parts = order_keys(table, sorts, blank, true)?;
     parts.push(format!("{rid} ASC"));
@@ -2062,8 +2067,10 @@ mod tests {
             columns: vec![Column { column: "rowid".into(), ..col("x", ColumnKind::Text, false) }],
         };
         assign_aliases(shadowed.columns.iter_mut());
+        /* 사람이 지시한 것의 잘못이 아니라 정의의 결함이다 — 정렬 열쇠 오류를
+           차용하면 사람이 변경할 수 없는 것을 변경하라는 문구가 묘사된다. */
         let err = run(&conn, &shadowed, BLANK, &query(vec![], vec![])).unwrap_err();
-        assert_eq!(err.code, ErrorCode::InvalidSortKey);
+        assert_eq!(err.code, ErrorCode::TableDefinitionInvalid);
     }
 
     /// **색인을 생성하는 경계의 양측이 동일한 순서를 산출한다.**

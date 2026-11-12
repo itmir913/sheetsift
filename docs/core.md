@@ -120,16 +120,21 @@ predicate.
 
 ### Error codes say which mistake it was
 
-`grid` distinguishes three: `InvalidSortKey` (the sort named a column that is
+`grid` distinguishes four: `InvalidSortKey` (the sort named a column that is
 absent or cannot be sorted), `InvalidFilterKey` (the filter or value list named
 a column that is absent or cannot be filtered, or gave both a pick and an
-exclusion) and `InvalidRange` (a range on a column that is not a number, or a
-minimum above the maximum). They were one code until now, separated only by the
-English `detail`, which no screen shows — so a person who typed a bad range was
-told the sort column could not be found.
+exclusion), `InvalidRange` (a range on a column that is not a number, or a
+minimum above the maximum) and `TableDefinitionInvalid` (the column definition
+itself cannot be served — today only a column name that shadows the ordering
+tail). They were one code until now, separated only by the English `detail`,
+which no screen shows — so a person who typed a bad range was told the sort
+column could not be found.
 
-**An embedding application must write a message for `INVALID_FILTER_KEY` and
-`INVALID_RANGE`.** `INVALID_SORT_KEY` keeps its meaning for the sort cases, so
+`TableDefinitionInvalid` is not the person's mistake and there is nothing for
+them to change, so its wording has to differ from the other three.
+
+**An embedding application must write a message for `INVALID_FILTER_KEY`,
+`INVALID_RANGE` and `TABLE_DEFINITION_INVALID`.** `INVALID_SORT_KEY` keeps its meaning for the sort cases, so
 an application that does nothing still shows its old message where it was right.
 
 ## `.sift`
