@@ -115,6 +115,31 @@ The viewer in this repository declares an all-text plan, so `unread` cannot be
 non-empty there; `crates/shell` stops with `SheetTableFailed` if it ever is,
 rather than letting it pass.
 
+### One decomposition, two renderings
+
+SQL stays SQL: a closure cannot become a `WHERE` clause, so "one function both
+sides call" is not available for filtering. What is available is one
+decomposition with two renderings. `grid::Match::compile(filters, columns, blank)`
+reads the request once; `Match::where_sql` renders it as SQL and `Match::row`
+applies it to one row's cells. `build_where` is a consumer of `Match`, so the SQL
+path is a translation rather than a parallel implementation, and generated-input
+tests compare the two renderings row for row.
+
+Exporting a small per-condition predicate instead would leave the layer that
+actually diverges written twice: how conditions combine (AND between filters, OR
+between a filter's `keys`) and what counts as an error. So **every rejection
+lives in `compile`** — unknown column, `min` above `max`, a range on a
+non-number column, and `values` and `excluded` given together (an embedding app
+was silently applying both). `Match::row` never fails: a bad request is a fact
+about the request, judged once when it is decomposed, and a short row is read as
+if the missing cells were blank.
+
+`Match::compile` takes the caller's own column order as `(key, is_number)`, and
+`row` takes cells in that order. A dict-encoded column's cell is its stored form
+— trimmed text, blank stored as blank — because that is what the query compares.
+Whether a column can be filtered at all is this crate's own notion, so that
+rejection stays with the query side.
+
 ### A filter says which control wrote it
 
 A column's value list is built with **that column's own selection left out** —

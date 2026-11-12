@@ -401,13 +401,14 @@ fn bad_column(code: ErrorCode, table: &dyn Table, key: &str, what: &str) -> Erro
         .detail(what)
 }
 
-/// 필터 하나를 WHERE 조각으로 변환한다.
-fn filter_clause(col: &Column, f: &Filter, blank: &str, binds: &mut Vec<String>) -> Option<String> {
+/// 분해해 둔 검사 하나를 WHERE 조각으로 변환한다. [`Match::row`] 와 **동일한
+/// 분해의 타 번역**이다 — 조건을 판독하는 코드는 [`Match::compile`] 하나다.
+fn filter_clause(col: &Column, f: &Test, blank: &str, binds: &mut Vec<String>) -> Option<String> {
     let base = col.base_ref();
     let mut parts: Vec<String> = Vec::new();
 
     // ① 열 검색 (부분일치)
-    let needle = f.contains.trim();
+    let needle = f.contains.as_str();
     if !needle.is_empty() {
         binds.push(format!("%{}%", like_escape(needle)));
         parts.push(if col.dict {
@@ -420,12 +421,12 @@ fn filter_clause(col: &Column, f: &Filter, blank: &str, binds: &mut Vec<String>)
 
     // ② 값 선택 (엑셀식 체크박스)
     if let Some(values) = &f.values {
-        if values.is_empty() {
+        if values.nothing() {
             // 전부 해제 → 어떠한 행도 통과하지 않는다.
             return Some("0 = 1".to_string());
         }
-        let has_blank = values.iter().any(|v| v == BLANK_TOKEN);
-        let concrete: Vec<&String> = values.iter().filter(|v| *v != BLANK_TOKEN).collect();
+        let has_blank = values.blank;
+        let concrete: Vec<&String> = values.concrete.iter().collect();
 
         let mut alt: Vec<String> = Vec::new();
         if !concrete.is_empty() {
@@ -447,9 +448,9 @@ fn filter_clause(col: &Column, f: &Filter, blank: &str, binds: &mut Vec<String>)
 
     // ③ 제외 목록 (전체에서 해제한 것들)
     if let Some(excluded) = &f.excluded {
-        if !excluded.is_empty() {
-            let has_blank = excluded.iter().any(|v| v == BLANK_TOKEN);
-            let concrete: Vec<&String> = excluded.iter().filter(|v| *v != BLANK_TOKEN).collect();
+        if !excluded.nothing() {
+            let has_blank = excluded.blank;
+            let concrete: Vec<&String> = excluded.concrete.iter().collect();
 
             let mut all: Vec<String> = Vec::new();
             if !concrete.is_empty() {
@@ -555,6 +556,238 @@ fn number_span(
     })
 }
 
+/// 조건이 지시한 열이 잘못되었다. **표를 인지하지 않는다** — 어느 표에서
+/// 발생했는지는 조회를 수행하는 곳이 부착한다(`bad_column` 과 동일한 항목을
+/// 부착해 문구가 변동하지 않는다).
+fn bad_filter(key: &str, what: &str) -> Error {
+    Error::new(ErrorCode::InvalidFilterKey).with("key", key).detail(what)
+}
+
+/// 범위가 잘못되었다. 코드가 범위 전용인 사유는 `bad_column` 의 호출부에 있다.
+fn bad_range(key: &str, what: &str) -> Error {
+    Error::new(ErrorCode::InvalidRange).with("key", key).detail(what)
+}
+
+/* ── 조건의 분해 ─────────────────────────────────────────────────
+   **조회 문과 행 하나의 판정이 같은 분해에서 유래한다.**
+
+   SQL 은 SQL 로 존치된다 — 닫힘(closure)은 WHERE 절이 될 수 없어 「함수 하나를
+   양측이 호출한다」는 성립하지 않는다. 성립하는 것은 **분해 하나, 번역 둘**
+   이다. 요청을 1회 분해해([`Match::compile`]) 그것을 WHERE 절로 번역하거나
+   ([`Match::where_sql`]) 셀 묶음에 적용한다([`Match::row`]).
+
+   조건 하나를 판정하는 작은 함수를 반출하는 쪽은 **실제로 어긋나는 층을
+   존치한다** — 조건을 어떻게 결합하는지(필터 상호간은 AND, `keys` 상호간은 OR)
+   와 무엇을 오류로 간주하는지가 양측에 두 벌로 남는다. 어긋남은 거기 소재한다.
+   그래서 거절도 전부 `compile` 에 집약한다. */
+
+/// 선택하거나 제외한 값들. 공백 표식을 별도로 보유한다 — 그것은 자료의 값이
+/// 아니라 「값이 부재하는 셀」을 지시하는 표식이다([`BLANK_TOKEN`]).
+#[derive(Debug, Clone)]
+struct Picks {
+    blank: bool,
+    concrete: Vec<String>,
+}
+
+impl Picks {
+    fn of(values: &[String]) -> Picks {
+        Picks {
+            blank: values.iter().any(|v| v == BLANK_TOKEN),
+            concrete: values.iter().filter(|v| *v != BLANK_TOKEN).cloned().collect(),
+        }
+    }
+    /// 아무 값도 기재되지 않았는가.
+    fn nothing(&self) -> bool {
+        !self.blank && self.concrete.is_empty()
+    }
+    fn has(&self, cell: &str, blank: &str) -> bool {
+        (self.blank && crate::value::is_blank(cell, blank))
+            || self.concrete.iter().any(|v| v == cell)
+    }
+}
+
+/// 셀 하나에 적용하는 검사. **열이 무엇인지와 무관한 부분**이다.
+#[derive(Debug, Clone)]
+struct Test {
+    /// 축소 문자. 선후의 공백을 제거해 둔다. 공백이면 적용하지 않는다.
+    contains: String,
+    values: Option<Picks>,
+    excluded: Option<Picks>,
+    not_blank: bool,
+    min: Option<f64>,
+    max: Option<f64>,
+}
+
+impl Test {
+    /// 그 셀이 이 검사를 통과하는가. [`filter_clause`] 가 SQL 로 기재하는 것과
+    /// **동일한 분해의 타 번역**이다.
+    fn hits(&self, cell: &str, blank: &str) -> bool {
+        // ① 열 검색. SQLite 의 LIKE 는 ASCII 범위만 대소를 동일시한다.
+        if !self.contains.is_empty() {
+            let hay = cell.to_ascii_lowercase();
+            if !hay.contains(&self.contains.to_ascii_lowercase()) {
+                return false;
+            }
+        }
+        // ② 값 선택. 전부 해제한 것은 어떠한 셀도 통과하지 않는다.
+        if let Some(v) = &self.values {
+            if v.nothing() || !v.has(cell, blank) {
+                return false;
+            }
+        }
+        // ③ 제외 목록.
+        if let Some(e) = &self.excluded {
+            if e.has(cell, blank) {
+                return false;
+            }
+        }
+        // ④ 공백이 아닌 셀만.
+        if self.not_blank && crate::value::is_blank(cell, blank) {
+            return false;
+        }
+        // ⑤ 숫자 범위. 수로 판독되지 않는 셀은 범위가 하나라도 기재되면 탈락한다.
+        if self.min.is_some() || self.max.is_some() {
+            let Some(v) = crate::value::as_real(cell) else { return false };
+            if self.min.is_some_and(|lo| v < lo) || self.max.is_some_and(|hi| v > hi) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+/// 조건 하나. `keys` 로 결합한 열들은 **OR** 로 묶인다.
+#[derive(Debug, Clone)]
+struct Cond {
+    /// 적용할 열들. `compile` 에 전달한 열 목록의 번호다.
+    on: Vec<usize>,
+    test: Test,
+}
+
+/// 분해해 둔 조회 조건. **조회 문과 행 하나의 판정이 여기서 갈라진다.**
+///
+/// 받는 앱이 행을 Rust 로 보유한 화면(인쇄·내보내기·집약)에서 조건을 자체로
+/// 판정하면, 어긋남은 조건 하나의 판정이 아니라 **결합과 거절**에서 발생한다 —
+/// 실제로 `values` 와 `excluded` 를 동시에 기재한 요청을 엔진은 거절하는데
+/// 받는 쪽은 양자를 조용히 함께 적용했다.
+///
+/// 거절은 전부 [`Match::compile`] 이 수행한다. [`Match::row`] 는 정지하지
+/// 않는다 — 행마다 거절할 것이 있으면 그것은 요청의 결함이고, 요청은 1회
+/// 분해할 때 판정하는 것이 맞다.
+#[derive(Debug, Clone)]
+pub struct Match {
+    blank: String,
+    conds: Vec<Cond>,
+}
+
+impl Match {
+    /// 요청을 1회 분해한다. **여기가 거절하는 유일한 곳이다.**
+    ///
+    /// `columns` 는 부르는 곳의 열 순서대로 `(열쇠, 수치 열인가)` 다.
+    /// [`Match::row`] 에 전달하는 셀 묶음의 순서가 그 순서다.
+    ///
+    /// 거절하는 것 — 정의에 부재하는 열, 하한이 상한을 초과하는 범위, 수치 열이
+    /// 아닌 열의 범위, `values` 와 `excluded` 의 동시 기재. 오류 코드는 각각
+    /// [`ErrorCode::InvalidFilterKey`] 와 [`ErrorCode::InvalidRange`] 다.
+    ///
+    /// **아무것도 기재하지 않은 조건은 조건이 아니다**(`Filter::is_empty`).
+    /// 그것까지 보유하면 WHERE 에 항상 참인 조각이 기재되고, 행 판정에서도
+    /// 열 번호를 요구한다.
+    pub fn compile(filters: &[Filter], columns: &[(&str, bool)], blank: &str) -> Result<Match> {
+        let mut conds = Vec::new();
+        for f in filters {
+            if f.is_empty() {
+                continue;
+            }
+            /* **선택과 제외를 동시에 기재하면 중단한다.** 우선순위를 묵시적으로
+               부여하면 어느 쪽이 적용되었는지 사람도 코드도 판별할 수 없다. */
+            if f.values.is_some() && f.excluded.is_some() {
+                return Err(bad_filter(&f.key, "both values and excluded were given"));
+            }
+            let wanted: Vec<&str> = if f.keys.is_empty() {
+                vec![f.key.as_str()]
+            } else {
+                f.keys.iter().map(String::as_str).collect()
+            };
+            let ranged = f.min.is_some() || f.max.is_some();
+            if let (Some(lo), Some(hi)) = (f.min, f.max) {
+                if lo > hi {
+                    return Err(bad_range(&f.key, "the range minimum exceeds its maximum"));
+                }
+            }
+            let mut on = Vec::with_capacity(wanted.len());
+            for key in wanted {
+                let at = columns
+                    .iter()
+                    .position(|(k, _)| *k == key)
+                    .ok_or_else(|| bad_filter(key, "unknown filter column"))?;
+                /* **숫자 열이 아닌 열의 범위는 중단한다.** 문자 열에 숫자 비교를
+                   적용하면 전 행이 탈락하는데, 그것이 오류로 출현하지 않는다. */
+                if ranged && !columns[at].1 {
+                    return Err(bad_range(key, "a range was given for a column that is not a number"));
+                }
+                on.push(at);
+            }
+            conds.push(Cond {
+                on,
+                test: Test {
+                    contains: f.contains.trim().to_string(),
+                    values: f.values.as_deref().map(Picks::of),
+                    excluded: f.excluded.as_deref().map(Picks::of),
+                    not_blank: f.not_blank,
+                    min: f.min,
+                    max: f.max,
+                },
+            });
+        }
+        Ok(Match { blank: blank.to_string(), conds })
+    }
+
+    /// 행 하나가 조건 전부를 통과하는가. **정지하지 않는다.**
+    ///
+    /// `cells[i]` 는 `compile` 에 전달한 `columns[i]` 의 **기재된 글자**다. 셀이
+    /// 부재하면 공백 문자열과 동일하게 취급한다 — 짧은 묶음을 전달해도 정지하지
+    /// 않고, 그 열이 공백인 행으로 판정한다.
+    ///
+    /// 사전 인코딩 열은 **사전에 보관된 형태**(선후의 공백을 제거한 글자, 공백은
+    /// 공백 문자열)로 전달한다. 조회 문이 비교하는 것이 그 형태다.
+    pub fn row(&self, cells: &[&str]) -> bool {
+        self.conds.iter().all(|c| {
+            c.on.iter().any(|i| c.test.hits(cells.get(*i).copied().unwrap_or(""), &self.blank))
+        })
+    }
+
+    /// 동일한 분해를 WHERE 절로 번역한다.
+    ///
+    /// **`compile` 에 전달한 열 목록을 제시한 표여야 한다** — 보유하는 것이 그
+    /// 목록의 번호다. 이 상자 내부에서만 호출하므로 번호로 둔다. 반출하는 쪽
+    /// ([`Match::row`])은 번호를 부르는 곳의 열 순서로 수령한다.
+    pub(crate) fn where_sql(&self, table: &dyn Table) -> (String, Vec<String>) {
+        let cols: Vec<&Column> = table.columns().collect();
+        let mut clauses = Vec::new();
+        let mut binds = Vec::new();
+        for c in &self.conds {
+            let mut alts = Vec::new();
+            for i in &c.on {
+                if let Some(x) = filter_clause(cols[*i], &c.test, &self.blank, &mut binds) {
+                    alts.push(x);
+                }
+            }
+            match alts.len() {
+                0 => {}
+                1 => clauses.push(alts.pop().unwrap()),
+                _ => clauses.push(format!("({})", alts.join(" OR "))),
+            }
+        }
+        let sql = if clauses.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", clauses.join(" AND "))
+        };
+        (sql, binds)
+    }
+}
+
 /// 한 열의 필터를 WHERE 에서 어떻게 다루는가.
 #[derive(Clone, Copy)]
 enum Own<'a> {
@@ -572,6 +805,45 @@ enum Own<'a> {
     SkipPick(&'a str),
 }
 
+impl Own<'_> {
+    /// 그 지시에 따라 조건 목록을 손질한다. **조건을 판독하지 않는다** — 어느
+    /// 조건을 제외하고 어느 칸만 존치할지만 결정한다.
+    fn apply(self, filters: &[Filter]) -> Vec<Filter> {
+        let mut out = Vec::with_capacity(filters.len());
+        for f in filters {
+            let names = |k: &str| k == f.key || f.keys.iter().any(|x| x == k);
+            /* **「자신의 것」은 조건이 진술한다.** 열 명칭으로 추정하면, 한 열을
+               조작부 둘이 좁히는 화면에서 외부의 조건까지 제외되어 목록만 전체를
+               열거한다(`Origin`). */
+            let own_picker = f.origin == Origin::OwnPicker;
+            match self {
+                Own::SkipAll(k) if names(k) && own_picker => continue,
+                Own::SkipPick(k) if names(k) && own_picker => {
+                    if f.min.is_none() && f.max.is_none() && !f.not_blank {
+                        continue;
+                    }
+                    /* **칸을 하나씩 열거한다.** `..Filter::default()` 로 채우면
+                       앞으로 더해지는 칸이 조용히 떨어진다 — 열거하면 칸이 늘 때
+                       여기서 컴파일이 멈춘다. */
+                    out.push(Filter {
+                        key: f.key.clone(),
+                        keys: f.keys.clone(),
+                        contains: String::new(),
+                        values: None,
+                        excluded: None,
+                        not_blank: f.not_blank,
+                        min: f.min,
+                        max: f.max,
+                        origin: f.origin,
+                    });
+                }
+                _ => out.push(f.clone()),
+            }
+        }
+        out
+    }
+}
+
 /// WHERE 절과 바인딩 값을 생성한다. 기준 테이블 기준으로만 생성한다(조인 없음).
 /// `own` 이 지정되면 그 열의 필터를 그에 따라 다룬다(값 선택 목록 생성 시 사용한다).
 fn build_where(
@@ -580,95 +852,35 @@ fn build_where(
     blank: &str,
     own: Own<'_>,
 ) -> Result<(String, Vec<String>)> {
-    let mut clauses = Vec::new();
-    let mut binds = Vec::new();
+    /* **조건을 판독하는 코드는 `Match::compile` 하나다.** 여기서 한 벌 더
+       판독하면, 어긋나는 것은 조건 하나의 판정이 아니라 결합과 거절이 된다. */
+    let trimmed = own.apply(filters);
+    let cols: Vec<(&str, bool)> = table
+        .columns()
+        .map(|c| (c.key.as_str(), c.kind == ColumnKind::Number))
+        .collect();
 
-    for f in filters {
-        let names = |k: &str| k == f.key || f.keys.iter().any(|x| x == k);
-        let own_picker = f.origin == Origin::OwnPicker;
-        let only_range;
-        let f = match own {
-            /* **「자신의 것」은 조건이 진술한다.** 열 명칭으로 추정하면, 한 열을
-               조작부 둘이 좁히는 화면에서 외부의 조건까지 제외되어 목록만 전체를
-               열거한다(`Origin`). */
-            Own::SkipAll(k) if names(k) && own_picker => continue,
-            Own::SkipPick(k) if names(k) && own_picker => {
-                if f.min.is_none() && f.max.is_none() && !f.not_blank {
-                    continue;
-                }
-                /* **칸을 하나씩 열거한다.** `..Filter::default()` 로 채우면 앞으로 더해지는 칸이
-                   조용히 떨어진다 — 열거하면 칸이 늘 때 여기서 컴파일이 멈춘다. */
-                only_range = Filter {
-                    key: f.key.clone(),
-                    keys: f.keys.clone(),
-                    contains: String::new(),
-                    values: None,
-                    excluded: None,
-                    not_blank: f.not_blank,
-                    min: f.min,
-                    max: f.max,
-                    origin: f.origin,
-                };
-                &only_range
-            }
-            _ => f,
-        };
+    /* **조회할 수 없는 열은 이 상자의 개념이다.** 받는 앱의 열은 전부 조회
+       가능하므로 `compile` 의 열 목록이 보유하지 않는다. 폐기하면 조건을 걸지
+       않은 것이 되어 더 많은 행이 산출되는데, 화면은 조건이 걸렸다고 묘사한다. */
+    for f in &trimmed {
         if f.is_empty() {
             continue;
         }
-        /* **선택과 제외를 동시에 기재하면 중단한다.** 우선순위를 묵시적으로
-           부여하면 어느 쪽이 적용되었는지 사람도 코드도 판별할 수 없다. */
-        if f.values.is_some() && f.excluded.is_some() {
-            return Err(bad_column(ErrorCode::InvalidFilterKey, table, &f.key, "both values and excluded were given"));
-        }
-        let wanted: Vec<&str> = if f.keys.is_empty() {
-            vec![f.key.as_str()]
-        } else {
-            f.keys.iter().map(String::as_str).collect()
-        };
-
-        let mut alts = Vec::new();
-        for key in wanted {
-            let col = table
-                .column(key)
-                .ok_or_else(|| bad_column(ErrorCode::InvalidFilterKey, table, key, "unknown filter column"))?;
-            /* **못 쓰는 열의 조건을 폐기하지 않는다.** 폐기하면 조건을 걸지
-               않은 것이 되어 **더 많은 행이 산출되는데**, 화면은 조건이 걸렸다고
-               묘사한다. 바로 옆 「숫자 아닌 열에 범위」와 동급의 잘못이라 동일하게
-               중단한다. */
-            if !col.filterable {
+        let keys: Vec<&str> =
+            if f.keys.is_empty() { vec![f.key.as_str()] } else { f.keys.iter().map(String::as_str).collect() };
+        for key in keys {
+            if table.column(key).is_some_and(|c| !c.filterable) {
                 return Err(bad_column(ErrorCode::InvalidFilterKey, table, key, "a filter was given for a column that cannot be filtered"));
             }
-            /* **숫자 열이 아닌 열의 범위는 중단한다.** 문자 열에 숫자 비교를 적용하면
-               전 행이 탈락하는데, 그것이 오류로 출현하지 않는다. 코드는 범위 전용
-               (`InvalidRange`)이다 — 종전에는 정렬 열쇠 오류를 차용하고 사유를 영문
-               `detail` 에만 기재했고, 그래서 범위를 잘못 기재한 사람에게 정렬 열을
-               찾지 못했다는 문구가 묘사되었다. */
-            if (f.min.is_some() || f.max.is_some()) && col.kind != ColumnKind::Number {
-                return Err(bad_column(ErrorCode::InvalidRange, table, key, "a range was given for a column that is not a number"));
-            }
-            if let (Some(lo), Some(hi)) = (f.min, f.max) {
-                if lo > hi {
-                    return Err(bad_column(ErrorCode::InvalidRange, table, key, "the range minimum exceeds its maximum"));
-                }
-            }
-            if let Some(c) = filter_clause(col, f, blank, &mut binds) {
-                alts.push(c);
-            }
-        }
-        match alts.len() {
-            0 => {}
-            1 => clauses.push(alts.pop().unwrap()),
-            _ => clauses.push(format!("({})", alts.join(" OR "))),
         }
     }
 
-    let sql = if clauses.is_empty() {
-        String::new()
-    } else {
-        format!(" WHERE {}", clauses.join(" AND "))
-    };
-    Ok((sql, binds))
+    /* 어느 표에서 발생했는지는 여기서 부착한다 — `Match` 는 표를 인지하지
+       않는다. 부착하는 항목은 종전과 동일하다. */
+    let m = Match::compile(&trimmed, &cols, blank)
+        .map_err(|e| e.with("screen", table.id()))?;
+    Ok(m.where_sql(table))
 }
 
 /// 정렬 열쇠를 열 순서대로. 배열 순서가 그대로 정렬 우선순위(1순위, 2순위, …)다.
@@ -951,7 +1163,14 @@ pub fn column_values(
     /* 축소하는 문자는 **이 열에 적용하는 부분일치**다. 사전 열이면 사전에서
        탐색한다 — 그 처리를 여기 한 벌 더 기재하지 않고 필터 한 조각을 차용한다. */
     if !needle.trim().is_empty() {
-        let only = Filter { contains: needle.to_string(), ..Filter::default() };
+        let only = Test {
+            contains: needle.trim().to_string(),
+            values: None,
+            excluded: None,
+            not_blank: false,
+            min: None,
+            max: None,
+        };
         if let Some(clause) = filter_clause(col, &only, blank, &mut binds) {
             where_sql = if where_sql.is_empty() {
                 format!(" WHERE {clause}")
@@ -2265,5 +2484,226 @@ mod tests {
         assert!(sort_indexes(&conn).is_empty());
         assert_eq!(page.rows.len(), 100);
         assert_eq!(page.rows[0][1].as_str(), Some("0"));
+    }
+
+    /* ── 분해 하나, 번역 둘 ──────────────────────────────────────
+       `Match::row` 와 `Match::where_sql` 이 동일한 분해의 두 번역이라는 것은
+       **대조해야 성립한다.** 손으로 고른 사례는 결합(필터 상호간 AND, `keys`
+       상호간 OR)과 경계(공백 표식·제외와 NULL·수가 아닌 셀의 범위)에서
+       어긋나는 위치를 발견하지 못한다. 그래서 조건을 생성해 전수 대조한다. */
+
+    /// 양측을 대조할 표. 문자 열·사전 열·수치 열을 함께 보유한다.
+    ///
+    /// 사전 열의 셀은 **사전에 보관되는 형태**로 전달한다 — 선후의 공백을
+    /// 제거한 글자이고 공백은 NULL 이다(`sheet` 가 그렇게 보관한다).
+    fn agree_fixture() -> (Connection, T, Vec<Vec<String>>) {
+        let cells: Vec<Vec<String>> = vec![
+            vec!["가".into(), "서울".into(), "90".into()],
+            vec!["나".into(), "부산".into(), "1,200".into()],
+            vec!["다".into(), "".into(), "-".into()],
+            vec!["라".into(), "대구".into(), "85.5".into()],
+            vec!["".into(), "서울".into(), "".into()],
+            vec!["100%".into(), "부산".into(), "70".into()],
+            vec!["-".into(), "서울".into(), "총 44850점".into()],
+            vec!["가나".into(), "".into(), "7점".into()],
+            vec![" ".into(), "대구".into(), "0".into()],
+            vec!["A".into(), "서울".into(), "-5".into()],
+            vec!["a".into(), "부산".into(), "1200".into()],
+        ];
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE dict(id INTEGER PRIMARY KEY, s TEXT);
+             INSERT INTO dict VALUES(1, '대구'), (2, '부산'), (3, '서울');
+             CREATE TABLE rows(name TEXT, city INTEGER, score TEXT);",
+        )
+        .unwrap();
+        for r in &cells {
+            let city: Option<i64> = match r[1].as_str() {
+                "대구" => Some(1),
+                "부산" => Some(2),
+                "서울" => Some(3),
+                _ => None,
+            };
+            conn.execute(
+                "INSERT INTO rows(name, city, score) VALUES(?, ?, ?)",
+                rusqlite::params![r[0], city, r[2]],
+            )
+            .unwrap();
+        }
+        let mut t = T {
+            base: "rows".into(),
+            columns: vec![
+                col("name", ColumnKind::Text, false),
+                col("city", ColumnKind::Text, true),
+                col("score", ColumnKind::Number, false),
+            ],
+        };
+        assign_aliases(t.columns.iter_mut());
+        (conn, t, cells)
+    }
+
+    /// 조회 문이 통과시키는 행의 번호. `rowid` 는 삽입 순서다.
+    fn sql_hits(conn: &Connection, t: &T, m: &Match) -> Vec<usize> {
+        let (where_sql, binds) = m.where_sql(t);
+        let sql = format!("SELECT rowid FROM rows t{where_sql} ORDER BY rowid");
+        let params: Vec<&dyn rusqlite::ToSql> =
+            binds.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+        let mut q = conn.prepare(&sql).unwrap();
+        let mut out = Vec::new();
+        let mut rows = q.query(params.as_slice()).unwrap();
+        while let Some(r) = rows.next().unwrap() {
+            let id: i64 = r.get(0).unwrap();
+            out.push(id as usize - 1);
+        }
+        out
+    }
+
+    /// 생성할 조건들. 결합과 경계를 포괄한다.
+    fn agree_filters() -> Vec<Vec<Filter>> {
+        let vals: [&[&str]; 6] = [
+            &[],
+            &["서울"],
+            &["서울", "부산"],
+            &[BLANK_TOKEN],
+            &[BLANK_TOKEN, "서울"],
+            &["없는 값"],
+        ];
+        let needles = ["", "가", "a", "A", "%", "_", "서", " "];
+        let mut out: Vec<Vec<Filter>> = Vec::new();
+
+        // ① 한 열에 하나씩. 열 셋 × 값 선택 · 제외 · 축소 문자.
+        for key in ["name", "city", "score"] {
+            for v in vals {
+                let pick: Vec<String> = v.iter().map(|s| s.to_string()).collect();
+                out.push(vec![Filter {
+                    key: key.into(),
+                    values: Some(pick.clone()),
+                    ..Filter::default()
+                }]);
+                out.push(vec![Filter {
+                    key: key.into(),
+                    excluded: Some(pick),
+                    ..Filter::default()
+                }]);
+            }
+            for n in needles {
+                out.push(vec![contains(key, n)]);
+            }
+            out.push(vec![Filter { key: key.into(), not_blank: true, ..Filter::default() }]);
+        }
+
+        // ② 수치 범위. 수가 아닌 셀과 경계를 포괄한다.
+        for (lo, hi) in [
+            (Some(0.0), None),
+            (None, Some(90.0)),
+            (Some(85.5), Some(90.0)),
+            (Some(90.0), Some(90.0)),
+            (Some(-5.0), Some(1200.0)),
+            (Some(1000.0), None),
+        ] {
+            out.push(vec![ranged("score", lo, hi)]);
+            // 범위와 값 선택이 함께 걸린 경우(AND 로 겹친다).
+            out.push(vec![
+                ranged("score", lo, hi),
+                Filter { key: "name".into(), not_blank: true, ..Filter::default() },
+            ]);
+        }
+
+        // ③ `keys` 로 결합한 열(OR). 사전 열과 문자 열을 함께 묶는다.
+        for n in needles {
+            out.push(vec![Filter {
+                keys: vec!["name".into(), "city".into()],
+                contains: n.into(),
+                ..Filter::default()
+            }]);
+        }
+        out.push(vec![Filter {
+            keys: vec!["name".into(), "city".into()],
+            values: Some(vec!["서울".into(), "가".into()]),
+            ..Filter::default()
+        }]);
+        out.push(vec![Filter {
+            keys: vec!["name".into(), "city".into()],
+            excluded: Some(vec![BLANK_TOKEN.into(), "서울".into()]),
+            ..Filter::default()
+        }]);
+
+        // ④ 필터 상호간(AND). 공백 조건까지 섞는다.
+        out.push(vec![contains("name", "가"), picked("city", &["서울"])]);
+        out.push(vec![picked("city", &[BLANK_TOKEN]), ranged("score", Some(0.0), None)]);
+        out.push(vec![Filter::default()]);
+        out.push(vec![]);
+        out
+    }
+
+    /// **조회 문과 행 판정이 동일한 행 집합을 산출한다.**
+    ///
+    /// 어긋나면 인쇄하는 쪽과 표가 상이한 행을 묘사하는데, 건수조차 정합할 수
+    /// 있어 눈에 출현하지 않는다.
+    #[test]
+    fn the_two_renderings_of_one_request_select_the_same_rows() {
+        let (conn, t, cells) = agree_fixture();
+        let cols: Vec<(&str, bool)> =
+            t.columns().map(|c| (c.key.as_str(), c.kind == ColumnKind::Number)).collect();
+        for filters in agree_filters() {
+            let m = Match::compile(&filters, &cols, BLANK).unwrap();
+            let by_sql = sql_hits(&conn, &t, &m);
+            let by_row: Vec<usize> = cells
+                .iter()
+                .enumerate()
+                .filter(|(_, r)| {
+                    let refs: Vec<&str> = r.iter().map(String::as_str).collect();
+                    m.row(&refs)
+                })
+                .map(|(i, _)| i)
+                .collect();
+            assert_eq!(by_sql, by_row, "{filters:?} 에서 두 번역이 어긋난다");
+        }
+    }
+
+    /// **짧은 셀 묶음을 전달해도 정지하지 않는다.** 부재하는 셀은 공백이다.
+    #[test]
+    fn a_short_row_is_judged_as_if_the_missing_cells_were_blank() {
+        let (_, t, _) = agree_fixture();
+        let cols: Vec<(&str, bool)> =
+            t.columns().map(|c| (c.key.as_str(), c.kind == ColumnKind::Number)).collect();
+        let m = Match::compile(
+            &[Filter { key: "score".into(), not_blank: true, ..Filter::default() }],
+            &cols,
+            BLANK,
+        )
+        .unwrap();
+        assert!(!m.row(&["가"]));
+        assert!(m.row(&["가", "서울", "90"]));
+    }
+
+    /// **거절은 `compile` 하나가 수행한다.** 행마다 거절할 것이 있으면 그것은
+    /// 요청의 결함이고, 요청은 1회 분해할 때 판정하는 것이 맞다.
+    #[test]
+    fn compile_is_the_only_place_that_refuses() {
+        let cols = [("name", false), ("score", true)];
+        let bad = [
+            (
+                vec![Filter { key: "없는 열".into(), contains: "가".into(), ..Filter::default() }],
+                ErrorCode::InvalidFilterKey,
+            ),
+            (
+                vec![Filter {
+                    key: "name".into(),
+                    values: Some(vec!["가".into()]),
+                    excluded: Some(vec!["나".into()]),
+                    ..Filter::default()
+                }],
+                ErrorCode::InvalidFilterKey,
+            ),
+            (vec![ranged("name", Some(0.0), None)], ErrorCode::InvalidRange),
+            (vec![ranged("score", Some(10.0), Some(1.0))], ErrorCode::InvalidRange),
+        ];
+        for (filters, code) in bad {
+            let err = Match::compile(&filters, &cols, BLANK).unwrap_err();
+            assert_eq!(err.code, code, "{filters:?}");
+        }
+        // 아무것도 기재하지 않은 조건은 조건이 아니다 — 거절하지 않는다.
+        assert!(Match::compile(&[Filter::default()], &cols, BLANK).is_ok());
     }
 }

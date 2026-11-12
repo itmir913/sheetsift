@@ -10,7 +10,7 @@
 //! 컴파일되지 않는다** — 받는 앱이 자기 벌을 재차 기재하기 이전에 여기서
 //! 정지한다. 동작이 아니라 **호출 가능성**을 수호하는 시험이다.
 
-use sheetsift_core::value;
+use sheetsift_core::{grid, value};
 
 /// 공백 판정을 Rust 와 SQL 양측으로 호출할 수 있다.
 #[test]
@@ -42,4 +42,39 @@ fn an_embedding_app_can_ask_for_the_same_trim_and_the_same_number() {
     assert_eq!(value::as_real("1,200"), Some(1200.0));
     // 보관해도 환원되는 규모인지의 판정(`REAL` 열에 보관하는 앱이 요구한다).
     assert!(value::fits_real(1234.5) && !value::fits_real(1e15));
+}
+
+/// **조건을 1회 분해해 행 하나에 적용할 수 있다.** 받는 앱이 행을 Rust 로
+/// 보유한 화면(인쇄·내보내기·집약)에서 조건을 자체로 판정하면, 어긋남은 조건
+/// 하나의 판정이 아니라 **결합과 거절**에서 발생한다 — `values` 와 `excluded`
+/// 를 동시에 기재한 요청을 엔진은 거절하는데 받는 쪽은 양자를 조용히 함께
+/// 적용했다.
+///
+/// 이 파일은 상자 외부라, 반출을 되돌리면 받는 앱이 자기 벌을 재차 기재하기
+/// 이전에 여기서 정지한다.
+#[test]
+fn an_embedding_app_can_compile_a_request_once_and_judge_its_own_rows() {
+    let columns = [("대학", false), ("환산점", true)];
+    let filters = vec![
+        grid::Filter { key: "대학".into(), contains: "서울".into(), ..Default::default() },
+        grid::Filter { key: "환산점".into(), min: Some(700.0), ..Default::default() },
+    ];
+    let m = grid::Match::compile(&filters, &columns, "-").unwrap();
+    assert!(m.row(&["서울대학교", "712.5"]));
+    assert!(!m.row(&["부산대학교", "712.5"]));
+    assert!(!m.row(&["서울대학교", "690"]));
+    // 수로 판독되지 않는 셀은 범위가 기재되면 탈락한다.
+    assert!(!m.row(&["서울대학교", "총 712점"]));
+    // 셀이 부재하면 공백과 동일하다 — 정지하지 않는다.
+    assert!(!m.row(&["서울대학교"]));
+
+    // 거절은 분해할 때 1회 수행한다.
+    let both = vec![grid::Filter {
+        key: "대학".into(),
+        values: Some(vec!["서울대학교".into()]),
+        excluded: Some(vec!["부산대학교".into()]),
+        ..Default::default()
+    }];
+    let err = grid::Match::compile(&both, &columns, "-").unwrap_err();
+    assert_eq!(err.code, sheetsift_core::ErrorCode::InvalidFilterKey);
 }
