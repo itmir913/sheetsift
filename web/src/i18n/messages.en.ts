@@ -14,6 +14,9 @@ export const errors: Record<ErrorCode, string> = {
 
   DB_QUERY_FAILED: "Could not run the query.",
   INVALID_SORT_KEY: "The column used for sorting was not found.",
+  INVALID_FILTER_KEY: "The column used for filtering cannot be used.",
+  INVALID_RANGE:
+    "That range cannot be used. Check that the column holds numbers and that the minimum is not above the maximum.",
 
   SHEET_WORKBOOK_UNREADABLE: "Could not open the file. Check that it is an xlsx, xls or csv file.",
   SHEET_UNREADABLE: "Could not read the sheet '{sheet}'.",

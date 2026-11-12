@@ -357,8 +357,11 @@ fn values_order_sql(expr: &str, blank: &str, numeric: bool) -> String {
     }
 }
 
-fn unknown_column(table: &dyn Table, key: &str, what: &str) -> Error {
-    Error::new(ErrorCode::InvalidSortKey)
+/// 요청이 지시한 열을 사용할 수 없다. **사유마다 코드가 상이하다** — 코드가
+/// 하나이면 화면이 그 사유를 진술할 수 없고(`detail` 은 영문이고 노출되지
+/// 않는다), 수령하는 앱이 사유마다 상이한 문구를 부여할 수단이 부재하다.
+fn bad_column(code: ErrorCode, table: &dyn Table, key: &str, what: &str) -> Error {
+    Error::new(code)
         .with("key", key)
         .with("screen", table.id())
         .detail(what)
@@ -577,7 +580,7 @@ fn build_where(
         /* **선택과 제외를 동시에 기재하면 중단한다.** 우선순위를 묵시적으로
            부여하면 어느 쪽이 적용되었는지 사람도 코드도 판별할 수 없다. */
         if f.values.is_some() && f.excluded.is_some() {
-            return Err(unknown_column(table, &f.key, "both values and excluded were given"));
+            return Err(bad_column(ErrorCode::InvalidFilterKey, table, &f.key, "both values and excluded were given"));
         }
         let wanted: Vec<&str> = if f.keys.is_empty() {
             vec![f.key.as_str()]
@@ -589,24 +592,24 @@ fn build_where(
         for key in wanted {
             let col = table
                 .column(key)
-                .ok_or_else(|| unknown_column(table, key, "unknown filter column"))?;
+                .ok_or_else(|| bad_column(ErrorCode::InvalidFilterKey, table, key, "unknown filter column"))?;
             /* **못 쓰는 열의 조건을 폐기하지 않는다.** 폐기하면 조건을 걸지
                않은 것이 되어 **더 많은 행이 산출되는데**, 화면은 조건이 걸렸다고
                묘사한다. 바로 옆 「숫자 아닌 열에 범위」와 동급의 잘못이라 동일하게
                중단한다. */
             if !col.filterable {
-                return Err(unknown_column(table, key, "a filter was given for a column that cannot be filtered"));
+                return Err(bad_column(ErrorCode::InvalidFilterKey, table, key, "a filter was given for a column that cannot be filtered"));
             }
             /* **숫자 열이 아닌 열의 범위는 중단한다.** 문자 열에 숫자 비교를 적용하면
                전 행이 탈락하는데, 그것이 오류로 출현하지 않는다. 오류 코드는 정렬·필터 열쇠
                오류(`InvalidSortKey`)를 쓰고 **사유는 `detail` 이 진술한다** — 코드가 단일
                enum 이라 하나 더하면 이 층을 쓰지 않는 앱까지 문구를 기재해야 한다. */
             if (f.min.is_some() || f.max.is_some()) && col.kind != ColumnKind::Number {
-                return Err(unknown_column(table, key, "a range was given for a column that is not a number"));
+                return Err(bad_column(ErrorCode::InvalidRange, table, key, "a range was given for a column that is not a number"));
             }
             if let (Some(lo), Some(hi)) = (f.min, f.max) {
                 if lo > hi {
-                    return Err(unknown_column(table, key, "the range minimum exceeds its maximum"));
+                    return Err(bad_column(ErrorCode::InvalidRange, table, key, "the range minimum exceeds its maximum"));
                 }
             }
             if let Some(c) = filter_clause(col, f, blank, &mut binds) {
@@ -646,10 +649,10 @@ fn order_keys(
     for s in sorts {
         let col = table
             .column(&s.key)
-            .ok_or_else(|| unknown_column(table, &s.key, "unknown sort column"))?;
+            .ok_or_else(|| bad_column(ErrorCode::InvalidSortKey, table, &s.key, "unknown sort column"))?;
         // 폐기하면 정렬하지 않은 순서가 산출되는데 화면은 그 열로 정렬했다고 묘사한다.
         if !col.sortable {
-            return Err(unknown_column(table, &s.key, "a sort was given for a column that cannot be sorted"));
+            return Err(bad_column(ErrorCode::InvalidSortKey, table, &s.key, "a sort was given for a column that cannot be sorted"));
         }
         let dir = match s.dir {
             SortDir::Asc => "ASC",
@@ -694,7 +697,7 @@ fn build_order(table: &dyn Table, sorts: &[Sort], blank: &str, rid: &str) -> Res
        전순서가 조용히 소멸한다. 표를 생성하는 층이 그런 명칭을 산출하지 않으나
        (`sheet` 의 `shadows_rowid`), 정의를 기재하는 곳은 이 상자 밖이다. */
     if let Some(col) = table.columns().find(|c| crate::sheet::shadows_rowid(&c.column)) {
-        return Err(unknown_column(table, &col.key, "a column name shadows the rowid used to order pages"));
+        return Err(bad_column(ErrorCode::InvalidSortKey, table, &col.key, "a column name shadows the rowid used to order pages"));
     }
     let mut parts = order_keys(table, sorts, blank, true)?;
     parts.push(format!("{rid} ASC"));
@@ -882,7 +885,7 @@ pub fn column_values(
 
     let col = table
         .column(key)
-        .ok_or_else(|| unknown_column(table, key, "unknown column for value list"))?;
+        .ok_or_else(|| bad_column(ErrorCode::InvalidFilterKey, table, key, "unknown column for value list"))?;
 
     // 목록은 자기 값 선택만 빼고 자기 범위는 적용한다. 범위 밖의 값이 목록에 없어야 한다(`Own::SkipPick`).
     let (mut where_sql, mut binds) = build_where(table, filters, blank, Own::SkipPick(key))?;
@@ -1626,8 +1629,55 @@ mod tests {
         let (conn, t) = fixture();
         let e = run(&conn, &t, BLANK, &query(vec![s("no_such", SortDir::Asc)], vec![])).unwrap_err();
         assert_eq!(e.code, ErrorCode::InvalidSortKey);
+        // 값 목록이 지시한 열은 필터 쪽이다.
         let e = column_values(&conn, &t, BLANK, "no_such", &[], "").unwrap_err();
-        assert_eq!(e.code, ErrorCode::InvalidSortKey);
+        assert_eq!(e.code, ErrorCode::InvalidFilterKey);
+    }
+
+    /// **사유마다 코드가 상이하다.**
+    ///
+    /// 종전에는 일곱 가지가 `InvalidSortKey` 하나였고, 사유는 화면에 노출되지
+    /// 않는 영문 `detail` 만 진술했다 — 범위를 잘못 기재한 사람에게 「정렬 기준으로
+    /// 지정한 열을 찾지 못했습니다」가 묘사되었고, 수령하는 앱은 사유마다 상이한
+    /// 문구를 부여할 수단이 부재했다.
+    #[test]
+    fn each_kind_of_bad_request_has_its_own_code() {
+        let (conn, mut t) = fixture();
+        let code = |q: &Query| run(&conn, &t, BLANK, q).unwrap_err().code;
+
+        // 정렬 — 부재하는 열, 정렬할 수 없는 열.
+        assert_eq!(
+            code(&query(vec![s("no_such", SortDir::Asc)], vec![])),
+            ErrorCode::InvalidSortKey
+        );
+
+        // 필터 — 부재하는 열, 선택과 제외를 동시에 기재.
+        assert_eq!(
+            code(&query(vec![], vec![contains("no_such", "가")])),
+            ErrorCode::InvalidFilterKey
+        );
+        let both = Filter {
+            key: "name".into(),
+            values: Some(vec!["가".into()]),
+            excluded: Some(vec!["나".into()]),
+            ..Filter::default()
+        };
+        assert_eq!(code(&query(vec![], vec![both])), ErrorCode::InvalidFilterKey);
+
+        // 범위 — 숫자 열이 아닌 열에 기재, 최소가 최대를 초과.
+        let on_text = Filter { key: "name".into(), min: Some(1.0), ..Filter::default() };
+        assert_eq!(code(&query(vec![], vec![on_text])), ErrorCode::InvalidRange);
+        let upside_down =
+            Filter { key: "score".into(), min: Some(9.0), max: Some(1.0), ..Filter::default() };
+        assert_eq!(code(&query(vec![], vec![upside_down])), ErrorCode::InvalidRange);
+
+        // 쓸 수 없는 열의 조건도 각자의 코드다.
+        t.columns[0].filterable = false;
+        t.columns[0].sortable = false;
+        let err = run(&conn, &t, BLANK, &query(vec![], vec![contains("name", "가")])).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidFilterKey);
+        let err = run(&conn, &t, BLANK, &query(vec![s("name", SortDir::Asc)], vec![])).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidSortKey);
     }
 
     /// `%` 는 와일드카드가 아니라 문자로 탐색한다.
@@ -1820,7 +1870,7 @@ mod tests {
         t.columns[0].sortable = false;
 
         let err = run(&conn, &t, BLANK, &query(vec![], vec![contains("name", "가")])).unwrap_err();
-        assert_eq!(err.code, ErrorCode::InvalidSortKey);
+        assert_eq!(err.code, ErrorCode::InvalidFilterKey);
         let err = run(&conn, &t, BLANK, &query(vec![s("name", SortDir::Asc)], vec![])).unwrap_err();
         assert_eq!(err.code, ErrorCode::InvalidSortKey);
         // 쓸 수 있는 열은 그대로 작동한다.

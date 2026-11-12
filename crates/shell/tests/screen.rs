@@ -82,6 +82,13 @@ fn backend_codes_with(src: &str, enabled: &[String]) -> Vec<String> {
             gate = rest.split('"').next().map(str::to_string);
             continue;
         }
+        /* **주석은 변종이 아니다.** 행이 쉼표로 종결하는지만 판정하면, 쉼표로
+           끝나는 문서 주석 한 행이 변종으로 산정되어 「화면 목록에 부재하는
+           코드」로 중단된다 — 수정한 사람은 자신이 무엇을 훼손했는지 규명하지
+           못한다. */
+        if line.starts_with("//") {
+            continue;
+        }
         if !line.ends_with(',') {
             continue;
         }
@@ -205,6 +212,21 @@ fn the_check_catches_a_code_the_screen_never_heard_of() {
     let found = backend_codes(doctored);
     assert_eq!(found, ["DB_QUERY_FAILED", "BRAND_NEW_THING"]);
     assert!(!listed_codes(CODES_TS).contains(&found[1]));
+}
+
+/// **쉼표로 종결하는 문서 주석을 변종으로 산정하지 않는다.** 산정하면 코드를
+/// 하나 추가하며 주석을 기재한 사람이 「화면 목록에 부재하는 코드」로 중단되고,
+/// 그 진술은 자신이 훼손한 것을 지시하지 않는다.
+#[test]
+fn the_check_does_not_mistake_a_comment_for_a_variant() {
+    let doctored = "pub enum ErrorCode {
+    /// 사유가 둘이다 — 하나, 둘,
+    DbQueryFailed,
+    // 행 주석도 변종이 아니다,
+    After,
+}
+";
+    assert_eq!(backend_codes(doctored), ["DB_QUERY_FAILED", "AFTER"]);
 }
 
 /// 기본에 포함되는 층의 코드는 산정하고, 기본에 부재하는 층의 코드는 산정하지 않는다.

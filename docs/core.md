@@ -118,6 +118,20 @@ such a header, `sheet::build` rejects a `TablePlan` that names a column that
 way, and `grid` stops if a column definition does. `sheet::shadows_rowid` is the
 predicate.
 
+### Error codes say which mistake it was
+
+`grid` distinguishes three: `InvalidSortKey` (the sort named a column that is
+absent or cannot be sorted), `InvalidFilterKey` (the filter or value list named
+a column that is absent or cannot be filtered, or gave both a pick and an
+exclusion) and `InvalidRange` (a range on a column that is not a number, or a
+minimum above the maximum). They were one code until now, separated only by the
+English `detail`, which no screen shows — so a person who typed a bad range was
+told the sort column could not be found.
+
+**An embedding application must write a message for `INVALID_FILTER_KEY` and
+`INVALID_RANGE`.** `INVALID_SORT_KEY` keeps its meaning for the sort cases, so
+an application that does nothing still shows its old message where it was right.
+
 ## `.sift`
 
 The on-disk format for an already-converted sheet. The payload is exactly the

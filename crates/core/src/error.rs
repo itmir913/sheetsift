@@ -20,8 +20,24 @@ use serde::Serialize;
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ErrorCode {
     DbQueryFailed,
-    /// 정렬·필터·값 목록이 표에 부재하는 열을 지시했다.
+    /// **정렬**이 지시한 열이 표에 부재하거나 그 열로는 정렬할 수 없다.
+    ///
+    /// 필터와 범위는 별도의 코드다 — [`ErrorCode::InvalidFilterKey`] 와
+    /// [`ErrorCode::InvalidRange`] 다. 종전에는 일곱 가지 사유가 이 코드 하나였고
+    /// 사유는 화면에 노출되지 않는 영문 `detail` 만 진술했다. 그래서 그 표를
+    /// 판독하는 사람은 자신이 무엇을 잘못 지시했는지 인지할 수 없었고 수령하는
+    /// 앱은 사유마다 상이한 문구를 부여할 수단이 부재했다.
     InvalidSortKey,
+    /// **필터·값 목록**이 지시한 열이 표에 부재하거나 그 열로는 필터할 수 없거나
+    /// 선택과 제외를 동시에 기재했다.
+    ///
+    /// **앱이 문구를 기재해야 하는 코드다**(`INVALID_FILTER_KEY`).
+    InvalidFilterKey,
+    /// **범위**(`min`·`max`)가 성립하지 않는다. 숫자 열이 아닌 열에 기재했거나
+    /// 최소가 최대를 초과한다.
+    ///
+    /// **앱이 문구를 기재해야 하는 코드다**(`INVALID_RANGE`).
+    InvalidRange,
     DataSealInvalid,
     DataSignatureInvalid,
     DataContainerUnknown,
