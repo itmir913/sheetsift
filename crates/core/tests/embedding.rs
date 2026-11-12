@@ -105,3 +105,50 @@ fn an_embedding_app_can_order_rows_the_way_the_query_does() {
     rows.sort_by(|a, b| grid::compare_sorted(a, b, "-", true, asc));
     assert_eq!(rows, ["85.5", "90", "1,200", "총 44850점", ""]);
 }
+
+/// **동일한 조건을 받는 앱의 표에도 적용할 수 있다.** 열 식을 부르는 곳이
+/// 제시한다.
+///
+/// 조건을 조립하는 벌이 받는 앱에 한 벌 더 기재되어 있었고(자기 학생 표에
+/// 적용하는 조회 문), 그 벌은 `values` 와 `excluded` 를 동시에 기재한 요청을
+/// 거절하지 않았다. 조립이 한 곳이면 그 어긋남이 발생할 여지가 부재하다.
+#[test]
+fn an_embedding_app_can_put_the_same_conditions_on_its_own_table() {
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        "CREATE TABLE students(name TEXT, score TEXT);
+         INSERT INTO students VALUES('가', '712.5'), ('나', '690'), ('다', NULL),
+                                    ('라', '총 712점'), ('가나', '800');",
+    )
+    .unwrap();
+
+    let columns = [("이름", false), ("환산점", true)];
+    let filters = vec![
+        grid::Filter { key: "이름".into(), contains: "가".into(), ..Default::default() },
+        grid::Filter { key: "환산점".into(), min: Some(700.0), ..Default::default() },
+    ];
+    let m = grid::Match::compile(&filters, &columns, "-").unwrap();
+
+    // 그 표의 열 식은 그 표가 제시한다.
+    let expr = ["s.name".to_string(), "s.score".to_string()];
+    let (where_sql, binds) = m.where_sql(&|i| expr[i].clone());
+    let sql = format!("SELECT name FROM students s{where_sql} ORDER BY s.rowid");
+    let params: Vec<&dyn rusqlite::ToSql> =
+        binds.iter().map(|b| b as &dyn rusqlite::ToSql).collect();
+    let mut q = conn.prepare(&sql).unwrap();
+    let mut by_sql: Vec<String> = Vec::new();
+    let mut rows = q.query(params.as_slice()).unwrap();
+    while let Some(r) = rows.next().unwrap() {
+        by_sql.push(r.get(0).unwrap());
+    }
+    assert_eq!(by_sql, ["가".to_string(), "가나".to_string()]);
+
+    // 행 판정도 동일한 분해다 — 양측이 동일한 행을 선택한다.
+    let cells = [("가", "712.5"), ("나", "690"), ("다", ""), ("라", "총 712점"), ("가나", "800")];
+    let by_row: Vec<String> = cells
+        .iter()
+        .filter(|(n, v)| m.row(&[n, v]))
+        .map(|(n, _)| n.to_string())
+        .collect();
+    assert_eq!(by_sql, by_row);
+}

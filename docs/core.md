@@ -140,13 +140,24 @@ if the missing cells were blank.
 Whether a column can be filtered at all is this crate's own notion, so that
 rejection stays with the query side.
 
+`where_sql` is public too, and the **caller supplies each column's SQL
+expression** (`where_sql(&|i| ...)`, `i` being that same column order), because
+the same conditions are also applied to a different table in an embedding app —
+which had a third copy of this assembly, and that copy applied `values` and
+`excluded` together where this one refuses. Only values the person typed are
+bound as parameters; the expression a caller supplies must come from its own
+definitions. Dict-encoded columns are this crate's storage shape, so the engine
+renders those itself.
+
 ### Row order has its own comparison
 
 `grid::compare_sorted(a, b, blank, numeric, dir)` is the Rust twin of the
-`ORDER BY` keys: blanks last whatever the direction, then — in a numeric column —
-values that are not numbers after the ones that are, then the directed
-comparison. `compare_values` cannot stand in for it: that one orders the
-**value-selection list**, where blanks come first.
+`ORDER BY` keys. In SQL the direction attaches only to the last key, so blanks come last whatever
+the direction, then — in a number column — values that are not numbers, and only
+the last key follows the requested direction.
+
+`compare_values` cannot stand in for it: that one orders the **value-selection
+list**, where blanks come first.
 
 Among values that are not numbers, the order is whatever SQLite's
 `CAST(… AS REAL)` makes of them, because that is the query's own key and it has

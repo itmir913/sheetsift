@@ -454,15 +454,16 @@ fn bad_column(code: ErrorCode, table: &dyn Table, key: &str, what: &str) -> Erro
 
 /// 분해해 둔 검사 하나를 WHERE 조각으로 변환한다. [`Match::row`] 와 **동일한
 /// 분해의 타 번역**이다 — 조건을 판독하는 코드는 [`Match::compile`] 하나다.
-fn filter_clause(col: &Column, f: &Test, blank: &str, binds: &mut Vec<String>) -> Option<String> {
-    let base = col.base_ref();
+fn filter_clause(at: &Place, f: &Test, blank: &str, binds: &mut Vec<String>) -> Option<String> {
+    let base = at.expr.clone();
+    let dict = at.dict;
     let mut parts: Vec<String> = Vec::new();
 
     // ① 열 검색 (부분일치)
     let needle = f.contains.as_str();
     if !needle.is_empty() {
         binds.push(format!("%{}%", like_escape(needle)));
-        parts.push(if col.dict {
+        parts.push(if dict {
             // 사전에서 우선 id 집합을 산출한 뒤 정수 비교한다.
             format!(r"{base} IN (SELECT id FROM dict WHERE s LIKE ? ESCAPE '\')")
         } else {
@@ -485,14 +486,14 @@ fn filter_clause(col: &Column, f: &Test, blank: &str, binds: &mut Vec<String>) -
             for v in &concrete {
                 binds.push((*v).clone());
             }
-            alt.push(if col.dict {
+            alt.push(if dict {
                 format!("{base} IN (SELECT id FROM dict WHERE s IN ({holes}))")
             } else {
                 format!("{base} IN ({holes})")
             });
         }
         if has_blank {
-            alt.push(if col.dict { format!("{base} IS NULL") } else { is_blank_sql(&base, blank) });
+            alt.push(if dict { format!("{base} IS NULL") } else { is_blank_sql(&base, blank) });
         }
         parts.push(format!("({})", alt.join(" OR ")));
     }
@@ -512,7 +513,7 @@ fn filter_clause(col: &Column, f: &Test, blank: &str, binds: &mut Vec<String>) -
                 /* **값이 부재하는 셀이 함께 탈락하지 않게 한다.** `NOT IN` 은
                    NULL 과의 비교가 NULL 이라 그 행이 통과하지 못한다 — 공백을
                    제외하지 않았는데 공백 행이 소멸한다. */
-                all.push(if col.dict {
+                all.push(if dict {
                     format!("({base} IS NULL OR {base} NOT IN (SELECT id FROM dict WHERE s IN ({holes})))")
                 } else {
                     format!("({base} IS NULL OR {base} NOT IN ({holes}))")
@@ -521,7 +522,7 @@ fn filter_clause(col: &Column, f: &Test, blank: &str, binds: &mut Vec<String>) -
             if has_blank {
                 all.push(format!(
                     "NOT {}",
-                    if col.dict { format!("({base} IS NULL)") } else { is_blank_sql(&base, blank) }
+                    if dict { format!("({base} IS NULL)") } else { is_blank_sql(&base, blank) }
                 ));
             }
             parts.push(format!("({})", all.join(" AND ")));
@@ -530,7 +531,7 @@ fn filter_clause(col: &Column, f: &Test, blank: &str, binds: &mut Vec<String>) -
 
     // ④ 공백이 아닌 행만
     if f.not_blank {
-        parts.push(if col.dict {
+        parts.push(if dict {
             format!("{base} IS NOT NULL")
         } else {
             format!("NOT {}", is_blank_sql(&base, blank))
@@ -554,7 +555,7 @@ fn filter_clause(col: &Column, f: &Test, blank: &str, binds: &mut Vec<String>) -
             }
             conds.join(" AND ")
         };
-        parts.push(if col.dict {
+        parts.push(if dict {
             format!("{base} IN (SELECT id FROM dict WHERE {})", inside("s", binds))
         } else {
             format!("({})", inside(&base, binds))
@@ -707,6 +708,15 @@ impl Test {
     }
 }
 
+/// 조건을 **어디에 적용하는가.** 부르는 곳의 표마다 상이하다.
+struct Place {
+    /// SQL 에서 그 열을 참조하는 식.
+    expr: String,
+    /// 사전 인코딩 열인가. 해당하면 값이 정수 id 라 조건을 사전의 글자에
+    /// 적용한 뒤 id 로 비교한다.
+    dict: bool,
+}
+
 /// 조건 하나. `keys` 로 결합한 열들은 **OR** 로 묶인다.
 #[derive(Debug, Clone)]
 struct Cond {
@@ -808,19 +818,35 @@ impl Match {
         })
     }
 
-    /// 동일한 분해를 WHERE 절로 번역한다.
+    /// 동일한 분해를 **WHERE 절로 번역한다.** 부르는 곳이 자기 표의 열 식을
+    /// 제시한다.
     ///
-    /// **`compile` 에 전달한 열 목록을 제시한 표여야 한다** — 보유하는 것이 그
-    /// 목록의 번호다. 이 상자 내부에서만 호출하므로 번호로 둔다. 반출하는 쪽
-    /// ([`Match::row`])은 번호를 부르는 곳의 열 순서로 수령한다.
-    pub(crate) fn where_sql(&self, table: &dyn Table) -> (String, Vec<String>) {
-        let cols: Vec<&Column> = table.columns().collect();
+    /// `col_expr(i)` 는 `compile` 에 전달한 `columns[i]` 를 SQL 에서 참조하는
+    /// 식이다(`t."환산점"` 등). 번호가 열쇠인 사유는 **부르는 곳의 표가 상이
+    /// 하기 때문**이다 — 동일한 조건을 이 상자의 표에도, 받는 앱의 학생 표에도
+    /// 적용한다. 조건을 조립하는 코드가 거기 한 벌 더 기재되어 있었고, 그 벌은
+    /// `values` 와 `excluded` 를 동시에 기재한 요청을 거절하지 않았다.
+    ///
+    /// 반환하는 것은 `" WHERE …"`(조건이 부재하면 공백)와 **바인딩 값**이다.
+    /// 사람이 기재한 값은 전부 바인딩으로만 진입한다 — 식을 제시하는 쪽은
+    /// 자기 정의에서 유래한 글자만 기재해야 한다.
+    ///
+    /// 사전 인코딩 열은 이 상자의 보관 형태라 여기서 수용하지 않는다. 그 열을
+    /// 보유한 표는 이 상자가 조회한다(`build_where`).
+    pub fn where_sql(&self, col_expr: &dyn Fn(usize) -> String) -> (String, Vec<String>) {
+        self.render(&|i| Place { expr: col_expr(i), dict: false })
+    }
+
+    /// 열마다 어디에 적용하는가. 사전 인코딩 열은 **정수 id 를 보관**하므로
+    /// 조건을 사전의 글자에 적용한 뒤 id 로 비교한다.
+    fn render(&self, place: &dyn Fn(usize) -> Place) -> (String, Vec<String>) {
         let mut clauses = Vec::new();
         let mut binds = Vec::new();
         for c in &self.conds {
             let mut alts = Vec::new();
             for i in &c.on {
-                if let Some(x) = filter_clause(cols[*i], &c.test, &self.blank, &mut binds) {
+                let p = place(*i);
+                if let Some(x) = filter_clause(&p, &c.test, &self.blank, &mut binds) {
                     alts.push(x);
                 }
             }
@@ -836,6 +862,15 @@ impl Match {
             format!(" WHERE {}", clauses.join(" AND "))
         };
         (sql, binds)
+    }
+
+    /// 이 상자의 표에 적용한다. 사전 인코딩 열을 인지한다.
+    ///
+    /// **`compile` 에 전달한 열 목록을 제시한 표여야 한다** — 보유하는 것이 그
+    /// 목록의 번호다.
+    pub(crate) fn where_sql_on(&self, table: &dyn Table) -> (String, Vec<String>) {
+        let cols: Vec<&Column> = table.columns().collect();
+        self.render(&|i| Place { expr: cols[i].base_ref(), dict: cols[i].dict })
     }
 }
 
@@ -931,7 +966,7 @@ fn build_where(
        않는다. 부착하는 항목은 종전과 동일하다. */
     let m = Match::compile(&trimmed, &cols, blank)
         .map_err(|e| e.with("screen", table.id()))?;
-    Ok(m.where_sql(table))
+    Ok(m.where_sql_on(table))
 }
 
 /// 정렬 열쇠를 열 순서대로. 배열 순서가 그대로 정렬 우선순위(1순위, 2순위, …)다.
@@ -1222,7 +1257,8 @@ pub fn column_values(
             min: None,
             max: None,
         };
-        if let Some(clause) = filter_clause(col, &only, blank, &mut binds) {
+        let at = Place { expr: col.base_ref(), dict: col.dict };
+        if let Some(clause) = filter_clause(&at, &only, blank, &mut binds) {
             where_sql = if where_sql.is_empty() {
                 format!(" WHERE {clause}")
             } else {
@@ -2593,9 +2629,53 @@ mod tests {
         (conn, t, cells)
     }
 
+    /// 사전 인코딩 없이 동일한 셀을 보관한 표. **반출한 `where_sql` 을 그대로
+    /// 사용하는 쪽**이다 — 받는 앱의 표에는 사전 열이 부재하다.
+    fn agree_fixture_plain() -> (Connection, T, Vec<Vec<String>>) {
+        let (_, _, cells) = agree_fixture();
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE rows(name TEXT, city TEXT, score TEXT);").unwrap();
+        for r in &cells {
+            // 공백은 NULL 로 보관한다. 사전 열이 그렇게 보관하고, 받는 앱의
+            // 표에도 값이 부재하는 칸이 존재한다.
+            let city: Option<&str> = if r[1].is_empty() { None } else { Some(r[1].as_str()) };
+            conn.execute(
+                "INSERT INTO rows(name, city, score) VALUES(?, ?, ?)",
+                rusqlite::params![r[0], city, r[2]],
+            )
+            .unwrap();
+        }
+        let t = T {
+            base: "rows".into(),
+            columns: vec![
+                col("name", ColumnKind::Text, false),
+                col("city", ColumnKind::Text, false),
+                col("score", ColumnKind::Number, false),
+            ],
+        };
+        (conn, t, cells)
+    }
+
     /// 조회 문이 통과시키는 행의 번호. `rowid` 는 삽입 순서다.
     fn sql_hits(conn: &Connection, t: &T, m: &Match) -> Vec<usize> {
-        let (where_sql, binds) = m.where_sql(t);
+        let (where_sql, binds) = m.where_sql_on(t);
+        let sql = format!("SELECT rowid FROM rows t{where_sql} ORDER BY rowid");
+        let params: Vec<&dyn rusqlite::ToSql> =
+            binds.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+        let mut q = conn.prepare(&sql).unwrap();
+        let mut out = Vec::new();
+        let mut rows = q.query(params.as_slice()).unwrap();
+        while let Some(r) = rows.next().unwrap() {
+            let id: i64 = r.get(0).unwrap();
+            out.push(id as usize - 1);
+        }
+        out
+    }
+
+    /// 반출한 `where_sql` 로 조회한 행의 번호. 열 식을 부르는 곳이 제시한다.
+    fn sql_hits_pub(conn: &Connection, t: &T, m: &Match) -> Vec<usize> {
+        let keys: Vec<String> = t.columns().map(|c| c.base_ref()).collect();
+        let (where_sql, binds) = m.where_sql(&|i| keys[i].clone());
         let sql = format!("SELECT rowid FROM rows t{where_sql} ORDER BY rowid");
         let params: Vec<&dyn rusqlite::ToSql> =
             binds.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
@@ -2709,6 +2789,26 @@ mod tests {
                 .map(|(i, _)| i)
                 .collect();
             assert_eq!(by_sql, by_row, "{filters:?} 에서 두 번역이 어긋난다");
+        }
+
+        /* **반출한 `where_sql` 도 동일하다.** 부르는 곳이 자기 표의 열 식을
+           제시하는 경로다 — 받는 앱이 자기 학생 표에 동일한 조건을 적용한다. */
+        let (conn, t, cells) = agree_fixture_plain();
+        let cols: Vec<(&str, bool)> =
+            t.columns().map(|c| (c.key.as_str(), c.kind == ColumnKind::Number)).collect();
+        for filters in agree_filters() {
+            let m = Match::compile(&filters, &cols, BLANK).unwrap();
+            let by_sql = sql_hits_pub(&conn, &t, &m);
+            let by_row: Vec<usize> = cells
+                .iter()
+                .enumerate()
+                .filter(|(_, r)| {
+                    let refs: Vec<&str> = r.iter().map(String::as_str).collect();
+                    m.row(&refs)
+                })
+                .map(|(i, _)| i)
+                .collect();
+            assert_eq!(by_sql, by_row, "{filters:?} 에서 반출한 번역이 어긋난다");
         }
     }
 
