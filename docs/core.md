@@ -152,9 +152,22 @@ renders those itself.
 ### Row order has its own comparison
 
 `grid::compare_sorted(a, b, blank, numeric, dir)` is the Rust twin of the
-`ORDER BY` keys. In SQL the direction attaches only to the last key, so blanks come last whatever
-the direction, then — in a number column — values that are not numbers, and only
-the last key follows the requested direction.
+`ORDER BY` keys. In SQL the direction attaches **only to the last key**, so the
+keys are, in order:
+
+| key | direction |
+|---|---|
+| is it blank | always ascending — blanks last, on desc too |
+| (number column) is it not a number | always ascending — those last, on desc too |
+| (number column) the value read as a number | the requested direction |
+| (text column) the written text | the requested direction |
+| still equal | left to the caller's existing order (the query's `rowid` tail) |
+
+Attach the direction to every key instead and a descending sort lifts the
+non-numbers to the top — a divergence this code does not have. Blanks also
+differ by column kind: in a text column they compare by their written text in
+the requested direction (`-`, empty and a space are three values), while in a
+number column they collapse and fall through to the tail.
 
 `compare_values` cannot stand in for it: that one orders the **value-selection
 list**, where blanks come first.

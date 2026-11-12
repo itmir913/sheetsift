@@ -2890,4 +2890,73 @@ mod tests {
             }
         }
     }
+
+    /* ── 행 정렬의 다섯 행 ───────────────────────────────────────
+       `ORDER BY {빈칸} ASC, {expr} {dir}` 에서 **방향은 마지막 열쇠에만
+       부착된다.** 그것을 전 열쇠에 부착하면 내림차순에서 수가 아닌 값이 선두로
+       상승하는데, 오늘은 그런 어긋남이 부재하다. 그래서 다섯 행을 각각
+       고정한다. */
+
+    /// ① **공백은 방향과 무관하게 후위다.** 첫 열쇠가 항상 오름차순이다.
+    #[test]
+    fn a_blank_row_sorts_last_in_either_direction() {
+        use std::cmp::Ordering::*;
+        for numeric in [true, false] {
+            for dir in [SortDir::Asc, SortDir::Desc] {
+                assert_eq!(compare_sorted("", "90", BLANK, numeric, dir), Greater, "{dir:?}");
+                assert_eq!(compare_sorted("90", "", BLANK, numeric, dir), Less, "{dir:?}");
+                // 공백 표식도 공백이다 — 무엇이 공백인지는 자료가 결정한다.
+                assert_eq!(compare_sorted(BLANK, "90", BLANK, numeric, dir), Greater);
+            }
+        }
+    }
+
+    /// ② **수치 열에서 수가 아닌 값은 방향과 무관하게 수 뒤다.** 둘째 열쇠도
+    /// 항상 오름차순이다 — 방향을 부착하면 내림차순에서 합계 행이 선두로
+    /// 상승한다.
+    #[test]
+    fn a_value_that_is_not_a_number_sorts_after_numbers_in_either_direction() {
+        use std::cmp::Ordering::*;
+        for dir in [SortDir::Asc, SortDir::Desc] {
+            assert_eq!(compare_sorted("총 44850점", "90", BLANK, true, dir), Greater, "{dir:?}");
+            assert_eq!(compare_sorted("90", "7점", BLANK, true, dir), Less, "{dir:?}");
+        }
+    }
+
+    /// ③ **수치 열의 수는 요청한 방향이다.**
+    #[test]
+    fn numbers_follow_the_requested_direction() {
+        use std::cmp::Ordering::*;
+        assert_eq!(compare_sorted("90", "1,200", BLANK, true, SortDir::Asc), Less);
+        assert_eq!(compare_sorted("90", "1,200", BLANK, true, SortDir::Desc), Greater);
+    }
+
+    /// ④ **문자 열은 기재된 글자가 요청한 방향이다.**
+    #[test]
+    fn text_follows_the_requested_direction() {
+        use std::cmp::Ordering::*;
+        assert_eq!(compare_sorted("가", "나", BLANK, false, SortDir::Asc), Less);
+        assert_eq!(compare_sorted("가", "나", BLANK, false, SortDir::Desc), Greater);
+        // 수치 열이 아니면 `10` 과 `9` 도 글자다.
+        assert_eq!(compare_sorted("10", "9", BLANK, false, SortDir::Asc), Less);
+    }
+
+    /// ⑤ **그 이후는 동점이다** — 엑셀의 순서(`rowid` 꼬리)가 종결한다.
+    ///
+    /// 공백 상호간이 열의 성질에 따라 상이하다. 문자 열은 **기재된 글자**로
+    /// 비교하므로 `-`·공백 문자열·공백 하나가 상이한 값이고, 수치 열은 하나로
+    /// 병합되어 동점이 된다(변환이 전부 0 이다).
+    #[test]
+    fn what_is_still_equal_is_left_to_excel_order() {
+        use std::cmp::Ordering::*;
+        // 수치 열: 공백 상호간은 동점이다.
+        assert_eq!(compare_sorted("", BLANK, BLANK, true, SortDir::Asc), Equal);
+        assert_eq!(compare_sorted(" ", "", BLANK, true, SortDir::Desc), Equal);
+        // 문자 열: 공백 상호간도 기재된 글자로 비교하고 방향을 적용한다.
+        assert_eq!(compare_sorted("", BLANK, BLANK, false, SortDir::Asc), Less);
+        assert_eq!(compare_sorted("", BLANK, BLANK, false, SortDir::Desc), Greater);
+        // 동일한 값은 어느 열에서도 동점이다.
+        assert_eq!(compare_sorted("90", "90", BLANK, true, SortDir::Asc), Equal);
+        assert_eq!(compare_sorted("가", "가", BLANK, false, SortDir::Desc), Equal);
+    }
 }
