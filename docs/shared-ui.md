@@ -100,6 +100,21 @@ nothing there. Press a row and every column of that row is listed vertically.
 - The body is not focusable. Row keys are handled by the `<dialog>`, so giving the
   body a tab stop only drew a focus ring across the whole list.
 
+### The funnel popover (`ColumnFilter.vue`, `placePop`)
+
+The popover is **fixed to the viewport**, and `GridTable` recomputes its place
+whenever anything scrolls (capture phase, so the grid's own horizontal scroller
+counts) or the window is resized. Placing it inside the scrolling box made it
+drift away from its header on the first scroll. Closing it on scroll was
+rejected: the person loses the selection they were in the middle of making.
+
+**When the header itself scrolls out of view the popover sticks at the edge of
+the visible area** rather than closing — same reason. `placePop` clamps the box
+into the visible rect, sideways as well as vertically, and it is a pure function
+in `lib/grid.ts` so the rule is pinned by tests rather than by looking at a
+screen.
+
+
 ## How the package is taken
 
 Exports are the source files (`.vue`, `.ts`, `.css`); the receiver's vite

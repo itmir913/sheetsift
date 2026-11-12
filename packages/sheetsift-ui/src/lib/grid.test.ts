@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  POP_W,
+  placePop,
   dropColumnState,
   opensRowDetail,
   reorder,
@@ -235,4 +237,41 @@ describe("changeCommitsAtOnce", () => {
     expect(changeCommitsAtOnce("slider", true)).toBe(true);
     expect(changeCommitsAtOnce("input", false)).toBe(true);
   });
+});
+
+describe("where the funnel popover goes", () => {
+  // 가시 영역. 표는 이 안에서 구른다.
+  const view = { left: 0, right: 1000, top: 100, bottom: 700 };
+  const btn = (left: number, top: number) => ({ left, right: left + 20, top, bottom: top + 24 });
+
+  it("is measured against the visible area, not the scrolling box", () => {
+    // 화면 기준이므로 헤더 단추의 자리가 그대로 근거다. 표가 구르면 단추의
+    // 자리가 변동하고, 그때 다시 호출하면 팝오버가 헤더을 따라간다.
+    const a = placePop(btn(200, 150), view);
+    const b = placePop(btn(200, 300), view);
+    expect(a.y).toBeLessThan(b.y);
+    expect(b.y).toBe(324 + 4);
+  });
+
+  it("sticks at the edge when the header scrolls out of the visible area", () => {
+    // 상단으로 이탈한 헤더. 폐쇄하지 않는다 — 고르던 선택이 소멸한다.
+    const out = placePop(btn(200, -400), view);
+    expect(out.y).toBeGreaterThanOrEqual(view.top);
+    expect(out.y + out.h).toBeLessThanOrEqual(view.bottom);
+    // 하단으로 이탈한 헤더도 동일하다.
+    const low = placePop(btn(200, 2000), view);
+    expect(low.y + low.h).toBeLessThanOrEqual(view.bottom);
+    expect(low.y).toBeGreaterThanOrEqual(view.top);
+  });
+
+  it("stays inside the visible area sideways, however far the grid is scrolled", () => {
+    expect(placePop(btn(980, 150), view).x).toBe(1000 - POP_W - 12);
+    expect(placePop(btn(-300, 150), view).x).toBe(12);
+  });
+
+  it("draws above the header when there is more room above", () => {
+    const up = placePop(btn(200, 650), view);
+    expect(up.y + up.h).toBeLessThanOrEqual(650);
+  });
+
 });

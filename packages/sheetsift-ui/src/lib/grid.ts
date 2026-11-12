@@ -178,6 +178,66 @@ export function snapSpan(span: NumberRange): NumberRange {
   };
 }
 
+/* ── 값 선택 팝오버의 자리와 높이 ──────────────────────────────── */
+
+/** 팝오버의 폭(px). 양식(`.dg-pop` 의 `width`)과 동일한 수다. */
+export const POP_W = 320;
+
+/** 가시 영역의 끝에서 띄우는 여백(px). */
+const POP_MARGIN = 12;
+
+/** 깔대기 단추와 팝오버 사이의 간격(px). */
+const POP_GAP = 4;
+
+/** 팝오버의 최대 높이(px). */
+export const POP_MAX_H = 420;
+
+/** 가시 영역·단추의 자리. `DOMRect` 중 배치에 사용하는 부분만이다. */
+export interface Box {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+/** 팝오버를 그리는 자리. **화면 기준**이다(`position: fixed`). */
+export interface PopPlace {
+  x: number;
+  y: number;
+  h: number;
+}
+
+/**
+ * 깔대기 팝오버의 자리와 높이. **화면 기준으로 산출한다.**
+ *
+ * 표와 함께 구르는 상자 기준으로 배치하면 **표를 굴릴 때 팝오버가 헤더을
+ * 떠나 아래로 흘러간다.** 구를 때 폐쇄하는 방법은 기각되었다 — 고르던 선택이
+ * 소멸한다. 그래서 화면 기준으로 배치하고, 구를 때·창의 크기가 변동할 때·표가
+ * 수평으로 구를 때 이 함수를 재차 호출해 자리를 갱신한다.
+ *
+ * **헤더이 가시 영역을 이탈하면 끝에 정착한다**(폐쇄하지 않는다). 사유는
+ * 구를 때 폐쇄하지 않는 것과 동일하다 — 고르던 선택을 소멸시키지 않는다.
+ * 그래서 산출한 자리를 가시 영역 내부로 고정한다(`clamp`). 수평도 동일하다.
+ */
+export function placePop(btn: Box, view: Box): PopPlace {
+  const cap = POP_MAX_H;
+  const below = view.bottom - btn.bottom - POP_MARGIN - POP_GAP;
+  const above = btn.top - view.top - POP_MARGIN - POP_GAP;
+  const room = Math.max(below, above);
+  const h = Math.min(cap, room);
+  const y = below >= above ? btn.bottom + POP_GAP : btn.top - POP_GAP - h;
+  return {
+    x: clamp(btn.left, view.left + POP_MARGIN, view.right - POP_W - POP_MARGIN),
+    y: clamp(y, view.top + POP_MARGIN, view.bottom - POP_MARGIN - h),
+    h,
+  };
+}
+
+/** 하한이 상한을 초과하는 경우(가시 영역이 협소하다)에는 하한을 취한다. */
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.min(Math.max(v, lo), Math.max(lo, hi));
+}
+
 /**
  * 범위 칸을 그리는가. **열의 성질만으로 정한다** — 숫자 열이고 수치가 하나라도 있으면(`span`)
  * 언제나 그린다. 값 목록은 모든 열이 그린다(숫자 열은 범위 칸 아래에 둔다).

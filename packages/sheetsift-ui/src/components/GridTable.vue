@@ -10,9 +10,9 @@
  * 어떻게 적용하는지는 쓰는 곳이 결정한다. 조회 화면은 SQL 로, 성적 검색은
  * 메모리에서 처리한다.
  */
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import ColumnFilter from "./ColumnFilter.vue";
-import { cellText, isBlank, opensRowDetail, own } from "../lib/grid";
+import { cellText, isBlank, opensRowDetail, own, placePop } from "../lib/grid";
 import { t } from "../lib/inject";
 import { tableFont } from "../composables/useTableFont";
 import type { ColumnValuesResult, NumberRange, Row, Sort, ValuePick } from "../lib/grid";
@@ -257,10 +257,52 @@ watch(
     if (detailAt.value >= 0) detailDialog.value?.close();
   },
 );
+/* 팝오버의 자리. **화면 기준이다**(`.dg-pop` 은 `position: fixed`).
+   표와 함께 구르는 상자 기준으로 두었을 때, 표를 굴리면 팝오버가 헤더을 떠나
+   아래로 흘러갔다. 구를 때 폐쇄하는 방법은 기각되었다 — 고르던 선택이 소멸한다.
+   그래서 **구를 때·창의 크기가 변동할 때 자리를 재차 산정한다.** */
 const popX = ref(0);
 const popY = ref(0);
-/** 팝오버가 사용 가능한 최대 높이(px). 화면 외부로 절단되지 않게 한다. */
+/** 팝오버의 높이(px). 열의 성질과 가시 영역이 정한다(`placePop`). */
 const popH = ref(420);
+
+/** 자리를 재차 산정할 근거. 개방한 깔대기의 단추다. */
+let popBtn: HTMLElement | null = null;
+
+/** 개방한 깔대기의 자리를 지금의 화면으로 갱신한다. */
+function placeFilter() {
+  const btn = popBtn;
+  const col = openFilterColumn.value;
+  if (!btn || !col) return;
+  /* 절단되지 말아야 할 기준은 **가시 영역**이다. 표를 담은 상자는 화면보다
+     현저히 광범위할 수 있다. */
+  const box = root.value?.closest(".app-main")?.getBoundingClientRect();
+  const view = box ?? {
+    left: 0,
+    right: window.innerWidth,
+    top: 0,
+    bottom: window.innerHeight,
+  };
+  const at = placePop(btn.getBoundingClientRect(), view);
+  popX.value = at.x;
+  popY.value = at.y;
+  popH.value = at.h;
+}
+
+/* 표의 수평 스크롤과 쪽의 수직 스크롤 양측을 수령해야 하므로 **포착 단계**로
+   청취한다 — 구르는 상자가 창이 아니라 내부의 요소다. */
+function watchPlace(on: boolean) {
+  const f = on ? window.addEventListener : window.removeEventListener;
+  f("scroll", placeFilter, true);
+  f("resize", placeFilter);
+}
+
+watch(openFilterKey, (key) => {
+  watchPlace(key !== null);
+  if (key === null) popBtn = null;
+});
+
+onBeforeUnmount(() => watchPlace(false));
 
 const openFilterColumn = computed(
   () => props.columns.find((c) => c.key === openFilterKey.value) ?? null,
@@ -293,36 +335,11 @@ function openFilter(col: LaidOutColumn, ev: MouseEvent) {
     openFilterKey.value = null;
     return;
   }
-  const box = root.value;
-  const btn = ev.currentTarget as HTMLElement | null;
-  if (box && btn) {
-    const r = box.getBoundingClientRect();
-    const b = btn.getBoundingClientRect();
-    const POP_W = 320;
-    const MARGIN = 12;
-    // 팝오버는 표와 함께 수평 스크롤되는 상자 내부에 배치되지만, 절단되지 말아야
-    // 할 기준은 **가시 영역**이다. 상자는 화면보다 현저히 광범위할 수 있다.
-    const view = box.closest(".app-main")?.getBoundingClientRect();
-    const left = view?.left ?? 0;
-    const right = view?.right ?? window.innerWidth;
-    const top = view?.top ?? 0;
-    const bottom = view?.bottom ?? window.innerHeight;
-
-    popX.value =
-      Math.max(left + MARGIN, Math.min(b.left, right - POP_W - MARGIN)) - r.left;
-
-    // 상하 중 광범위한 측에 배치하고, 그 공간에 정합해 높이를 축소한다.
-    const below = bottom - b.bottom - MARGIN;
-    const above = b.top - top - MARGIN;
-    if (below >= above) {
-      popH.value = Math.min(420, below);
-      popY.value = b.bottom - r.top + 4;
-    } else {
-      popH.value = Math.min(420, above);
-      popY.value = b.top - r.top - popH.value - 4;
-    }
-  }
+  popBtn = ev.currentTarget as HTMLElement | null;
   openFilterKey.value = col.key;
+  /* **개방하는 시점에 1회 산정한다.** `openFilterColumn` 을 참조하므로 열쇠를
+     먼저 기재한다. */
+  placeFilter();
 }
 
 function applyFilterValues(pick: ValuePick | null, range: NumberRange | null) {
