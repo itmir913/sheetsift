@@ -578,7 +578,7 @@ pub fn build_plain(
     drop(stmt);
     make_indexes(conn, table, indexes)?;
     // 값을 전부 문자로 수용하므로 판독하지 못하는 칸이 발생할 여지가 부재한다.
-    Ok(Made { rows: n, unread: 0, columns: header })
+    Ok(Made { rows: n, unread: Vec::new(), columns: header })
 }
 
 /// 사전으로 압축하는 표. 문자는 `dict` 에 집약하고 본문에는 정수 id 만 배치한다.
@@ -622,7 +622,8 @@ pub fn build_dict_table(
         .map_err(|e| failed(ErrorCode::SheetTableFailed, e).with("table", table))?;
 
     let mut n = 0usize;
-    let mut unread = 0usize;
+    // 열마다 계수한다. 수 하나로는 **어느 열을 확인해야 하는지** 진술할 수 없다.
+    let mut unread = vec![0usize; plan.map.len()];
     for row in sheet.body() {
         let mut vals: Vec<Value> = Vec::with_capacity(plan.map.len());
         for (i, m) in plan.map.iter().enumerate() {
@@ -642,14 +643,14 @@ pub fn build_dict_table(
                     ValueType::Real => match crate::value::as_real(s) {
                         Some(v) => Value::Real(v),
                         None => {
-                            unread += 1;
+                            unread[i] += 1;
                             Value::Null
                         }
                     },
                     ValueType::Int => match crate::value::as_int(s) {
                         Some(v) => Value::Integer(v),
                         None => {
-                            unread += 1;
+                            unread[i] += 1;
                             Value::Null
                         }
                     },
@@ -665,6 +666,13 @@ pub fn build_dict_table(
 
     // 사전 표는 DB 열 명칭이 헤더와 상이하다. 화면이 사용하는 것은 DB 열 명칭이다.
     let header = plan.map.iter().map(|m| (m.sheet.clone(), m.column.clone())).collect();
+    let unread = plan
+        .map
+        .iter()
+        .zip(unread)
+        .filter(|(_, n)| *n > 0)
+        .map(|(m, n)| (m.column.clone(), n))
+        .collect();
     Ok(Made { rows: n, unread, columns: header })
 }
 
@@ -672,14 +680,18 @@ pub fn build_dict_table(
 #[derive(Debug, Clone)]
 pub struct Made {
     pub rows: usize,
-    /// **수로 판독하지 못해 공백으로 수용한 칸의 수.**
+    /// **수로 판독하지 못해 공백으로 수용한 칸.** (DB 열 명칭, 칸 수) 쌍이고,
+    /// 하나도 부재하는 열은 열거하지 않는다.
     ///
     /// 수치 열(`Real`·`Int`)에 수로 판독되지 않는 문자가 기재되어 있으면 그
     /// 칸은 공백이 된다 — 행은 존치되고 수만 소멸한다. 그것을 반환하지 않으면
-    /// **아무 진술 없이 유력한 수가 산출된다.** 여기서 중단하지 않는 사유는,
-    /// 사람이 기재한 표에 합계 행과 비고가 상존해 중단하면 파일 전체가 개방되지
-    /// 않기 때문이다. 0 이 아니면 부르는 곳이 통지한다.
-    pub unread: usize,
+    /// **아무 진술 없이 유력한 수가 산출된다.**
+    ///
+    /// 여기서 중단하지 않는 사유는, 사람이 기재한 표에 합계 행과 비고가 상존해
+    /// 중단하면 금일 개방되는 파일이 개방되지 않기 때문이다. 대신 **어느 열의 몇
+    /// 칸인지를 반환한다 — 계수하는 것은 통지가 아니다.** 부르는 곳은 이것이
+    /// 공백이 아니면 사람에게 한 행으로 진술해야 한다(`docs/core.md`).
+    pub unread: Vec<(String, usize)>,
     /// (시트 헤더, DB 열 명칭) 쌍. 부르는 곳이 화면 정의를 작성할 때 사용한다.
     pub columns: Vec<(String, String)>,
 }
@@ -887,7 +899,7 @@ mod tests {
         let made = build_dict_table(&conn, &s, &plan, &ids, "-").unwrap();
         let (n, columns) = (made.rows, made.columns);
         assert_eq!(n, 2);
-        assert_eq!(made.unread, 0);
+        assert!(made.unread.is_empty());
         assert_eq!(columns, [("이름".to_string(), "name".to_string()), ("점수".into(), "score".into())]);
 
         let joined: String = conn
@@ -1013,7 +1025,7 @@ mod tests {
         let conn = mem();
         let ids = build_dict(&conn, &[(&plan, &s)], "-").unwrap();
         let made = build_dict_table(&conn, &s, &plan, &ids, "-").unwrap();
-        assert_eq!(made.unread, 0);
+        assert!(made.unread.is_empty());
         let (n, score): (Option<i64>, Option<f64>) =
             conn.query_row("SELECT n, score FROM t", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
         assert_eq!((n, score), (Some(1200), Some(1234.5)));
@@ -1048,7 +1060,7 @@ mod tests {
         let s = sheet(&[&["점수"], &["90"], &["NaN"], &["inf"], &["-inf"], &["1e5"]]);
         let conn = mem();
         let made = build_dict_table(&conn, &s, &plan, &HashMap::new(), "-").unwrap();
-        assert_eq!(made.unread, 4);
+        assert_eq!(made.unread, [("score".to_string(), 4)]);
         let got: Vec<Option<f64>> = conn
             .prepare("SELECT score FROM t")
             .unwrap()
@@ -1077,7 +1089,7 @@ mod tests {
         let conn = mem();
         let made = build_dict_table(&conn, &s, &plan, &HashMap::new(), "-").unwrap();
         assert_eq!(made.rows, 5);
-        assert_eq!(made.unread, 2);
+        assert_eq!(made.unread, [("score".to_string(), 2)]);
     }
 
     /// **정수 열이 반올림도 포화도 수행하지 않는다.** 조용히 상이한 수가
@@ -1096,7 +1108,7 @@ mod tests {
         let s = sheet(&[&["값"], &["2.5"], &["99999999999999999999999"], &["7"]]);
         let conn = mem();
         let made = build_dict_table(&conn, &s, &plan, &HashMap::new(), "-").unwrap();
-        assert_eq!(made.unread, 2);
+        assert_eq!(made.unread, [("v".to_string(), 2)]);
         let got: Vec<Option<i64>> = conn
             .prepare("SELECT v FROM t")
             .unwrap()

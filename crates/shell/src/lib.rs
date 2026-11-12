@@ -484,6 +484,19 @@ impl Viewer {
         let made = sheet::build(&conn, &[(plan, body)], BLANK)?;
         let built = &made["t"];
 
+        /* **판독하지 못한 칸을 묵시적으로 경과시키지 않는다.** 겹은 값을 전부
+           문자로 수용하는 정의를 기재하므로(`map` 이 공백이다) 여기 계수가 도달할
+           여지가 부재하다. 도달한다면 그 정의가 변경된 것이고, 그때는 어느 열의
+           몇 칸이 공백이 되었는지를 사람에게 진술해야 한다 — 행은 존치되고 수만
+           소멸하는 상태가 조용히 경과하는 쪽이 더 불리하다. */
+        if let Some((column, cells)) = built.unread.first() {
+            return Err(Error::new(ErrorCode::SheetTableFailed)
+                .with("sheet", &tab.name)
+                .with("column", column)
+                .with("cells", cells)
+                .detail("cells in a number column could not be read as numbers"));
+        }
+
         // **목록이 제공한 열쇠와 표에 생성된 열쇠가 일치해야 한다.** 상이하면
         // 화면이 보유한 열쇠로 정렬·필터가 전부 "해당 열 부재" 가 되거나, 더
         // 불리하게는 **타 열에 적용된다.**

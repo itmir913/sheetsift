@@ -65,6 +65,41 @@ the values in the data.** The single statement that extracts data to bytes is
 `sheet::serialize` — an application that ships no such feature has to verify in
 **its own** tests that it never calls it; that cannot be blocked from here.
 
+## One judgement, one reader
+
+What counts as a number, what counts as blank, and how a cell's text becomes a
+number all live in `core::value` — once each, with the SQL mirrors beside them.
+`infer`, `sheet` and `grid` call those; none of them has its own copy. Tests
+compare each Rust predicate against its SQL mirror over generated inputs, so a
+change to one that forgets the other stops the gate.
+
+The rule is the query engine's, not `f64::parse`'s. `1,200` is a number;
+`1,2,3`, `1e5`, `NaN` and `inf` are text. `as_real` / `as_int` only read what
+the predicate accepts, and `as_int` refuses to round or saturate.
+
+### `Made::unread` is a warning you have to pass on
+
+`sheet::build` returns a `Made` per table. Its `unread` lists `(column, cells)`
+for every number column holding text the predicate rejects: that cell becomes
+`NULL`, so the row stays and only the number is gone. **Counting is not
+warning** — if `unread` is not empty, say so to the person making the file, in
+one line naming the columns and the cell counts. Nothing in `core` can do that:
+it holds no human-readable text, by the rule above.
+
+The viewer in this repository declares an all-text plan, so `unread` cannot be
+non-empty there; `crates/shell` stops with `SheetTableFailed` if it ever is,
+rather than letting it pass.
+
+### Column names that shadow the rowid
+
+Paging is ordered with a unique tail — the base table's `rowid` — because
+without one, stitching pages by `offset` can repeat one row and drop another
+while the count still matches. In SQLite an explicit column named `rowid`,
+`_rowid_` or `oid` shadows the real one, so `sanitize` prefixes an underscore to
+such a header, `sheet::build` rejects a `TablePlan` that names a column that
+way, and `grid` stops if a column definition does. `sheet::shadows_rowid` is the
+predicate.
+
 ## `.sift`
 
 The on-disk format for an already-converted sheet. The payload is exactly the
