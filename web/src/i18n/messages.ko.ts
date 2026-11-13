@@ -26,27 +26,27 @@ export const errors: Record<ErrorCode, string> = {
   SHEET_UNREADABLE: "'{sheet}' 시트를 읽지 못했습니다.",
   SHEET_EMPTY: "'{sheet}' 시트에서 헤더가 있는 행을 찾지 못했습니다.",
   SHEET_COLUMN_MISSING: "'{sheet}' 시트의 열을 맞추지 못했습니다.",
-  SHEET_TABLE_FAILED: "읽어 온 자료를 표로 바꾸지 못했습니다.",
+  SHEET_TABLE_FAILED: "읽어 온 데이터를 표로 바꾸지 못했습니다.",
   SHEET_TOO_WIDE:
     "이 시트는 열이 {columns}개로, 열어 볼 수 있는 {limit}개를 초과합니다.",
   SHEET_ENCODING_UNKNOWN:
     "csv 의 문자 인코딩을 알 수 없습니다. UTF-8 또는 CP949 로 저장해 주십시오.",
-  SHEET_SERIALIZE_FAILED: "자료를 내보내지 못했습니다.",
+  SHEET_SERIALIZE_FAILED: "데이터를 내보내지 못했습니다.",
 
   // 하기는 이 화면이 발생시키지 않는 코드다. 봉인한 파일을 개방하거나 기록하는
   // 위치가 부재한다. 그래도 공백으로 두지 않는다 — 공백이면 그 시점에 코드가
   // 그대로 화면에 표시된다.
-  DATA_SEAL_INVALID: "봉인된 자료를 열지 못했습니다.",
-  DATA_SIGNATURE_INVALID: "자료의 서명이 맞지 않습니다.",
-  DATA_CONTAINER_UNKNOWN: "알 수 없는 형식의 자료입니다.",
+  DATA_SEAL_INVALID: "봉인된 데이터를 열지 못했습니다.",
+  DATA_SIGNATURE_INVALID: "데이터의 서명이 맞지 않습니다.",
+  DATA_CONTAINER_UNKNOWN: "알 수 없는 형식의 데이터입니다.",
   VAULT_OPEN_FAILED: "보관함을 열지 못했습니다.",
   VAULT_FORMAT_INVALID: "보관함의 형식이 맞지 않습니다.",
   VAULT_PASSWORD_WRONG: "비밀번호가 맞지 않습니다.",
   VAULT_PASSWORD_TOO_SHORT: "비밀번호가 너무 짧습니다.",
-  VAULT_VERSION_TOO_NEW: "이 화면이 알지 못하는 판의 보관함입니다.",
+  VAULT_VERSION_TOO_NEW: "이 화면이 알지 못하는 버전의 보관함입니다.",
   VAULT_CONTAINER_UNKNOWN: "알 수 없는 형식의 보관함입니다.",
   VAULT_FILE_DAMAGED: "보관함 파일이 손상되었습니다.",
-  VAULT_KEY_DERIVATION_FAILED: "보관함의 열쇠를 만들지 못했습니다.",
+  VAULT_KEY_DERIVATION_FAILED: "보관함의 키를 만들지 못했습니다.",
   VAULT_SEAL_FAILED: "보관함을 봉인하지 못했습니다.",
   // 하기 셋은 데스크톱 껍질만 발생시킨다. 브라우저에는 경로가 부재한다.
   FILE_READ_FAILED: "'{name}' 파일을 읽지 못했습니다. 파일이 있는지 확인해 주십시오.",
@@ -60,7 +60,7 @@ export const errors: Record<ErrorCode, string> = {
   SIFT_FORMAT_INVALID: "`.sift` 파일의 형식이 맞지 않습니다.",
   SIFT_SCHEMA_UNEXPECTED: "`.sift` 파일의 내용이 이 앱이 만든 구조가 아닙니다.",
   SIFT_META_INVALID: "`.sift` 파일에 담긴 열 정보를 읽지 못했습니다.",
-  SIFT_VERSION_TOO_NEW: "이 화면이 알지 못하는 판의 `.sift` 파일입니다.",
+  SIFT_VERSION_TOO_NEW: "이 화면이 알지 못하는 버전의 `.sift` 파일입니다.",
 };
 
 /**
