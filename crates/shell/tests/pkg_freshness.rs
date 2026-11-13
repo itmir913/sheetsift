@@ -12,6 +12,11 @@
 //! 것이 아니다. 그래서 **보전 대상을 탐색하지 못하면 통과가 아니라 실패고**,
 //! 의도적으로 훼손한 입력으로 실제 차단하는지 함께 판정한다.
 //!
+//! **창의 빌드에는 장착하지 않는다.** 창은 `book.tauri.ts` 를 경유해 wasm 을
+//! 적재하지 않으므로 `web/pkg` 가 부재하는 것이 정상인데, 관문을 모드 무관하게
+//! 장착한 판이 굽기를 정지시킨 사례가 있다. 그래서 적재하는 겹을 선택하는 기(旗)
+//! 하나가 양측을 결정하는지를 함께 판정한다 — 갈리면 한쪽만 수정된다.
+//!
 //! 그리고 열거 방향이 한 가지 더 있다. `stalePkg.ts` 는 wasm 묶음에 유입되지
 //! **않는** 상자를 열거한다(`OUTSIDE`) — 유입되는 쪽을 열거하면 상자가 하나
 //! 증가할 때 묵시적으로 산정에서 누락되고, 그 상자를 수정한 사람은 아무 경고
@@ -39,6 +44,33 @@ fn mounted(vite: &str) -> bool {
     let Some(at) = vite.find("plugins:") else { return false };
     let line_end = vite[at..].find('\n').map_or(vite.len(), |n| at + n);
     vite[at..line_end].contains(MOUNT)
+}
+
+/// `plugins:` 의 한 행. 관문의 장착을 판정하는 유일한 자리다.
+fn plugins_line(vite: &str) -> Option<&str> {
+    let at = vite.find("plugins:")?;
+    let end = vite[at..].find('\n').map_or(vite.len(), |n| at + n);
+    Some(&vite[at..end])
+}
+
+/// `mode !== "tauri"` 로 정의된 기(旗)의 명칭. 부재하면 None 이다.
+fn window_flag(vite: &str) -> Option<&str> {
+    let at = vite.find("= mode !== \"tauri\"")?;
+    vite[..at].trim_end().rsplit(' ').next()
+}
+
+/// 창의 빌드에서 관문이 **제외되는가.** 관문의 장착이 그 기에 종속되어야 한다.
+fn skipped_for_the_window(vite: &str) -> bool {
+    let (Some(flag), Some(line)) = (window_flag(vite), plugins_line(vite)) else { return false };
+    line.contains(MOUNT) && line.contains(&format!("{flag} ?"))
+}
+
+/// 적재하는 겹의 선택이 **동일한 기**를 참조하는가. 갈리면 한쪽만 수정된다.
+fn book_follows_the_same_flag(vite: &str) -> bool {
+    let Some(flag) = window_flag(vite) else { return false };
+    let Some(at) = vite.find("book.${") else { return false };
+    let end = vite[at..].find('\n').map_or(vite.len(), |n| at + n);
+    vite[at..end].contains(flag)
 }
 
 /// 낡았을 때 **정지하는가.** 기록만 하면 기동 로그에 섞여 판독되지 않는다.
@@ -101,6 +133,20 @@ fn the_guard_is_mounted_on_vite() {
     assert!(mounted(VITE), "vite.config.ts 의 plugins 에 {MOUNT} 가 부재합니다");
 }
 
+/// 창의 빌드는 wasm 을 적재하지 않는다. 관문이 그 모드에서 제외되어야 한다 —
+/// 장착하면 적재되지 않는 산출물의 부재로 **굽기가 정지한다.**
+#[test]
+fn the_guard_is_skipped_for_the_window() {
+    assert!(
+        skipped_for_the_window(VITE),
+        "관문의 장착이 tauri 모드의 기에 종속되지 않습니다. 창의 빌드가 정지합니다"
+    );
+    assert!(
+        book_follows_the_same_flag(VITE),
+        "관문과 적재하는 겹의 선택이 상이한 조건을 참조합니다"
+    );
+}
+
 #[test]
 fn the_guard_stops_instead_of_logging() {
     assert!(stops(STALE), "낡은 산출물을 정지가 아니라 기록으로 처리하고 있습니다");
@@ -140,6 +186,20 @@ fn the_guard_measures_what_the_screen_loads() {
 fn a_damaged_source_is_caught() {
     assert!(!mounted("  plugins: [vue(), tailwindcss()],"), "관문이 부재한데 통과했습니다");
     assert!(!mounted(&VITE.replace(MOUNT, "noop(")), "개칭된 관문을 장착으로 판정했습니다");
+    assert!(
+        !skipped_for_the_window("  plugins: [freshPkg(root), vue()],"),
+        "모드 무관하게 장착한 판을 제외로 판정했습니다"
+    );
+    assert!(
+        !skipped_for_the_window(&VITE.replace("mode !== \"tauri\"", "true")),
+        "기의 정의가 부재한데 통과했습니다"
+    );
+    assert!(
+        !book_follows_the_same_flag(
+            &VITE.replace("${wasm ? \"wasm\" : \"tauri\"}", "${mode === \"tauri\" ? \"tauri\" : \"other\"}"),
+        ),
+        "상이한 조건을 참조하는데 동일하게 판정했습니다"
+    );
     assert!(
         !stops("    buildStart() {\n      if (stalePkg(root)) console.warn(\"stale\");\n    },"),
         "기록만 하는데 정지로 판정했습니다"

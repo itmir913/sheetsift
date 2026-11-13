@@ -12,28 +12,35 @@ import { freshPkg } from "./stalePkg.ts";
 // (`crates/tauri/tauri.conf.json` 의 `beforeDevCommand`·`beforeBuildCommand`).
 // 환경 변수가 아니라 모드인 사유는 **운영체제마다 부여하는 방법이 상이하지
 // 않아서**다 — 명령 하나가 윈도와 리눅스에서 동일하게 작동한다.
-export default defineConfig(({ mode }) => ({
-  // **낡은 wasm 으로 기동하지 않는다.** `web/pkg` 가 `crates/` 보다 낡으면
-  // 정지한다(`stalePkg.ts`) — 화면만 수정하는 날에는 보이지 않다가 엔진을
-  // 수정한 날에만 묵시적으로 구 엔진의 결과를 제시하는 자리다.
-  plugins: [freshPkg(fileURLToPath(new URL("..", import.meta.url))), vue(), tailwindcss()],
-  resolve: {
-    alias: {
-      "@": fileURLToPath(new URL("./src", import.meta.url)),
-      // 컴파일한 wasm 겹. `docs/wasm.md` 의 2행이 여기에 산출한다 — 저장소에는
-      // 수용하지 않으므로, 컴파일하지 않은 상태로 빌드하면 즉시 정지한다.
-      "sheetsift-wasm": fileURLToPath(new URL("./pkg/sheetsift_wasm.js", import.meta.url)),
-      "sheetsift-book": fileURLToPath(
-        new URL(`./src/lib/book.${mode === "tauri" ? "tauri" : "wasm"}.ts`, import.meta.url),
-      ),
+export default defineConfig(({ mode }) => {
+  // 창은 `book.tauri.ts` 를 경유해 **wasm 을 적재하지 않는다.** 그래서 창의
+  // 빌드에는 `web/pkg` 가 부재하는 것이 정상이고(굽는 잡은 `npm run pkg` 를
+  // 선행하지 않는다), 아래의 관문도 그 모드에서는 장착하지 않는다 — 장착하면
+  // 적재되지 않는 산출물의 부재로 굽기가 정지한다(실측).
+  const wasm = mode !== "tauri";
+  return {
+    // **낡은 wasm 으로 기동하지 않는다.** `web/pkg` 가 `crates/` 보다 낡으면
+    // 정지한다(`stalePkg.ts`) — 화면만 수정하는 날에는 보이지 않다가 엔진을
+    // 수정한 날에만 묵시적으로 구 엔진의 결과를 제시하는 자리다.
+    plugins: [...(wasm ? [freshPkg(fileURLToPath(new URL("..", import.meta.url)))] : []), vue(), tailwindcss()],
+    resolve: {
+      alias: {
+        "@": fileURLToPath(new URL("./src", import.meta.url)),
+        // 컴파일한 wasm 겹. `docs/wasm.md` 의 2행이 여기에 산출한다 — 저장소에는
+        // 수용하지 않으므로, 컴파일하지 않은 상태로 빌드하면 즉시 정지한다.
+        "sheetsift-wasm": fileURLToPath(new URL("./pkg/sheetsift_wasm.js", import.meta.url)),
+        "sheetsift-book": fileURLToPath(
+          new URL(`./src/lib/book.${wasm ? "wasm" : "tauri"}.ts`, import.meta.url),
+        ),
+      },
     },
-  },
-  // Pages 는 저장소 명칭이 부착된 위치에 배포된다. 절대 경로로 컴파일하면 그
-  // 위치에서 404 가 되고, 배포는 정상적으로 성공한다 — 상대 경로로 컴파일한다.
-  base: "./",
-  build: {
-    outDir: "dist",
-    emptyOutDir: true,
-    target: "chrome120",
-  },
-}));
+    // Pages 는 저장소 명칭이 부착된 위치에 배포된다. 절대 경로로 컴파일하면 그
+    // 위치에서 404 가 되고, 배포는 정상적으로 성공한다 — 상대 경로로 컴파일한다.
+    base: "./",
+    build: {
+      outDir: "dist",
+      emptyOutDir: true,
+      target: "chrome120",
+    },
+  };
+});
