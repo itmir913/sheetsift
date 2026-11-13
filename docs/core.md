@@ -87,6 +87,14 @@ values happen to arrive trimmed. `value::is_blank_sql`, `value::trim_sql`,
 `crates/core/tests/embedding.rs` lives outside the crate, so making any of them
 private again stops the gate.
 
+The sort key is exported the same way: `grid::order_sql(&Place, blank, numeric, dir)`
+is the one spelling of `{blank} ASC, {expr} {dir}`, and the engine's own
+`ORDER BY` and index definition go through it (a numeric column adds the
+not-a-number key before the cast one). It repeats the expression — three times
+for the blank test, about twenty for a numeric column — so a `Place` carrying
+bindings comes back with the bindings repeated in order. Wrap such an expression
+in an inner query that computes the key once.
+
 ### A `real` column only holds what reads back as a number
 
 SQLite writes an extreme `real` back as text in exponent form (`1.0e+17`), and

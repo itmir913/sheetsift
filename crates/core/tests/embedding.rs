@@ -209,3 +209,11 @@ fn an_embedding_app_can_filter_a_column_that_is_a_correlated_subquery() {
         cells.iter().filter(|(_, v)| m.row(&[v])).map(|(n, _)| n.to_string()).collect();
     assert_eq!(got, by_row);
 }
+
+/// 정렬 열쇠의 정본을 밖에서 호출할 수 있다. 반출을 되돌리면 이 파일이 컴파일되지 않는다.
+#[test]
+fn an_embedding_app_can_ask_for_the_engines_order_key() {
+    let (sql, binds) = grid::order_sql(&grid::Place::of("x"), "-", true, grid::SortDir::Asc);
+    assert!(!sql.is_empty());
+    assert!(binds.is_empty());
+}

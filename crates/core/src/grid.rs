@@ -1097,6 +1097,47 @@ fn build_where(
     Ok(m.where_sql_on(table))
 }
 
+/// 정렬 열쇠 하나를 SQL 글자와 그 바인딩으로. **엔진의 `ORDER BY` 와 색인 정의와
+/// 받는 앱의 미리보기가 같은 규칙을 지나게 하는 정본이다.**
+///
+/// 글자는 `{빈칸} ASC, {식} {방향}` 이다. 값 부재는 방향과 무관하게 항상 후위에
+/// 두고(무엇이 부재인지는 자료가 결정한다), 방향은 **마지막 열쇠에만** 붙는다.
+/// 사전 열(`at.dict`)은 식 자체가 가나다순이라 `numeric` 보다 먼저 보고 식을
+/// 그대로 쓴다. 그 밖에 `numeric` 이면 수가 아닌 값을 수 뒤로 보내고 수치로
+/// 비교한다.
+///
+/// **이 글자는 색인 이름의 지문이다.** 한 자라도 달라지면 정렬 색인이 조용히
+/// 쓰이지 않으므로 이 함수 밖에서 같은 열쇠를 다시 적지 않는다.
+///
+/// **식이 여러 번 나온다.** 빈칸 판정 하나가 식을 셋 쓰고, 수치 열의 열쇠는 식을
+/// **스무 번쯤** 쓴다 — 수 판정이 GLOB 무늬를 열 몇 개 늘어놓고 그 하나하나가
+/// 식을 다시 쓰기 때문이다.
+/// 그래서 `at.params` 도 식이 나온 횟수만큼 글자 차례대로 불어나 돌아온다
+/// (`splice`). 정렬 열쇠에는 조건 값이 없으므로 그 밖의 바인딩은 없다.
+///
+/// **부르는 쪽이 식에 값을 물고 있으면(`at.params` 가 비지 않으면) 열쇠 값을
+/// 한 번만 산출하는 안쪽 질의로 감싸야 한다.** 그러지 않으면 같은 상관 부질의가
+/// 행마다 **스무 번쯤**(문자 열은 세 번) 되풀이되어 느리고, 바인딩 수가 늘어난
+/// 것을 놓치면 SQLite 는
+/// 서지 않고 조건이 다른 값으로 적용된다. 엔진 자신의 `run` 이 `_sheetsift_rid`
+/// 로 그렇게 한다.
+pub fn order_sql(at: &Place, blank: &str, numeric: bool, dir: SortDir) -> (String, Vec<String>) {
+    let dir = match dir {
+        SortDir::Asc => "ASC",
+        SortDir::Desc => "DESC",
+    };
+    let base = MARK.to_string();
+    let missing = format!("{} ASC", is_blank_sql(&base, blank));
+    let expr = if at.dict {
+        base.clone()
+    } else if numeric {
+        format!("{}, {}", not_a_number_sql(&base), number_sql(&base))
+    } else {
+        base.clone()
+    };
+    splice(&format!("{missing}, {expr} {dir}"), at, &[])
+}
+
 /// 정렬 열쇠를 열 순서대로. 배열 순서가 그대로 정렬 우선순위(1순위, 2순위, …)다.
 /// 사전 인코딩 열은 id 자체가 가나다순이라 조인 없이 정수 정렬로 완결된다.
 ///
@@ -1120,22 +1161,17 @@ fn order_keys(
         if !col.sortable {
             return Err(bad_column(ErrorCode::InvalidSortKey, table, &s.key, "a sort was given for a column that cannot be sorted"));
         }
-        let dir = match s.dir {
-            SortDir::Asc => "ASC",
-            SortDir::Desc => "DESC",
+        let at = Place {
+            expr: if qualified { col.base_ref() } else { col.plain_ref() },
+            params: Vec::new(),
+            dict: col.dict,
         };
-        let base = if qualified { col.base_ref() } else { col.plain_ref() };
-        // 값 부재는 방향과 무관하게 항상 후위로 배치한다. 무엇이 부재인지는 자료가 결정한다.
-        let missing = format!("{} ASC", is_blank_sql(&base, blank));
-        let expr = if col.dict {
-            // 사전 열은 정수 id 그대로 (가나다순).
-            base.clone()
-        } else if col.kind == ColumnKind::Number {
-            format!("{}, {}", not_a_number_sql(&base), number_sql(&base))
-        } else {
-            base.clone()
-        };
-        parts.push(format!("{missing}, {expr} {dir}"));
+        // 사전 열은 정수 id 그대로 (가나다순)라 수치 분기로 가지 않는다 — `order_sql` 이 먼저 본다.
+        let numeric = col.kind == ColumnKind::Number;
+        let (key, binds) = order_sql(&at, blank, numeric, s.dir);
+        // 엔진 표의 `Place` 는 바인딩이 없다. 있으면 이 목록이 글자만 모으는 것이 어긋난다.
+        debug_assert!(binds.is_empty(), "엔진 표의 정렬 열쇠에 바인딩이 있다");
+        parts.push(key);
     }
     Ok(parts)
 }
@@ -3143,6 +3179,60 @@ mod tests {
                 assert_eq!(by_sql, by_rust, "{key} {dir:?} 에서 두 순서가 어긋난다");
             }
         }
+    }
+
+    /// **반출한 `order_sql` 이 엔진 자신의 열쇠와 글자 그대로 같다.**
+    ///
+    /// 글자가 곧 색인 이름의 지문이라, 받는 앱의 미리보기가 같은 규칙을 지나는지는
+    /// 순서가 아니라 글자로 지킨다. 같으면 순서의 대조는 위 시험이 이미 지킨다.
+    #[test]
+    fn the_exported_order_key_is_the_engines_own_key_character_for_character() {
+        let (_conn, t, _cells) = agree_fixture();
+        for key in ["name", "city", "score"] {
+            let col = t.column(key).unwrap();
+            for dir in [SortDir::Asc, SortDir::Desc] {
+                for qualified in [true, false] {
+                    let own = order_keys(&t, &[s(key, dir)], BLANK, qualified).unwrap();
+                    let expr = if qualified { col.base_ref() } else { col.plain_ref() };
+                    let at = Place { expr, params: Vec::new(), dict: col.dict };
+                    let (sql, binds) = order_sql(&at, BLANK, col.kind == ColumnKind::Number, dir);
+                    assert_eq!(own, vec![sql], "{key} {dir:?} qualified={qualified}");
+                    assert!(binds.is_empty());
+                }
+            }
+        }
+    }
+
+    /// **식이 바인딩을 물고 있으면 바인딩이 식의 출현 횟수만큼, 글자 차례대로 나온다.**
+    ///
+    /// 어긋나면 SQLite 는 서지 않고 조건이 다른 값으로 적용된다. 그래서 글자의
+    /// `?` 수와 바인딩 수를 센다. 상수 안의 `?` 는 세지 않는다(빈칸 표식을 `?` 로 줬다).
+    #[test]
+    fn a_bound_expression_is_bound_once_per_appearance() {
+        let expr = "(SELECT x FROM y WHERE z = ?)";
+        for numeric in [true, false] {
+            let at = Place { expr: expr.into(), params: vec!["v".into()], dict: false };
+            let (sql, binds) = order_sql(&at, "?", numeric, SortDir::Asc);
+            let appearances = sql.matches(expr).count();
+            assert!(appearances > 1, "{sql}");
+            assert_eq!(binds, vec!["v".to_string(); appearances], "{sql}");
+            // 상수 안의 `?`(빈칸 표식·`GLOB '?*…'`)는 매개변수가 아니다. `''` 는 두 번 뒤집혀 같다.
+            let mut quoted = false;
+            let mut marks = 0;
+            for ch in sql.chars() {
+                match ch {
+                    '\'' => quoted = !quoted,
+                    '?' if !quoted => marks += 1,
+                    _ => {}
+                }
+            }
+            assert_eq!(marks, binds.len(), "{sql}");
+        }
+        // 사전 열은 수치 분기로 가지 않는다 — 식이 그만큼 적게 나온다.
+        let at = Place { expr: expr.into(), params: vec!["v".into()], dict: true };
+        let (sql, binds) = order_sql(&at, "-", true, SortDir::Desc);
+        assert!(!sql.contains("CAST"), "{sql}");
+        assert_eq!(binds.len(), sql.matches(expr).count());
     }
 
     /* ── 행 정렬의 다섯 행 ───────────────────────────────────────
