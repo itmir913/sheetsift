@@ -143,6 +143,8 @@ export const ui: Record<UiKey, string> = {
   "tools.columns.reset.tip": "Put column order and widths back",
   "tools.sorts.clear": "Clear sorting",
   "tools.filters.clear": "Clear filters",
+  "tools.wrap": "Wrap text",
+  "tools.wrap.tip": "Wrap long cell contents to the column width so nothing is cut off",
   "tools.grouping": "Thousands separator",
   "tools.grouping.tip": "Show numbers with separators, as in 1,000",
   "tools.sorts": "Sorting",

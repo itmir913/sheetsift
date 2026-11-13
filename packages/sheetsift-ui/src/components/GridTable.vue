@@ -15,6 +15,7 @@ import ColumnFilter from "./ColumnFilter.vue";
 import { cellText, isBlank, opensRowDetail, own, placePop } from "../lib/grid";
 import { t } from "../lib/inject";
 import { tableFont } from "../composables/useTableFont";
+import { wrap } from "../composables/useWrap";
 import type { ColumnValuesResult, NumberRange, Row, Sort, ValuePick } from "../lib/grid";
 import type { DetailColumn, LaidOutColumn } from "../composables/useColumnLayout";
 
@@ -442,7 +443,15 @@ defineExpose({ close: () => (openFilterKey.value = null) });
 
 <template>
   <div ref="root" class="relative">
-    <div class="dg gx-table" :data-dragging="dragging" :style="gridVars">
+    <!-- `data-wrap` 은 **켠 상태에서만 부착한다**(`undefined` 면 속성 자체가
+         부착되지 않는다) — 끈 표의 묘사가 종전과 바이트 단위로 동일해진다.
+         실제 규칙은 `styles/grid.css` 의 `.dg[data-wrap="true"]` 다. -->
+    <div
+      class="dg gx-table"
+      :data-dragging="dragging"
+      :data-wrap="wrap || undefined"
+      :style="gridVars"
+    >
       <!-- 열 헤더와 열 검색 행. .app-main 기준으로 화면 최상단에 고정된다. -->
       <div class="gx-head">
         <div ref="headEl" class="dg-head">
@@ -541,6 +550,9 @@ defineExpose({ close: () => (openFilterKey.value = null) });
           @pointerdown="onRowPointerDown"
           @click="onRowClick($event, i)"
         >
+          <!-- 가리킬 때의 안내(`data-tip`)는 **줄바꿈을 켠 상태에서 부착하지
+               않는다.** 절단이 부재하므로 중복이고, 가리키는 곳마다 전문이
+               재출현하면 판독을 방해한다. -->
           <div
             v-for="(col, ci) in columns"
             :key="col.key"
@@ -551,7 +563,7 @@ defineExpose({ close: () => (openFilterKey.value = null) });
             :data-pin-last="ci === pinned - 1"
             :data-cvars="cellVars(col) ? '' : undefined"
             :style="cellVars(col)"
-            :data-tip="String(row[col.srcIndex] ?? '')"
+            :data-tip="wrap ? undefined : String(row[col.srcIndex] ?? '')"
           >
             <!-- 셀을 특수하게 묘사해야 하는 화면(가능성 배지 등)만 이 위치를 사용한다. -->
             <slot name="cell" :col="col" :row="row" :value="row[col.srcIndex]">

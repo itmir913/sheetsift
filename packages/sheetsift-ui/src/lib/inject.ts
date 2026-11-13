@@ -135,7 +135,9 @@ export type SharedUiKey =
   | "tools.print.tip"
   | "tools.sort.remove.tip"
   | "tools.sorts"
-  | "tools.sorts.clear";
+  | "tools.sorts.clear"
+  | "tools.wrap"
+  | "tools.wrap.tip";
 
 export type MessageParams = Record<string, string | number>;
 

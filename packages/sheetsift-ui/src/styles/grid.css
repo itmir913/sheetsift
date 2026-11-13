@@ -236,6 +236,55 @@
   color: var(--c-fg-subtle);
 }
 
+/* ── 셀 내용 줄바꿈 ──────────────────────────────────────────
+   `useWrap` 이 보유한 선택이고, `GridTable` 이 자기 뿌리(`.dg`)에만
+   `data-wrap="true"` 를 부착한다. **폭을 측정하는 `.dg-probe` 에는 부착되지
+   않으므로** 열 폭의 자동 산출은 종전대로 1줄 기준이다 — 줄바꿈을 켠 것으로
+   열이 협소해지면 폭을 끄는 수단을 상실한다.
+
+   줄 수에 상한을 두지 않는다. 상한의 효용은 예약 크기를 고정해 측정을 회피하는
+   것인데 이 표에는 측정 경로가 부재하고(행을 창으로 절단하지 않는다), 남는 것은
+   자료의 절단뿐이라 기능의 목적을 자체 부정한다. 사유는 `useWrap.ts` 에 존재한다. */
+.dg[data-wrap="true"] .dg-row {
+  height: auto;
+  min-height: var(--dg-row-h);
+  /* **`auto` 열쇠말을 부여한다.** 1회 묘사될 수 있었던 시점의 실측 높이를
+     브라우저가 기억해 이후의 예약에 사용한다. 미묘사 행은 `--dg-row-h` 로
+     추정되고, 스크롤이 경과하며 추정이 실측으로 교체된다 — 가변 행 높이의
+     하한인 "스크롤 손잡이가 경과 중 변동한다" 는 현상이 남고, 그 이상은 발생하지
+     않는다. 행의 색인을 보유한 가상화기가 부재하므로 위치가 어긋날 경로가 없다. */
+  contain-intrinsic-size: auto var(--dg-total) auto var(--dg-row-h);
+}
+
+.dg[data-wrap="true"] .dg-cell {
+  align-items: flex-start;
+  /* **줄 높이를 여기서 확정하고, 여백을 행 높이에서 역산한다.**
+     바탕이 부여하는 줄 높이(1.625)를 그대로 사용하면 1줄 행이 `--dg-row-h` 를
+     초과해, 줄바꿈을 켜는 것만으로 **전 행이** 높아지고 미묘사 행의 예약값이
+     모든 행에서 과소해진다(손잡이가 체계적으로 짧아진다). 상수를 기재하는 대신
+     역산하므로, `--dg-row-h` 나 글자 크기를 변경해도 1줄 행은 종전 높이를
+     정확히 존치한다. `1px` 은 행의 하단 경계선이고 글자에 비례하지 않는다. */
+  line-height: 1.5;
+  padding-top: calc((var(--dg-row-h) - 1px - 1.5em) / 2);
+  padding-bottom: calc((var(--dg-row-h) - 1px - 1.5em) / 2);
+  /* `normal` 이 아니라 `pre-wrap` 이다 — 자료의 칸에 개행이 존재하면 존치해야
+     한다. `normal` 은 개행을 공백으로 환원한다. */
+  white-space: pre-wrap;
+  /* `overflow` 는 `hidden` 을 **존치한다.** `visible` 로 전환하면 격자 항목의
+     자동 최소 크기 억제가 해제되어 열이 내용에 밀린다. 숨김은 내재 높이의 기여를
+     억제하지 않으므로, `hidden` 에서도 행은 내용에 맞춰 신장한다. */
+  text-overflow: clip;
+  /* 공백이 부재하는 장문(URL·연속 글자)이 열을 돌파하지 않게 한다. */
+  overflow-wrap: anywhere;
+}
+
+/* **숫자는 줄바꿈하지 않는다.** 장수가 행 중간에서 절단되면 판독할 수 없다 —
+   인쇄(`print.css` 의 `td[data-kind="number"]`)가 이미 동일하게 판정한 사안이다. */
+.dg[data-wrap="true"] .dg-cell[data-kind="number"] {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
 /* 아직 수령하지 않은 행 */
 .dg-skeleton {
   width: 60%;

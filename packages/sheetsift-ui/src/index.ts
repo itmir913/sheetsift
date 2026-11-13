@@ -11,6 +11,7 @@
 import { installGrouping } from "./composables/useGrouping";
 import { installTableFont } from "./composables/useTableFont";
 import { installTheme } from "./composables/useTheme";
+import { installWrap } from "./composables/useWrap";
 import {
   provideAppName,
   provideErrors,
@@ -54,7 +55,8 @@ export interface SharedUiOptions {
 }
 
 /**
- * 주입하고, 저장소에 보관된 선택(테마·천 단위 구분·표 글자 크기)을 반영한다.
+ * 주입하고, 저장소에 보관된 선택(테마·천 단위 구분·표 글자 크기·셀 줄바꿈)을
+ * 반영한다.
  *
  * **화면을 장착하기 이전에 호출한다.** 장착 이후에 호출하면 최초 묘사가 기본
  * 테마로 점멸하고, 주입 이전에 묘사된 부품은 정지한다.
@@ -68,5 +70,6 @@ export function installSharedUi(o: SharedUiOptions): void {
   installTheme();
   installTableFont();
   installGrouping();
+  installWrap();
   if (o.shortcuts) installShortcutGuard(o.shortcuts);
 }

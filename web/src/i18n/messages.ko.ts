@@ -171,6 +171,8 @@ export const ui = {
   "tools.columns.reset.tip": "열 순서와 너비를 기본값으로",
   "tools.sorts.clear": "정렬 초기화",
   "tools.filters.clear": "필터 초기화",
+  "tools.wrap": "줄바꿈",
+  "tools.wrap.tip": "긴 칸의 내용을 열 폭에서 줄바꿈해 전부 보여줍니다",
   "tools.grouping": "천 단위 쉼표",
   "tools.grouping.tip": "숫자 칸에 1,000 처럼 쉼표를 넣습니다",
   "tools.sorts": "정렬",

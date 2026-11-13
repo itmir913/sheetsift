@@ -356,7 +356,19 @@ fn ts_font_steps(ts: &str) -> Vec<u32> {
 /// 열 폭이 작은 글자에서 부족해 헤더가 절단된다(14px 에서 실측으로 확인).
 fn rem_in_proportional_rules(css: &str) -> Vec<String> {
     let mut bad = Vec::new();
-    for sel in [".dg-hcell", ".dg-cell", ".dg-fcell", ".dg-sortmark", ".dg-finput", ".dg-fwrap", ".dg-fbtn"] {
+    /* 줄바꿈을 켠 표의 규칙도 산정한다 — 여백이 그쪽에 한 벌 더 존재하므로,
+       열거하지 않으면 그 블록만 수호 밖에 배치된다. */
+    for sel in [
+        ".dg-hcell",
+        ".dg-cell",
+        ".dg-fcell",
+        ".dg-sortmark",
+        ".dg-finput",
+        ".dg-fwrap",
+        ".dg-fbtn",
+        ".dg[data-wrap=\"true\"] .dg-row",
+        ".dg[data-wrap=\"true\"] .dg-cell",
+    ] {
         let head = format!("\n{sel} {{");
         let Some(at) = css.find(&head) else {
             bad.push(format!("{sel}: 규칙을 탐색하지 못했습니다"));
@@ -407,6 +419,84 @@ fn the_check_catches_a_cell_that_stopped_scaling() {
     assert!(bad.iter().any(|b| b.contains("padding: 0.5em 0.625rem")), "{bad:?}");
     /* 규칙을 탐색하지 못한 것도 실패로 센다. */
     assert!(bad.iter().any(|b| b.contains("탐색하지 못했습니다")));
+}
+
+/* ── 표를 전환하는 속성의 두 벌 ─────────────────────────────────── */
+
+const GRID_TABLE_VUE: &str = include_str!("../../../packages/sheetsift-ui/src/components/GridTable.vue");
+
+/// `grid.css` 가 표 전체를 전환하는 데 사용하는 속성 명칭들(`.dg[data-…="true"]`).
+///
+/// 줄바꿈(`data-wrap`)·열을 끄는 중(`data-dragging`)이 그러한 전환이다. 값으로
+/// 분기하는 셀 단위 속성(`[data-kind]`·`[data-pin]`)은 `.dg` 에 부착되지 않으므로
+/// 산정하지 않는다.
+fn css_grid_switches(css: &str) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    for (i, _) in css.match_indices(".dg[data-") {
+        let rest = &css[i + ".dg[".len()..];
+        let Some(name) = rest.split('=').next() else { continue };
+        if name.is_empty() || !name.chars().all(|c| c.is_ascii_lowercase() || c == '-') {
+            continue;
+        }
+        if !found.contains(&name.to_string()) {
+            found.push(name.to_string());
+        }
+    }
+    found.sort();
+    found
+}
+
+/// `GridTable.vue` 가 부착하는 속성 명칭들(`:data-…=`).
+fn vue_bound_attrs(src: &str) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    for (i, _) in src.match_indices(":data-") {
+        let rest = &src[i + 1..];
+        let Some(name) = rest.split('=').next() else { continue };
+        if !name.chars().all(|c| c.is_ascii_lowercase() || c == '-') {
+            continue;
+        }
+        if !found.contains(&name.to_string()) {
+            found.push(name.to_string());
+        }
+    }
+    found.sort();
+    found
+}
+
+/// **표를 전환하는 속성이 화면과 CSS 양측에 존재하는가.**
+///
+/// 두 벌이다 — 한쪽의 명칭을 변경하면 토글은 작동하고 보관도 되는데 표만 변하지
+/// 않는다. 어디에서도 오류가 발생하지 않는 부류라 실행하는 시험이 발견하지 못한다.
+#[test]
+fn every_switch_the_css_reads_is_one_the_screen_attaches() {
+    let switches = css_grid_switches(GRID_CSS);
+    assert!(
+        !switches.is_empty(),
+        "grid.css 에서 `.dg[data-…]` 전환을 탐색하지 못했습니다 — 검사가 실명한 것입니다"
+    );
+    let bound = vue_bound_attrs(GRID_TABLE_VUE);
+    let missing: Vec<&String> = switches.iter().filter(|a| !bound.contains(a)).collect();
+    assert!(
+        missing.is_empty(),
+        "grid.css 가 판독하는 속성을 GridTable.vue 가 부착하지 않습니다: {missing:?} (부착하는 것: {bound:?})"
+    );
+}
+
+#[test]
+fn the_check_catches_a_switch_the_screen_stopped_attaching() {
+    assert_eq!(
+        css_grid_switches(".dg[data-wrap=\"true\"] .dg-row {}
+.dg[data-wrap=\"true\"] .dg-cell {}
+"),
+        ["data-wrap"]
+    );
+    /* 셀 단위 속성은 `.dg` 에 부착되지 않으므로 산정하지 않는다. */
+    assert!(css_grid_switches(".dg-cell[data-kind=\"number\"] {}").is_empty());
+    assert_eq!(vue_bound_attrs("<div :data-wrap=\"wrap || undefined\">"), ["data-wrap"]);
+    /* 명칭이 갈라진 상태를 탐지하는가. */
+    let switches = css_grid_switches(".dg[data-nowrap=\"true\"] .dg-row {}");
+    let bound = vue_bound_attrs("<div :data-wrap=\"wrap\">");
+    assert!(switches.iter().any(|a| !bound.contains(a)));
 }
 
 /* ── 경계의 두 벌 ───────────────────────────────────────────────── */

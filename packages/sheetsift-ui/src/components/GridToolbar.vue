@@ -11,6 +11,7 @@ import { computed, ref, watch } from "vue";
 import ColumnPicker from "./ColumnPicker.vue";
 import { t, tn } from "../lib/inject";
 import { grouping, setGrouping } from "../composables/useGrouping";
+import { setWrap, wrap } from "../composables/useWrap";
 import { TABLE_FONT_STEPS, stepTableFont, tableFont } from "../composables/useTableFont";
 import type { HeaderSpec, Sort } from "../lib/grid";
 import type { LaidOutColumn, PickableColumn } from "../composables/useColumnLayout";
@@ -380,6 +381,14 @@ function labelOf(key: string): string {
           >
             {{ t("tools.filters.clear") }}
           </button>
+
+          <!-- 셀 내용 줄바꿈. 천 단위 구분과 동일한 성질(사람이 선택하는 표시
+               방법)이라 동일한 묶음에 존치한다. 줄 수에 상한이 부재한 사유는
+               `useWrap.ts` 에 기재되어 있다. -->
+          <label class="gx-tool-btn gx-tool-check" :data-tip="t('tools.wrap.tip')">
+            <input type="checkbox" :checked="wrap" @change="setWrap(!wrap)" />
+            {{ t("tools.wrap") }}
+          </label>
 
           <!-- 천 단위 구분. **사람이 선택한다** — 어느 열이 식별자인지 이 앱은
                판정하지 않는다. -->
