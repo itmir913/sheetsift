@@ -385,6 +385,10 @@ pub fn compare_values(a: &str, b: &str, blank: &str, numeric: bool) -> std::cmp:
 /// 선두에 배치하고, 동일한 수치의 표기를 문자로 고정한다. 행의 순서는 공백을
 /// **후위**에 배치하고(방향과 무관하다), 수로 판독되지 않는 값을 수 뒤에 둔다.
 ///
+/// **SQL 은 NULL 과 빈 글자를 같게 본다**(`order_sql` 의 `COALESCE`) — 러스트에는
+/// NULL 이 `""` 로 도착하기 때문이다. **문자 열의 빈칸 상호는 기재된 글자로 견주는
+/// 것이 정본이다**(`what_is_still_equal_is_left_to_excel_order`).
+///
 /// 규칙 — ① 공백은 방향과 무관하게 후위. ② 수치 열이면 수로 판독되지 않는 값이
 /// 방향과 무관하게 수 뒤. ③ 그 다음이 방향을 적용하는 비교다.
 ///
@@ -426,20 +430,40 @@ pub fn compare_sorted(
     }
 }
 
-/// 값 선택 목록의 정렬 열쇠. [`compare_values`] 를 SQL 로 기재한 것이다.
-fn values_order_sql(expr: &str, blank: &str, numeric: bool) -> String {
-    let first = format!("{} DESC", is_blank_sql(expr, blank));
-    if numeric {
+/// 값 선택 목록의 정렬 열쇠를 SQL 글자와 그 바인딩으로. [`compare_values`] 를 SQL
+/// 로 기재한 것이고, **받는 앱이 고유값을 SQL 에서 세우고 자를 수 있게**(`ORDER BY`
+/// 와 `LIMIT` 을 SQL 에 건다) 반출한다 — 반출하지 않으면 전량을 받아 와 러스트로
+/// 세워야 하고 그 순서가 이 규칙과 어긋난다.
+///
+/// 방향이 없다 — 이 목록은 늘 빈칸이 선두인 오름차순이다([`compare_values`]).
+///
+/// **식이 여러 번 나온다.** 수치 열 **37번**(빈칸 3, `not_a_number` 16, 수 판정
+/// 16, 변환 1, 문자 비교 1), 문자 열 **4번**(빈칸 3, 문자 비교 1)이다. 바인딩도
+/// 그만큼 글자 차례대로 불어나 돌아온다. 경고는 [`order_sql`] 의 것과 같다 — **식에
+/// 값을 물고 있으면(`at.params` 가 비지 않으면) 값을 한 번만 산출하는 안쪽 질의로
+/// 감싸 그 열(`v`)을 넘긴다.** 엔진 자신이 `GROUP BY v` 의 결과에 이 열쇠를 건다.
+///
+/// **빈칸 집단 안에서 NULL 과 빈 글자를 접지 않는다 — 접을 필요가 없어서다.**
+/// 목록은 `CAST({식} AS TEXT) AS v … GROUP BY v` 라 NULL 과 `''` 가 **다른
+/// 묶음**으로 남는데, 러스트는 그 둘을 동점으로 보고 **러스트로 세우는 쪽이 SQL 의
+/// 차례에서 출발**하므로 안정 정렬이 그 차례를 그대로 둔다. 그 출발점이 SQL 이
+/// 아니게 되면(러스트에서 먼저 세우면) 이 설명이 깨지고, 그때는 [`order_sql`] 처럼
+/// 접어야 한다.
+pub fn values_order_sql(at: &Place, blank: &str, numeric: bool) -> (String, Vec<String>) {
+    let expr = MARK.to_string();
+    let first = format!("{} DESC", is_blank_sql(&expr, blank));
+    let fragment = if numeric {
         /* **수로 판독되지 않는 값은 변환하지 않는다.** SQLite 의 변환은 판독하지
            못한 문자에서 접두사의 수를 산출하므로(`7점` → 7), 그대로 정렬 열쇠에
            기재하면 그 집단이 **허위의 수로** 정렬된다. 수를 판독하는 문은 하나이고
            (`crate::value::as_real`), 그 문이 판독하지 않는 값에는 수가 부재한다.
            전 행이 NULL 인 열쇠는 순서에 작용하지 않고, 그 집단은 문자순이 된다. */
-        let num = format!("CASE WHEN {} THEN {} END", is_number_sql(expr), number_sql(expr));
-        format!("{first}, {}, {num}, {expr}", not_a_number_sql(expr))
+        let num = format!("CASE WHEN {} THEN {} END", is_number_sql(&expr), number_sql(&expr));
+        format!("{first}, {}, {num}, {expr}", not_a_number_sql(&expr))
     } else {
         format!("{first}, {expr}")
-    }
+    };
+    splice(&fragment, at, &[])
 }
 
 /// 요청이 지시한 열을 사용할 수 없다. **사유마다 코드가 상이하다** — 코드가
@@ -1109,18 +1133,28 @@ fn build_where(
 /// **이 글자는 색인 이름의 지문이다.** 한 자라도 달라지면 정렬 색인이 조용히
 /// 쓰이지 않으므로 이 함수 밖에서 같은 열쇠를 다시 적지 않는다.
 ///
-/// **식이 여러 번 나온다.** 빈칸 판정 하나가 식을 셋 쓰고, 수치 열의 열쇠는 식을
-/// **스무 번쯤** 쓴다 — 수 판정이 GLOB 무늬를 열 몇 개 늘어놓고 그 하나하나가
-/// 식을 다시 쓰기 때문이다.
+/// **빈칸의 NULL 과 빈 글자는 같은 것으로 센다.** 러스트에는 NULL 이 `""` 로
+/// 도착하므로(`compare_sorted`) 둘째 열쇠를 `COALESCE` 로 접는다 — 그러지 않으면
+/// 빈칸 집단 안에서 NULL 과 `''` 가 갈려 `DESC` 에서 `''` 가 NULL 앞에 온다.
+/// **이 `COALESCE` 는 군더더기가 아니다.** 지우면 화면(`ORDER BY`)과 인쇄·내보내기
+/// (`compare_sorted`)가 빈 줄 둘의 앞뒤를 다르게 보이고 오류는 어디에도 나지 않는다.
+/// 빈칸 상호를 어떻게 견주는지는 `compare_sorted` 가 정본이다 — 문자 열은
+/// **기재된 글자**로 견주고(`-`·공백·`""` 는 다른 값이다), 수치 열은 변환이 전부
+/// 0 이라 동점이다(`what_is_still_equal_is_left_to_excel_order`). 사전 열은 빈칸이
+/// 전부 NULL 로 보관되어 접을 것이 없다.
+///
+/// **식이 여러 번 나온다.** 빈칸 판정이 식을 셋 쓰고, 수치 열은 그 위에 수 판정
+/// 열여섯(GLOB 무늬마다 식을 다시 쓴다)과 변환 하나를 쓴다 — **수치 열 20번,
+/// 문자 열 4번**(`order_sql` 의 시험이 이 수를 못 박는다). `COALESCE` 는 기존
+/// 출현을 감쌀 뿐 식을 더하지 않는다.
 /// 그래서 `at.params` 도 식이 나온 횟수만큼 글자 차례대로 불어나 돌아온다
 /// (`splice`). 정렬 열쇠에는 조건 값이 없으므로 그 밖의 바인딩은 없다.
 ///
 /// **부르는 쪽이 식에 값을 물고 있으면(`at.params` 가 비지 않으면) 열쇠 값을
 /// 한 번만 산출하는 안쪽 질의로 감싸야 한다.** 그러지 않으면 같은 상관 부질의가
-/// 행마다 **스무 번쯤**(문자 열은 세 번) 되풀이되어 느리고, 바인딩 수가 늘어난
-/// 것을 놓치면 SQLite 는
-/// 서지 않고 조건이 다른 값으로 적용된다. 엔진 자신의 `run` 이 `_sheetsift_rid`
-/// 로 그렇게 한다.
+/// 행마다 위의 횟수(수치 20, 문자 4)만큼 되풀이되어 느리고, 바인딩 수가 늘어난
+/// 것을 놓치면 SQLite 는 서지 않고 조건이 다른 값으로 적용된다. 엔진 자신의 `run`
+/// 이 `_sheetsift_rid` 로 그렇게 한다.
 pub fn order_sql(at: &Place, blank: &str, numeric: bool, dir: SortDir) -> (String, Vec<String>) {
     let dir = match dir {
         SortDir::Asc => "ASC",
@@ -1131,9 +1165,9 @@ pub fn order_sql(at: &Place, blank: &str, numeric: bool, dir: SortDir) -> (Strin
     let expr = if at.dict {
         base.clone()
     } else if numeric {
-        format!("{}, {}", not_a_number_sql(&base), number_sql(&base))
+        format!("{}, COALESCE({}, 0.0)", not_a_number_sql(&base), number_sql(&base))
     } else {
-        base.clone()
+        format!("COALESCE({base}, '')")
     };
     splice(&format!("{missing}, {expr} {dir}"), at, &[])
 }
@@ -1211,7 +1245,7 @@ fn build_order(table: &dyn Table, sorts: &[Sort], blank: &str, rid: &str) -> Res
 }
 
 /// 정렬 색인의 명칭 접두. 이 접두를 보유한 색인은 여기서 생성한 것이다.
-const SORT_INDEX_PREFIX: &str = "sheetsift_sort_";
+pub(crate) const SORT_INDEX_PREFIX: &str = "sheetsift_sort_";
 
 /// 정렬 색인을 생성할 행 수의 하한.
 ///
@@ -1450,14 +1484,16 @@ pub fn column_values(
             "SELECT {base} AS v, COUNT(*) AS n FROM {table} t{where_sql} GROUP BY v",
             table = table.base(),
         );
-        let order = values_order_sql("d.s", blank, true);
+        let (order, order_binds) = values_order_sql(&Place::of("d.s"), blank, true);
+        debug_assert!(order_binds.is_empty(), "사전 열의 목록 열쇠에 바인딩이 있다");
         format!(
             "SELECT d.s, c.n FROM ({inner}) c LEFT JOIN dict d ON d.id = c.v \
              ORDER BY {order} LIMIT {over}"
         )
     } else {
         // 기준 테이블에서만 GROUP BY 한 뒤, 축소된 목록에만 dict 를 조인한다.
-        let order = values_order_sql("v", blank, numeric);
+        let (order, order_binds) = values_order_sql(&Place::of("v"), blank, numeric);
+        debug_assert!(order_binds.is_empty(), "목록 열쇠에 바인딩이 있다");
         /* **목록이 노출하는 글자는 조건이 비교하는 글자여야 한다.** 보관 유형이
            `REAL` 인 열을 보관된 값으로 반환하면, 이 상자가 환원하는 글자와 조회
            문이 비교하는 글자가 상이해질 수 있다(`1e14` 와 `100000000000000.0`).
@@ -2363,34 +2399,54 @@ mod tests {
     /// 다수인 열에서는 절단이 상이한 항목을 폐기한다.
     #[test]
     fn rust_and_sql_put_the_value_list_in_the_same_order() {
-        let samples = [
+        /* 삽입 차례는 정렬 차례와 무관하다. **러스트로 세우기 전에 SQL 의 결과를
+           쓰지 않고 삽입 차례(뒤섞은 것과 거꾸로 뒤집은 것)에서 세운다** — SQL 의
+           결과를 그대로 다시 세우면 안정 정렬이 그 차례를 보존해 무엇이든 통과한다.
+           NULL 은 러스트에 `""` 로 도착한다. */
+        let samples: Vec<Option<&str>> = [
             "90", "90.0", "85.5", "1,200", "100", "2", "10", "1", "", " ", "-", "7점",
             "총 44850점", "NaN", "inf", "1e5", "1,2,3", "0", "-5", "+5", "가", "나", "100%",
-        ];
+        ]
+        .into_iter()
+        .map(Some)
+        .chain([None, None])
+        .collect();
+        let reversed: Vec<Option<&str>> = samples.iter().rev().copied().collect();
         for numeric in [true, false] {
-            let conn = Connection::open_in_memory().unwrap();
-            conn.execute_batch("CREATE TABLE t(v TEXT);").unwrap();
-            {
-                let mut ins = conn.prepare("INSERT INTO t VALUES (?)").unwrap();
-                for v in samples {
-                    ins.execute([v]).unwrap();
+            for order in [&samples, &reversed] {
+                let conn = Connection::open_in_memory().unwrap();
+                conn.execute_batch("CREATE TABLE t(v TEXT);").unwrap();
+                for v in order {
+                    conn.execute("INSERT INTO t VALUES (?)", [v]).unwrap();
                 }
-            }
-            let sql = format!(
-                "SELECT v FROM t t ORDER BY {}",
-                values_order_sql("v", BLANK, numeric)
-            );
-            let from_sql: Vec<String> = conn
-                .prepare(&sql)
-                .unwrap()
-                .query_map([], |r| r.get(0))
-                .unwrap()
-                .map(|r| r.unwrap())
-                .collect();
+                let (key, binds) = values_order_sql(&Place::of("v"), BLANK, numeric);
+                assert!(binds.is_empty());
+                let sql = format!("SELECT v FROM t t ORDER BY {key}");
+                let from_sql: Vec<String> = conn
+                    .prepare(&sql)
+                    .unwrap()
+                    .query_map([], |r| r.get::<_, Option<String>>(0))
+                    .unwrap()
+                    .map(|r| r.unwrap().unwrap_or_default())
+                    .collect();
 
-            let mut from_rust: Vec<String> = samples.iter().map(|s| (*s).to_string()).collect();
-            from_rust.sort_by(|a, b| compare_values(a, b, BLANK, numeric));
-            assert_eq!(from_sql, from_rust, "numeric={numeric}");
+                let mut from_rust: Vec<String> =
+                    order.iter().map(|s| s.unwrap_or("").to_string()).collect();
+                from_rust.sort_by(|a, b| compare_values(a, b, BLANK, numeric));
+                assert_eq!(from_sql, from_rust, "numeric={numeric}");
+            }
+        }
+    }
+
+    /// **식이 몇 번 펼쳐지는가를 못 박고, 바인딩이 글자 차례대로 따라온다.**
+    /// 바뀌면 `values_order_sql` 의 문서 주석도 함께 고친다.
+    #[test]
+    fn the_value_list_key_spells_the_expression_a_known_number_of_times() {
+        let at = Place { expr: "(SELECT ?)".into(), params: vec!["v".into()], dict: false };
+        for (numeric, times) in [(true, 37), (false, 4)] {
+            let (sql, binds) = values_order_sql(&at, "?", numeric);
+            assert_eq!(binds, vec!["v".to_string(); times], "numeric={numeric}");
+            assert_eq!(sql.matches("(SELECT ?)").count(), times);
         }
     }
 
@@ -3201,6 +3257,63 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// **빈칸의 NULL 과 빈 글자를 SQL 과 `compare_sorted` 가 같은 차례로 센다.**
+    ///
+    /// 러스트에는 NULL 이 `""` 로 도착한다. 삽입 순서를 일부러 뒤섞어, 안정 정렬이
+    /// SQL 의 차례를 그대로 두는 길(거짓 통과)을 막는다.
+    #[test]
+    fn null_and_empty_blanks_come_out_in_the_same_order_in_sql_and_rust() {
+        // (값, NULL 인가) — NULL 과 `''`·`' '`·`'-'` 와 수와 수가 아닌 값을 섞는다.
+        let rows: Vec<Option<&str>> = vec![
+            Some("90"), None, Some(""), Some("가"), None, Some("-"), Some(""), Some("7점"),
+            Some(" "), None, Some("1,200"), Some(""), Some("0"), None, Some("나"), Some("-"),
+        ];
+        for numeric in [true, false] {
+            let conn = Connection::open_in_memory().unwrap();
+            conn.execute_batch("CREATE TABLE rows(v TEXT);").unwrap();
+            for v in &rows {
+                conn.execute("INSERT INTO rows(v) VALUES(?)", [v]).unwrap();
+            }
+            for dir in [SortDir::Asc, SortDir::Desc] {
+                let (key, binds) = order_sql(&Place::of("t.v"), BLANK, numeric, dir);
+                assert!(binds.is_empty());
+                let sql = format!("SELECT rowid FROM rows t ORDER BY {key}, t.rowid ASC");
+                let by_sql: Vec<usize> = conn
+                    .prepare(&sql)
+                    .unwrap()
+                    .query_map([], |r| r.get::<_, i64>(0))
+                    .unwrap()
+                    .map(|r| r.unwrap() as usize - 1)
+                    .collect();
+                let mut by_rust: Vec<usize> = (0..rows.len()).collect();
+                by_rust.sort_by(|i, j| {
+                    compare_sorted(
+                        rows[*i].unwrap_or(""),
+                        rows[*j].unwrap_or(""),
+                        BLANK,
+                        numeric,
+                        dir,
+                    )
+                });
+                assert_eq!(by_sql, by_rust, "numeric={numeric} {dir:?}");
+            }
+        }
+    }
+
+    /// **식이 몇 번 펼쳐지는가를 못 박는다.** 받는 앱이 이 수를 보고 안쪽 질의로
+    /// 감쌀지 정한다 — 바뀌면 `order_sql` 의 문서 주석도 함께 고친다.
+    #[test]
+    fn the_order_key_spells_the_expression_a_known_number_of_times() {
+        let at = Place { expr: "(SELECT ?)".into(), params: vec!["v".into()], dict: false };
+        let times = |numeric, dict| {
+            let at = Place { dict, ..at.clone() };
+            order_sql(&at, BLANK, numeric, SortDir::Asc).1.len()
+        };
+        assert_eq!(times(true, false), 20);
+        assert_eq!(times(false, false), 4);
+        assert_eq!(times(true, true), 4);
     }
 
     /// **식이 바인딩을 물고 있으면 바인딩이 식의 출현 횟수만큼, 글자 차례대로 나온다.**

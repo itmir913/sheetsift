@@ -217,3 +217,11 @@ fn an_embedding_app_can_ask_for_the_engines_order_key() {
     assert!(!sql.is_empty());
     assert!(binds.is_empty());
 }
+
+/// 값 선택 목록의 정렬 열쇠도 밖에서 호출할 수 있다.
+#[test]
+fn an_embedding_app_can_ask_for_the_value_list_order_key() {
+    let (sql, binds) = grid::values_order_sql(&grid::Place::of("v"), "-", true);
+    assert!(!sql.is_empty());
+    assert!(binds.is_empty());
+}

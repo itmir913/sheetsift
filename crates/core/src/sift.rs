@@ -311,7 +311,13 @@ fn copy_into(from: &Connection, to: &Connection) -> Result<()> {
     }
     // 색인은 알맹이를 전부 삽입한 뒤에 생성한다. 삽입과 동시에 생성하면 행마다
     // 색인을 갱신하느라 수 배의 비용이 발생한다.
-    for (_, _, ddl) in sql.iter().filter(|(k, _, _)| k == "index") {
+    /* **정렬 색인은 옮기지 않는다.** 그것은 자료가 아니라 훑어보는 동안의 임시
+       캐시다(`grid::ensure_sort_index`). 봉인한 파일에 박히면 읽기 전용이라 지울
+       수도 새로 만들 수도 없어, 열쇠 글자가 바뀐 판에서는 쓰이지 않는 색인을 싣고
+       다니면서 정렬은 느린 상태가 된다. */
+    for (_, _, ddl) in sql.iter().filter(|(k, n, _)| {
+        k == "index" && !n.starts_with(crate::grid::SORT_INDEX_PREFIX)
+    }) {
         to.execute_batch(ddl).map_err(bad)?;
     }
     Ok(())
@@ -483,6 +489,33 @@ mod tests {
         assert_eq!(read_meta(&conn).unwrap(), meta());
         let rows: u32 = conn.query_row("SELECT count(*) FROM people", [], |r| r.get(0)).unwrap();
         assert_eq!(rows, 2);
+    }
+
+    /// **봉인한 파일에 정렬 색인이 없다.** 그것은 훑어보는 동안의 임시 캐시라 옮기지
+    /// 않는다. 읽기 전용으로 봉인되면 지울 수 없어 죽은 색인으로 남는다.
+    #[test]
+    fn a_sealed_file_carries_no_sort_index() {
+        let built = built();
+        built
+            .execute_batch(&format!(
+                "CREATE INDEX {}0123456789abcdef ON people(name); CREATE INDEX ix_keep ON people(region);",
+                crate::grid::SORT_INDEX_PREFIX
+            ))
+            .unwrap();
+        let conn = open_plain(&seal_plain(&built, &meta()).unwrap()).unwrap();
+        let dead: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name LIKE 'sheetsift_sort_%'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(dead, 0);
+        // 자료의 색인은 그대로 옮겨진다.
+        let kept: i64 = conn
+            .query_row("SELECT count(*) FROM sqlite_master WHERE name = 'ix_keep'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(kept, 1);
     }
 
     /* ── 사본의 노후 여부를 판별한다 ──────────────────────────────── */

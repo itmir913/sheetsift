@@ -90,10 +90,16 @@ private again stops the gate.
 The sort key is exported the same way: `grid::order_sql(&Place, blank, numeric, dir)`
 is the one spelling of `{blank} ASC, {expr} {dir}`, and the engine's own
 `ORDER BY` and index definition go through it (a numeric column adds the
-not-a-number key before the cast one). It repeats the expression — three times
-for the blank test, about twenty for a numeric column — so a `Place` carrying
-bindings comes back with the bindings repeated in order. Wrap such an expression
-in an inner query that computes the key once.
+not-a-number key before the cast one). NULL and the empty string sort as the
+same blank (`COALESCE`), because Rust receives NULL as `""`. It repeats the
+expression — 20 times for a numeric column, 4 for a text one — so a `Place`
+carrying bindings comes back with the bindings repeated in order. Wrap such an
+expression in an inner query that computes the key once.
+
+`grid::values_order_sql(&Place, blank, numeric)` exports the value-list key the
+same way (always ascending, blanks first; 37 repeats numeric, 4 text), so an app
+can `ORDER BY` and `LIMIT` the distinct values in SQL instead of loading them
+all. The same wrapping rule applies.
 
 ### A `real` column only holds what reads back as a number
 
