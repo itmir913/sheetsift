@@ -151,14 +151,20 @@ would have said so. The dmg carries it whole.
 ## Releasing
 
 ```bash
-# Raise the version in crates/tauri/tauri.conf.json, commit it, let the gate
-# pass, and then tag that commit:
-git tag 0.1.0
-git push origin 0.1.0
+# Raise the version in crates/tauri/tauri.conf.json, commit it and tag that
+# commit -- one command, so the tag and the version cannot disagree:
+npm run tag -- patch        # or: minor | major | 0.1.0
+git push origin HEAD 0.1.0
 
 # Nothing has happened yet. Release it:
 gh workflow run publish --ref 0.1.0
 ```
+
+**The version and the tag are one command, not two steps.** They have to be the
+same string, and written by hand one of them was forgotten -- the run then
+stopped and the tag was spent. `npm run tag` refuses a dirty tree, a version
+that does not rise, and a tag that already exists; it does not push, because
+pushing and releasing are still by hand.
 
 **Releasing takes two things, and neither does anything alone.** The workflow has
 to be **run by hand**, and it has to be run **on a tag**.
@@ -194,10 +200,14 @@ finding the one it recorded. Delete and re-cut a tag only while nothing depends
 on it — and a released one has been downloadable, so assume something does. To
 correct a release, raise the version and release again.
 
-`ship` stops if the tag and the version in `tauri.conf.json` are not the same
-string. The version is what every file name is built out of, so a tag that
-disagrees would attach one version's files to another version's release, and
-nothing else would ever say so.
+**The tag is checked against `tauri.conf.json` before anything is built.** The
+`version` job runs right after `tag-only`, and the gate waits for it, so a
+mismatch stops the run while nothing has gone out. It used to be a step in
+`ship`: twenty minutes of gate, screen and two bakes to be told a one-line
+mismatch, with the screen already deployed at a version no release would name.
+The version is what every file name is built out of, so a tag that disagrees
+would attach one version's files to another version's release, and nothing else
+would ever say so.
 
 **One setting lives outside this repository, and it stopped the first release.**
 The `github-pages` environment carries a "deployment branches and tags" rule.

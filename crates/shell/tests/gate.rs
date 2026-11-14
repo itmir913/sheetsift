@@ -965,3 +965,82 @@ fn the_check_catches_a_release_left_as_a_draft() {
     );
     assert!(release_create(doctored, "투입").contains("--draft"));
 }
+
+/* ── 태그와 판이 동일한가 ───────────────────────────────────────── */
+
+/// 태그와 `tauri.conf.json` 의 판을 대조하는 잡.
+const VERSION_JOB: &str = "version";
+
+/// 판이 소재하는 파일. 이 글자가 그 잡에 출현해야 한다.
+const VERSION_FILE: &str = "crates/tauri/tauri.conf.json";
+
+/// **태그와 판을 대조하는 잡이 소재하고, 굽기 전에 작동하는가.**
+///
+/// 1회 `ship` 의 단계였다. 그 잡은 관문·화면·굽기 양측을 대기하므로, 판을
+/// 상승시키지 않은 태그는 **전부 구워진 이후에** 정지했다 — 화면은 어떠한
+/// Release 도 명명하지 않을 판으로 이미 송출된 상태다. 한 행을 판독하는 것은
+/// 비용이 부재하므로, 반출하는 것이 하나도 생성되기 전에 정지시킨다.
+///
+/// 그래서 **관문이 이 잡을 대기한다** — 관문을 대기하는 것이 반출 잡 전부이므로,
+/// 그 한 행으로 굽기와 송출 양측이 이 판정의 하류가 된다.
+#[test]
+fn publishing_refuses_a_tag_that_disagrees_with_the_version() {
+    let block = job(PUBLISH, VERSION_JOB, "`publish.yml`");
+    assert!(
+        block.contains(VERSION_FILE),
+        "`{VERSION_JOB}` 이 `{VERSION_FILE}` 을 판독하지 않습니다 — 검사가 실명한 것입니다"
+    );
+    assert!(
+        block.contains("github.ref_name"),
+        "`{VERSION_JOB}` 이 태그를 판독하지 않습니다 — 검사가 실명한 것입니다"
+    );
+    assert!(
+        block.contains("exit 1"),
+        "`{VERSION_JOB}` 이 정지하지 않습니다 — 생략은 통과로 판독됩니다"
+    );
+    assert!(
+        needs(&block).contains(&TAG_ONLY.to_string()),
+        "`{VERSION_JOB}` 이 `{TAG_ONLY}` 를 대기하지 않습니다"
+    );
+    assert!(
+        needs(&job(PUBLISH, CALL_JOB, "`publish.yml`")).contains(&VERSION_JOB.to_string()),
+        "관문이 `{VERSION_JOB}` 을 대기하지 않습니다 — 판이 불일치해도 전부 구워진 이후에 정지합니다"
+    );
+    // **대조는 한 곳이다.** 두 곳에 기재되면 한쪽만 수정되고, 느슨해지는 쪽이
+    // 통상 게시하는 쪽이다.
+    let times = jobs(PUBLISH)
+        .iter()
+        .filter(|(_, b)| b.contains(VERSION_FILE) && b.contains("github.ref_name"))
+        .count();
+    assert_eq!(times, 1, "태그와 판을 대조하는 위치가 복수입니다");
+}
+
+/// 굽기 이후로 대조를 이동시킨 판을 투입한다.
+#[test]
+fn the_check_catches_a_version_check_that_runs_after_the_bake() {
+    let doctored = concat!(
+        "\njobs:\n",
+        "  tag-only:\n    steps:\n      - run: exit 1\n",
+        "  gate:\n    needs: tag-only\n    uses: ./.github/workflows/gate.yml\n",
+        "  ship:\n    needs: [gate, bake]\n    steps:\n",
+        "      - run: node -p \"require('./crates/tauri/tauri.conf.json').version\"\n",
+        "      - run: echo ${{ github.ref_name }}\n"
+    );
+    assert!(
+        !needs(&job(doctored, CALL_JOB, "투입")).contains(&VERSION_JOB.to_string()),
+        "관문이 대조를 대기하지 않는 것을 포착하지 못했습니다"
+    );
+}
+
+/// 판의 명칭만 기재하고 태그를 판독하지 않는 잡을 투입한다.
+#[test]
+fn the_check_catches_a_version_job_that_never_reads_the_tag() {
+    let doctored = concat!(
+        "\njobs:\n",
+        "  version:\n    needs: tag-only\n    steps:\n",
+        "      - run: node -p \"require('./crates/tauri/tauri.conf.json').version\"\n"
+    );
+    let block = job(doctored, VERSION_JOB, "투입");
+    assert!(block.contains(VERSION_FILE));
+    assert!(!block.contains("github.ref_name"));
+}

@@ -14,11 +14,13 @@
 #   published always has a name. It **fails** rather than skipping: a run that
 #   quietly did nothing is a run you believe published something.
 #
-# What happens, in order: the gate (`gate.yml`, the same file `ci.yml` calls),
-# then the screen and the app side by side, then the release.
+# What happens, in order: the tag is checked against `tauri.conf.json`, then the
+# gate (`gate.yml`, the same file `ci.yml` calls), then the screen and the app
+# side by side, then the release.
 #
-# Tags carry no `v`; they are plain versions (`0.0.0`), and `ship` refuses a tag
-# that disagrees with `tauri.conf.json`.
+# Tags carry no `v`; they are plain versions (`0.0.0`). A tag that disagrees with
+# `tauri.conf.json` stops the run in `version`, **before** anything is built --
+# raise the version and tag the commit in one command with `npm run tag`.
 name: publish
 
 on:
@@ -53,11 +55,48 @@ jobs:
           fi
           echo "releasing $REF_NAME"
 
+  # **The tag and the version have to be the same string.** Every file name the
+  # bake produces is built out of `tauri.conf.json`, so a tag that disagrees
+  # would attach `0.0.0` files to a `0.1.0` release.
+  #
+  # **It is checked here, not where the release is attached.** It used to be a
+  # step in `ship`, which runs after the gate, the screen and both bakes --
+  # twenty minutes to be told a one-line mismatch, with the screen already
+  # deployed at a version no release will name. One line read at the start
+  # costs nothing and stops the run before anything goes out.
+  #
+  # `npm run tag` is the entrance that keeps the two together: it raises the
+  # version, commits it and tags that commit in one command.
+  version:
+    name: Version matches the tag
+    needs: tag-only
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Check the tag against the version
+        run: |
+          version=$(node -p "require('./crates/tauri/tauri.conf.json').version")
+          tag="${{ github.ref_name }}"
+          if [ -z "$version" ]; then
+            echo "::error::could not read the version out of crates/tauri/tauri.conf.json"
+            exit 1
+          fi
+          if [ "$version" != "$tag" ]; then
+            echo "::error::'$tag' is tagged but crates/tauri/tauri.conf.json says $version. Raise the version with 'npm run tag' and tag that commit."
+            exit 1
+          fi
+          echo "version $version"
+
   # **The same gate `ci.yml` runs.** One line, one file, so the release can
   # never be the more forgiving of the two.
   gate:
     name: Gate
-    needs: tag-only
+    needs: [tag-only, version]
     uses: ./.github/workflows/gate.yml
 
   # The screen. A Vite + Vue app in `web/` (see `docs/web.md`); Vite writes it
@@ -373,25 +412,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-
-      # **The tag and the version have to be the same string.** The version is
-      # what every file name above was built out of. A tag that disagrees would
-      # attach `0.0.0` files to a `0.1.0` release and nothing would say so, so
-      # stop here instead.
-      - name: Check the tag against the version
-        run: |
-          version=$(node -p "require('./crates/tauri/tauri.conf.json').version")
-          tag="${{ github.ref_name }}"
-          if [ "$version" != "$tag" ]; then
-            echo "the tag is $tag but crates/tauri/tauri.conf.json says $version" >&2
-            echo "raise the version, commit it, and tag that commit" >&2
-            exit 1
-          fi
-          echo "version $version"
 
       # **The pair, not the same number.** `download-artifact@v8` is what reads
       # what `upload-artifact@v7` wrote; raise one without the other and the
