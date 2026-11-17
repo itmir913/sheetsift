@@ -38,14 +38,25 @@
 .dg-filters,
 .dg-row {
   display: grid;
-  grid-template-columns: var(--dg-cols);
+  /* 말미의 `1fr` 은 **잔여 공간을 수용하는 열**이다. 열 폭의 합이 화면보다 협소할 때
+     그만큼으로 확장되고, 초과할 때는 0 으로 소멸한다(`--dg-total` 이 최소 폭이다).
+     최종 셀이 이 열까지 점유하므로(하기 `:last-child`) 잔여 공간이 최종 열의 일부가
+     된다 — 색을 부여받은 열이 화면 종단에서 절단되어 인식되지 않는다. */
+  grid-template-columns: var(--dg-cols) minmax(0, 1fr);
   /* 열 폭의 합이 화면보다 협소할 때는 **화면 폭까지 확장한다.**
      확장하지 않으면 행은 열 종단에서 정지하는데 머리글 띠(.gx-head)는 화면
-     종단까지 연장되어, 우측에서 표가 2조각으로 분리되어 인식된다. 잔여 공간에는
-     셀이 생성되지 않는다 — 격자 셀은 --dg-cols 가 확정한 것뿐이라 행의 바탕만
-     연장된다. */
+     종단까지 연장되어, 우측에서 표가 2조각으로 분리되어 인식된다. */
   width: max(var(--dg-total), 100%);
   min-width: var(--dg-total);
+}
+
+/* **최종 셀이 잔여 공간까지 점유한다.** 머리·검색 칸·본문이 동일하게 점유해야 한다 —
+   한쪽만 확장하면 그 행의 글자만 우측으로 이동해 상하가 정렬되지 않는다.
+   잔여 공간이 0 일 때(열이 화면을 초과할 때)는 확장이 무의미하므로 변동이 없다. */
+.dg-head > .dg-hcell:last-child,
+.dg-filters > .dg-fcell:last-child,
+.dg-row > .dg-cell:last-child {
+  grid-column: span 2;
 }
 
 /* ── 열 머리글 ── */
