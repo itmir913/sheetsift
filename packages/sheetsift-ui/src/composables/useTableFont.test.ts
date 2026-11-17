@@ -38,10 +38,11 @@ describe("useTableFont", () => {
   it("moves one step at a time and stops at both ends", async () => {
     const m = await fresh();
     m.installTableFont();
-    for (let i = 0; i < 10; i += 1) m.stepTableFont(1);
-    expect(m.tableFont.value).toBe(22);
-    for (let i = 0; i < 10; i += 1) m.stepTableFont(-1);
-    expect(m.tableFont.value).toBe(14);
+    const steps = m.TABLE_FONT_STEPS;
+    for (let i = 0; i < steps.length + 5; i += 1) m.stepTableFont(1);
+    expect(m.tableFont.value).toBe(steps[steps.length - 1]);
+    for (let i = 0; i < steps.length + 5; i += 1) m.stepTableFont(-1);
+    expect(m.tableFont.value).toBe(steps[0]);
   });
 
   it("writes the choice under <prefix>.fontSize and reads it on the next install", async () => {
