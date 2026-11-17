@@ -3,14 +3,14 @@ import { ref } from "vue";
 import { storageKey } from "../lib/inject";
 
 /**
- * 표의 글자 크기(px). 단계는 이 다섯뿐이다.
+ * 표의 글자 크기(px). 단계는 이 여덟뿐이다.
  *
  * 연속값이 아니라 단계로 배치한 사유: 열 폭·행 높이가 이 값에 비례하므로 임의의
  * 값을 허용하면 사용자마다 상이한 표를 열람하게 되고, 화면을 설명하는 문장("16px 로
- * 열람하면 …")이 성립하지 않는다. 다섯 단계면 어느 화면을 지칭해도 상대가 동일한
+ * 열람하면 …")이 성립하지 않는다. 여덟 단계면 어느 화면을 지칭해도 상대가 동일한
  * 표를 열람한다.
  */
-export const TABLE_FONT_STEPS = [14, 16, 18, 20, 22] as const;
+export const TABLE_FONT_STEPS = [8, 10, 12, 14, 16, 18, 20, 22] as const;
 
 export type TableFontPx = (typeof TABLE_FONT_STEPS)[number];
 
