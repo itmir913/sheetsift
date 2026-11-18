@@ -162,6 +162,12 @@
   width: max-content;
 }
 
+/* 폭 측정용 헤더는 **가장 굵은 굵기(600)로 측정한다.** 일반 헤더는 500, 색을 부여한 헤더(`header-tint.css`)는 600 이다.
+   500 으로 측정하면 색을 부여한 열의 제목이 측정 폭보다 넓어져 절단된다. */
+.dg-probe .dg-hcell {
+  font-weight: 600;
+}
+
 /* ── 필터 행 ── */
 .dg-filters {
   border-bottom: 1px solid var(--c-glass-edge, var(--c-border));

@@ -174,6 +174,61 @@ fn color_values(name: &str, src: &str) -> Vec<String> {
             }
         }
     }
+    found.extend(color_mix_leaks(&body));
+    found
+}
+
+/// `color-mix(` 의 재료가 토큰(`var(--…)`)·`transparent`·`in srgb`·백분율뿐인가. **이름 있는 색**
+/// (`white`, `black`, `red` …)이 재료로 섞이면 `tokens.css` 밖에 색 값이 새는 것이다.
+/// 선언의 괄호를 맞춰 읽고, `var(…)` 를 걷어 낸 뒤 남는 낱말을 본다.
+fn color_mix_leaks(body: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    for (at, _) in body.match_indices("color-mix(") {
+        let start = at + "color-mix(".len();
+        let mut depth = 1;
+        let mut end = start;
+        for (i, c) in body[start..].char_indices() {
+            match c {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = start + i;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let inner = &body[start..end];
+        // `var(--이름)` 과 `var(--이름, 기본값)` 을 걷어 낸다. 기본값 안의 `var(…)` 도 같은 방법으로 걷힌다.
+        let mut rest = inner.to_string();
+        while let Some(v) = rest.find("var(") {
+            let mut d = 0;
+            let mut stop = rest.len();
+            for (i, c) in rest[v..].char_indices() {
+                match c {
+                    '(' => d += 1,
+                    ')' => {
+                        d -= 1;
+                        if d == 0 {
+                            stop = v + i + 1;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            rest.replace_range(v..stop, " ");
+        }
+        for word in rest.split(|c: char| !(c.is_ascii_alphanumeric() || c == '%' || c == '.' || c == '-')) {
+            let numeric = word.trim_end_matches('%').parse::<f64>().is_ok();
+            if word.is_empty() || numeric || ["in", "srgb", "transparent"].contains(&word) {
+                continue;
+            }
+            found.push(format!("color-mix({inner}) 의 재료 `{word}`"));
+        }
+    }
     found
 }
 
@@ -375,4 +430,14 @@ fn the_check_catches_exports_that_drifted() {
     let expected: Vec<(String, String)> =
         exports(&ui).iter().map(|(k, v)| (k.clone(), v.replacen("./", "./packages/sheetsift-ui/", 1))).collect();
     assert_ne!(exports(&root), expected);
+}
+
+/// **`color-mix(` 에 이름 있는 색을 재료로 섞으면 잡는가.** 토큰만 섞은 것은 통과한다.
+#[test]
+fn a_named_colour_inside_color_mix_is_caught() {
+    let ok = "a { background: color-mix(in srgb, var(--c-surface-sunken) 92%, transparent); }\n\
+              b { color: color-mix(in srgb, var(--ht-color) 70%, var(--c-fg, var(--c-border))); }";
+    assert!(color_values("x.css", ok).is_empty(), "토큰끼리의 혼합이 잡혔습니다");
+    let bad = "a { background: color-mix(in srgb, white 50%, black); }";
+    assert!(!color_values("x.css", bad).is_empty(), "이름 있는 색의 혼합을 못 잡았습니다");
 }

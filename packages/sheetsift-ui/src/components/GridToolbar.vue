@@ -258,6 +258,18 @@ function labelOf(key: string): string {
           </button>
         </span>
 
+        <!-- 인쇄는 `compact` 에도 존치한다. 열을 취급하는 기능이 아니라 화면이 낸 행을 지면으로 내는 기능이다. -->
+        <button
+          v-if="canPrint"
+          type="button"
+          class="gx-tool-btn"
+          :disabled="printing || printDisabled"
+          :data-tip="t('tools.print.tip')"
+          @click="emit('print')"
+        >
+          {{ t(printing ? "tools.print.busy" : "tools.print") }}
+        </button>
+
         <template v-if="!compact">
           <span class="gx-pin">
             <span class="whitespace-nowrap text-fg-muted">{{ t("tools.pin") }}</span>
@@ -349,16 +361,6 @@ function labelOf(key: string): string {
           </span>
 
           <button
-            v-if="canPrint"
-            type="button"
-            class="gx-tool-btn"
-            :disabled="printing || printDisabled"
-            :data-tip="t('tools.print.tip')"
-            @click="emit('print')"
-          >
-            {{ t(printing ? "tools.print.busy" : "tools.print") }}
-          </button>
-          <button
             type="button"
             class="gx-tool-btn"
             :disabled="!allColumns.length"
@@ -445,7 +447,11 @@ function labelOf(key: string): string {
 
     <!-- 하단 행: 정렬 칩. 증가하면 이 행만 수평 이동한다. -->
     <div v-if="!compact" class="gx-tools-row gx-sorts">
-      <span class="gx-sorts-label shrink-0 font-medium text-fg-muted">
+      <!-- 받는 앱이 설명 문구를 비우면(빈 문자열) 표지도 설명도 그리지 않는다. 설명을 UI 에 두지 않는 앱이 있다. -->
+      <span
+        v-if="sorts.length || t('tools.help')"
+        class="gx-sorts-label shrink-0 font-medium text-fg-muted"
+      >
         {{ t(sorts.length ? "tools.sorts" : "tools.help") }}
       </span>
       <div class="gx-sort-list">
@@ -468,7 +474,7 @@ function labelOf(key: string): string {
              길이가 동일해 표지가 전환되어도 문구가 수평 이동하지 않는다. -->
         <!-- 협소한 폭에서는 여러 줄로 줄바꿈한다. 절단하지 않으므로 전문이
              항상 노출된다. -->
-        <span v-if="!sorts.length" class="gx-sorts-help text-fg-subtle">
+        <span v-if="!sorts.length && t('tools.help.text')" class="gx-sorts-help text-fg-subtle">
           {{ t("tools.help.text") }}
         </span>
       </div>
