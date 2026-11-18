@@ -37,9 +37,10 @@ const APP_ONLY: &[&str] = &["sheetsift-book", "sheetsift-wasm"];
 /// 사람이 판독하는 속성. 문자 그대로 기재하면 문구가 패키지에 적재된다.
 const SPOKEN_ATTRS: &[&str] = &["aria-label", "title", "placeholder", "alt"];
 
-/// 색을 지정하는 함수 표기.
-const COLOR_FUNCS: &[&str] =
-    &["rgb(", "rgba(", "hsl(", "hsla(", "hwb(", "lab(", "lch(", "oklab(", "oklch(", "color-mix("];
+/// 색을 지정하는 함수 표기. **`color-mix(` 는 포함하지 않는다.** 그것은 색 값을 기재하는 것이 아니라
+/// 토큰끼리 혼합하는 연산이다(`color-mix(in srgb, var(--c-…) 92%, transparent)`). 혼합의 재료로
+/// 16진 표기나 위의 색 함수를 기재하면 그쪽이 포착한다.
+const COLOR_FUNCS: &[&str] = &["rgb(", "rgba(", "hsl(", "hsla(", "hwb(", "lab(", "lch(", "oklab(", "oklch("];
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()

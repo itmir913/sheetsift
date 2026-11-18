@@ -404,35 +404,39 @@ function labelOf(key: string): string {
             <GridIcon :name="moreOpen ? 'asc' : 'desc'" />
           </button>
 
-          <template v-if="moreOpen">
-            <button
-              type="button"
-              class="gx-tool-btn"
-              :disabled="!columnsCustomized"
-              :data-tip="t('tools.columns.reset.tip')"
-              @click="emit('resetColumns')"
-            >
-              {{ t("tools.columns.reset") }}
-            </button>
-            <button
-              type="button"
-              class="gx-tool-btn"
-              :disabled="!sorts.length"
-              @click="emit('clearSorts')"
-            >
-              {{ t("tools.sorts.clear") }}
-            </button>
-            <button
-              type="button"
-              class="gx-tool-btn"
-              :disabled="!hasFilters"
-              @click="emit('clearFilters')"
-            >
-              {{ t("tools.filters.clear") }}
-            </button>
-          </template>
         </template>
       </span>
+    </div>
+
+    <!-- **되돌리는 셋은 제 행에 둔다.** 같은 행에서 증가시키면 폭에 따라 「더보기」
+         단추 자신이 이동하여, 누른 직후에 누른 것이 다른 위치로 이동한다. 아래에
+         새 행으로 출현하면 「더보기」는 항상 동일한 위치에 존재한다. -->
+    <div v-if="!compact && moreOpen" class="gx-tools-row gx-tools-more">
+      <button
+        type="button"
+        class="gx-tool-btn"
+        :disabled="!columnsCustomized"
+        :data-tip="t('tools.columns.reset.tip')"
+        @click="emit('resetColumns')"
+      >
+        {{ t("tools.columns.reset") }}
+      </button>
+      <button
+        type="button"
+        class="gx-tool-btn"
+        :disabled="!sorts.length"
+        @click="emit('clearSorts')"
+      >
+        {{ t("tools.sorts.clear") }}
+      </button>
+      <button
+        type="button"
+        class="gx-tool-btn"
+        :disabled="!hasFilters"
+        @click="emit('clearFilters')"
+      >
+        {{ t("tools.filters.clear") }}
+      </button>
     </div>
 
     <!-- 모달은 단추를 품은 `<span>` 밖, 조작부 뿌리 직하에 둔다. 소비자가 셋이라

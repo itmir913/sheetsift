@@ -552,6 +552,9 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 function onPointerDown(e: PointerEvent) {
+  /* **깔때기 단추 위의 누름은 폐쇄하지 않는다.** 여기서 폐쇄하면 후속 클릭이 그 단추의 토글을 재개방해
+     「재누름 시 폐쇄」가 성립하지 않는다. 동일한 단추면 클릭이 폐쇄하고, 타 열의 단추면 클릭이 그 열로 이동한다. */
+  if ((e.target as Element | null)?.closest?.(".dg-fbtn")) return;
   if (root.value && !root.value.contains(e.target as Node)) emit("close");
 }
 
