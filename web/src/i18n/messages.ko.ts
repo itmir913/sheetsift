@@ -176,6 +176,8 @@ export const ui = {
   "tools.grouping": "천 단위 쉼표",
   "tools.grouping.tip": "숫자 셀에 1,000 처럼 쉼표를 넣습니다",
   "tools.sorts": "정렬",
+  "tools.more": "더보기",
+  "tools.more.tip": "열·정렬·필터를 되돌리는 버튼을 펼칩니다",
   "tools.help": "설명",
   "tools.help.text": "열 헤더를 클릭해 정렬 / 열을 드래그해 순서 변경 / 열 구분선을 드래그해 너비 조정 / Shift + 휠로 가로 스크롤",
   "tools.sort.remove.tip": "{label} 정렬 해제",

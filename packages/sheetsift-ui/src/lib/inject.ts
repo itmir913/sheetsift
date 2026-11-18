@@ -127,6 +127,8 @@ export type SharedUiKey =
   | "tools.font.more.aria"
   | "tools.help"
   | "tools.help.text"
+  | "tools.more"
+  | "tools.more.tip"
   | "tools.pin"
   | "tools.pin.less.aria"
   | "tools.pin.more.aria"

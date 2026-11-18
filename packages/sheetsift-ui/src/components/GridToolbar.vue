@@ -141,6 +141,16 @@ function applyPageInput() {
 
 const picker = ref<InstanceType<typeof ColumnPicker> | null>(null);
 
+/**
+ * 되돌리는 셋을 펼쳤는가.
+ *
+ * 이 조작부는 화면을 이동하면 파괴되고 복귀하면 재생성된다. 그래서 펼침은
+ * 보존되지 않고 매번 접힌 상태로 개시한다 — 보존하면 "열 초기화" 가 어느 화면
+ * 에서는 보이고 어느 화면에서는 보이지 않아, 있는지 없는지를 사람이 추측하게
+ * 된다. 접힌 것이 기본이고 이름이 부여된 단추가 항상 동일한 위치에 존재한다.
+ */
+const moreOpen = ref(false);
+
 const visibleKeys = computed(() => new Set(props.columns.map((c) => c.key)));
 
 function onApplyColumns(next: { order: string[]; hidden: string[] }) {
@@ -357,32 +367,6 @@ function labelOf(key: string): string {
           >
             {{ t("tools.columns") }}
           </button>
-          <button
-            type="button"
-            class="gx-tool-btn"
-            :disabled="!columnsCustomized"
-            :data-tip="t('tools.columns.reset.tip')"
-            @click="emit('resetColumns')"
-          >
-            {{ t("tools.columns.reset") }}
-          </button>
-          <button
-            type="button"
-            class="gx-tool-btn"
-            :disabled="!sorts.length"
-            @click="emit('clearSorts')"
-          >
-            {{ t("tools.sorts.clear") }}
-          </button>
-          <button
-            type="button"
-            class="gx-tool-btn"
-            :disabled="!hasFilters"
-            @click="emit('clearFilters')"
-          >
-            {{ t("tools.filters.clear") }}
-          </button>
-
           <!-- 셀 내용 줄바꿈. 천 단위 구분과 동일한 성질(사람이 선택하는 표시
                방법)이라 동일한 묶음에 존치한다. 줄 수에 상한이 부재한 사유는
                `useWrap.ts` 에 기재되어 있다. -->
@@ -397,6 +381,56 @@ function labelOf(key: string): string {
             <input type="checkbox" :checked="grouping" @change="setGrouping(!grouping)" />
             {{ t("tools.grouping") }}
           </label>
+
+          <!-- **되돌리는 셋은 이름이 부여된 위치 뒤에 둔다.**
+
+               종전에는 아홉이 동일한 무게로 한 행에 나열되어, 전부가 중요하면
+               무엇도 중요하지 않은 것으로 판독되었다. 그렇다고 절단하면 '존재
+               하는데 노출되지 않는 단추' 가 되므로, **은폐하지 않고 「더보기」라는
+               이름을 부여한다** — 소실되는 것과 이름이 부여된 위치의 배후에
+               존재하는 것은 상이하다.
+
+               펼치면 이 행 안에서 증가한다. 부유하는 판을 사용하지 않는 사유:
+               이 조작부는 표의 상단에 고정되어 있고 폭이 가변이라, 부유 판의
+               좌표가 행의 줄바꿈에 따라 이동한다. -->
+          <button
+            type="button"
+            class="gx-tool-btn"
+            :aria-expanded="moreOpen"
+            :data-tip="t('tools.more.tip')"
+            @click="moreOpen = !moreOpen"
+          >
+            {{ t("tools.more") }}
+            <GridIcon :name="moreOpen ? 'asc' : 'desc'" />
+          </button>
+
+          <template v-if="moreOpen">
+            <button
+              type="button"
+              class="gx-tool-btn"
+              :disabled="!columnsCustomized"
+              :data-tip="t('tools.columns.reset.tip')"
+              @click="emit('resetColumns')"
+            >
+              {{ t("tools.columns.reset") }}
+            </button>
+            <button
+              type="button"
+              class="gx-tool-btn"
+              :disabled="!sorts.length"
+              @click="emit('clearSorts')"
+            >
+              {{ t("tools.sorts.clear") }}
+            </button>
+            <button
+              type="button"
+              class="gx-tool-btn"
+              :disabled="!hasFilters"
+              @click="emit('clearFilters')"
+            >
+              {{ t("tools.filters.clear") }}
+            </button>
+          </template>
         </template>
       </span>
     </div>
@@ -421,7 +455,7 @@ function labelOf(key: string): string {
         >
           <span class="dg-rank">{{ i + 1 }}</span>
           <span class="font-medium">{{ labelOf(s.key) }}</span>
-          <span>{{ s.dir === "asc" ? "▲" : "▼" }}</span>
+          <GridIcon :name="s.dir === 'asc' ? 'asc' : 'desc'" />
           <GridIcon name="close" class="text-fg-subtle" />
         </button>
 
