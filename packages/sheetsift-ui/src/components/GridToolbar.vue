@@ -9,6 +9,7 @@
  */
 import { computed, ref, watch } from "vue";
 import ColumnPicker from "./ColumnPicker.vue";
+import GridIcon from "./GridIcon.vue";
 import { t, tn } from "../lib/inject";
 import { grouping, setGrouping } from "../composables/useGrouping";
 import { setWrap, wrap } from "../composables/useWrap";
@@ -168,7 +169,7 @@ function labelOf(key: string): string {
           :data-tip="t('pager.first')"
           @click="goto(0)"
         >
-          ⏮
+          <GridIcon name="first" />
         </button>
         <button
           type="button"
@@ -178,7 +179,7 @@ function labelOf(key: string): string {
           :data-tip="t('pager.prev')"
           @click="goto((page ?? 0) - 1)"
         >
-          ◀
+          <GridIcon name="prev" />
         </button>
         <input
           v-model="pageInput"
@@ -197,7 +198,7 @@ function labelOf(key: string): string {
           :data-tip="t('pager.next')"
           @click="goto((page ?? 0) + 1)"
         >
-          ▶
+          <GridIcon name="next" />
         </button>
         <button
           type="button"
@@ -207,7 +208,7 @@ function labelOf(key: string): string {
           :data-tip="t('pager.last')"
           @click="goto(pageCount - 1)"
         >
-          ⏭
+          <GridIcon name="last" />
         </button>
       </span>
 
@@ -226,7 +227,7 @@ function labelOf(key: string): string {
             :aria-label="t('tools.font.less.aria')"
             @click="stepTableFont(-1)"
           >
-            −
+            <GridIcon name="minus" />
           </button>
           <!-- 폭을 `22px`(가장 넓은 값)에 맞춰 사전에 확보한다. 값이 변경될 때 단추가
                이동하면 안 된다. `ch` 는 `p`·`x` 의 폭을 보장하지 않으므로 숫자 둘과
@@ -243,7 +244,7 @@ function labelOf(key: string): string {
             :aria-label="t('tools.font.more.aria')"
             @click="stepTableFont(1)"
           >
-            ＋
+            <GridIcon name="plus" />
           </button>
         </span>
 
@@ -257,7 +258,7 @@ function labelOf(key: string): string {
               :aria-label="t('tools.pin.less.aria')"
               @click="emit('setPinned', pinned - 1)"
             >
-              −
+              <GridIcon name="minus" />
             </button>
             <span
               class="min-w-4 shrink-0 whitespace-nowrap text-center tabular-nums text-fg"
@@ -271,7 +272,7 @@ function labelOf(key: string): string {
               :aria-label="t('tools.pin.more.aria')"
               @click="emit('setPinned', pinned + 1)"
             >
-              ＋
+              <GridIcon name="plus" />
             </button>
           </span>
 
@@ -285,7 +286,7 @@ function labelOf(key: string): string {
               :data-tip="t('tools.header.up.tip')"
               @click="moveStart(-1)"
             >
-              ↑
+              <GridIcon name="up" />
             </button>
             <span class="whitespace-nowrap tabular-nums text-fg">
               <template v-if="header.rows === 1">
@@ -308,7 +309,7 @@ function labelOf(key: string): string {
               :data-tip="t('tools.header.down.tip')"
               @click="moveStart(1)"
             >
-              ↓
+              <GridIcon name="down" />
             </button>
             <button
               type="button"
@@ -318,7 +319,7 @@ function labelOf(key: string): string {
               :data-tip="t('tools.header.less.tip')"
               @click="moveRows(-1)"
             >
-              −
+              <GridIcon name="minus" />
             </button>
             <span
               class="min-w-4 shrink-0 whitespace-nowrap text-center tabular-nums text-fg"
@@ -333,7 +334,7 @@ function labelOf(key: string): string {
               :data-tip="t('tools.header.more.tip')"
               @click="moveRows(1)"
             >
-              ＋
+              <GridIcon name="plus" />
             </button>
           </span>
 
@@ -421,7 +422,7 @@ function labelOf(key: string): string {
           <span class="dg-rank">{{ i + 1 }}</span>
           <span class="font-medium">{{ labelOf(s.key) }}</span>
           <span>{{ s.dir === "asc" ? "▲" : "▼" }}</span>
-          <span class="text-fg-subtle">✕</span>
+          <GridIcon name="close" class="text-fg-subtle" />
         </button>
 
         <!-- 정렬이 전무할 때만 표시된다. 정렬뿐 아니라 표를 취급하는 방법

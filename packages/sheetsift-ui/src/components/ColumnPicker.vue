@@ -13,6 +13,7 @@
  * `useColumnLayout` 이다(저장분이 손상되어도 비지 않는다).
  */
 import { computed, nextTick, ref } from "vue";
+import GridIcon from "./GridIcon.vue";
 import { reorder } from "../lib/grid";
 import { t, tn } from "../lib/inject";
 import type { PickableColumn } from "../composables/useColumnLayout";
@@ -151,7 +152,7 @@ defineExpose({ open });
                 :aria-label="t('picker.up.aria', { label: c.label })"
                 @click="step(c.key, -1)"
               >
-                ↑
+                <GridIcon name="up" />
               </button>
               <button
                 type="button"
@@ -162,7 +163,7 @@ defineExpose({ open });
                 :aria-label="t('picker.down.aria', { label: c.label })"
                 @click="step(c.key, 1)"
               >
-                ↓
+                <GridIcon name="down" />
               </button>
               <button
                 type="button"
@@ -173,7 +174,7 @@ defineExpose({ open });
                 :aria-label="t('picker.remove.aria', { label: c.label })"
                 @click="remove(c.key)"
               >
-                ✕
+                <GridIcon name="close" />
               </button>
             </div>
           </div>

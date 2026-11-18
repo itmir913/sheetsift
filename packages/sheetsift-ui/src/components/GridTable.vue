@@ -12,6 +12,7 @@
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import ColumnFilter from "./ColumnFilter.vue";
+import GridIcon from "./GridIcon.vue";
 import { cellText, isBlank, opensRowDetail, own, placePop } from "../lib/grid";
 import { t } from "../lib/inject";
 import { tableFont } from "../composables/useTableFont";
@@ -481,7 +482,7 @@ defineExpose({ close: () => (openFilterKey.value = null) });
                  제시하므로, 여기서 재차 배지를 부착하면 헤더마다 그 폭을 항상
                  확보해 두게 된다(정렬하지 않은 열까지). -->
             <span class="dg-sortmark" :data-visible="!!sortOf(col.key)" aria-hidden="true">
-              {{ sortOf(col.key)?.dir === "desc" ? "▼" : "▲" }}
+              <GridIcon :name="sortOf(col.key)?.dir === 'desc' ? 'desc' : 'asc'" />
             </span>
             <span
               class="dg-resize"

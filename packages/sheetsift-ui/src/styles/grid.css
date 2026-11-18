@@ -1329,3 +1329,13 @@ select.ss-text:disabled {
 .rd-btn[aria-disabled="true"]:hover {
   background: var(--c-surface);
 }
+
+/* ── 조작부의 도형(`GridIcon.vue`) ─────────────────────────────
+   크기는 `1em` 이다. 표의 글자 크기를 사용자가 조절하면 도형도 함께 조절된다.
+   색은 `currentColor` 이므로 여기서 지정하지 않는다. */
+.ss-icon {
+  display: block;
+  width: 1em;
+  height: 1em;
+  flex: 0 0 auto;
+}
