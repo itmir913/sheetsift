@@ -148,7 +148,20 @@
   .pv-table td[data-kind="number"] {
     text-align: right;
     font-variant-numeric: tabular-nums;
+  }
+
+  /* 칸의 장수는 쪼개지면 읽을 수 없으므로 한 줄에 둔다. */
+  .pv-table td[data-kind="number"] {
     white-space: nowrap;
+  }
+
+  /* 열 제목은 줄바꿈을 허용한다. 지면은 `table-layout: fixed` 라 열 폭이 colgroup 의 비율로
+     고정인데, 제목까지 nowrap 이면 긴 제목(「2026 실질경쟁률」 같은 것)이 칸 밖으로 흘러
+     이웃 열의 제목과 겹쳐 읽히지 않는다. 줄바꿈 자리는 위의 `word-break: keep-all` 과
+     `overflow-wrap: anywhere` 가 정한다 — 낱말 안에서는 끊지 않고, 그래도 넘칠 때만 끊는다.
+     폭이 고정이므로 위 `table-layout` 주석이 말하는 열의 수직 분할은 일어나지 않는다. */
+  .pv-table th[data-kind="number"] {
+    white-space: normal;
   }
 
   .pv-no {

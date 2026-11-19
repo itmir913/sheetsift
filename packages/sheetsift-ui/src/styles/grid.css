@@ -841,9 +841,13 @@
   opacity: 0.5;
 }
 
+/* **올림은 비치는 먹이다.** 쉼 상태가 `--c-glass-soft` 로 유리를 읽으므로 올림만 불투명한 면 색이면
+   유리 위에서 묻힌다 — 유리가 뒤를 비춰 밝은 바탕에서 이미 흰색에 가깝고, 쉼과 올림의 대비가 1.08:1
+   까지 떨어진다. 비치는 먹은 뒤가 무엇이든 차이가 일정하다(밝게 1.21, 어둡게 1.39~1.45).
+   유리 토큰을 주지 않는 앱은 쉼 상태와 같은 모양으로 면 색으로 되돌아간다. */
 .cp-chip:hover,
 .ss-chip:hover {
-  background-color: var(--c-surface-hover);
+  background-color: var(--c-glass-hover, var(--c-surface-hover));
   color: var(--c-fg);
 }
 
