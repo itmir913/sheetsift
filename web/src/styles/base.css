@@ -46,6 +46,20 @@
   --spacing-row: 2.25rem;
 }
 
+/* **이 앱이 토큰을 덮고 공용 CSS 를 적재하는 자리다.** 색 값을 기재해도 되는 유일한 곳이고,
+   색 검사도 이 파일의 **커스텀 프로퍼티 선언 줄만** 면제한다(보통 속성 선언은 면제되지 않는다).
+
+   창 바탕에 도포할 무늬. 공용 CSS 가 판독하지 않으므로 `tokens.css` 로 올리지 않는다. */
+:root {
+  --c-wash-a: #b9cdff;
+  --c-wash-b: #a9e3d6;
+}
+
+.dark {
+  --c-wash-a: #1b2a55;
+  --c-wash-b: #0f3b39;
+}
+
 /* tokens.css 의 CSS 변수를 Tailwind 색상 유틸리티로 노출한다.
    inline 이므로 유틸리티가 var() 를 그대로 참조 → .dark 재정의가 즉시 반영된다. */
 @theme inline {
@@ -96,9 +110,18 @@
     color-scheme: dark;
   }
 
+  /* **배후에 투과할 무늬가 있어야 유리가 유리로 보인다.** 단색 위의 `backdrop-filter` 는
+     아무것도 변화시키지 않는다 — 흐려도 달라지는 것이 없다. 그래서 창 바탕에 옅은 색을
+     두 겹 도포한다. 글자가 배치되는 면은 전부 불투명하므로 이만큼은 짙어도 판독에 닿지 않는다.
+
+     이 값들은 **이 앱의 것이다** — 공용 CSS 가 판독하지 않으므로 `tokens.css` 로 올리지
+     않는다(올리면 공용 규칙을 특정 제품의 모양으로 확장하는 것이 된다). */
   body {
     overflow-wrap: anywhere;
     -webkit-font-smoothing: antialiased;
+    background-image:
+      radial-gradient(1100px 620px at 4% -18%, var(--c-wash-a) 0%, transparent 70%),
+      radial-gradient(950px 560px at 98% -8%, var(--c-wash-b) 0%, transparent 66%);
     @apply bg-canvas text-fg font-sans text-base leading-relaxed;
   }
 
@@ -130,14 +153,21 @@
    머리글 행. 명칭·개방한 파일·조작이 1행에 배열된다.
    ───────────────────────────────────────────────────────────── */
 @layer components {
+  /* **흐림 유리는 여기와 포개진 목록 둘뿐이다.** 이 띠는 열 방향 flex 의 형제이고 스크롤러
+     (`.app-main`) **외부**라 하부로 이동하는 것이 없고 자손에 표가 없다 — 고정 열의
+     `sticky left` 에도 닿지 않는다. 도구 줄(`.gx-tools`)은 `.app-fixed` 라 **sticky** 이므로
+     제외한다. 열 제목 띠와 필터 띠도 `grid.css` 가 사유와 함께 금지해 두었다 — 그 하부로
+     500행이 이동하므로 매 프레임 재합성하게 된다. */
   .app-head {
     display: flex;
     flex: 0 0 auto;
     align-items: center;
     gap: 0.75rem;
     min-width: 0;
-    border-bottom: 1px solid var(--c-border);
-    background-color: var(--c-surface);
+    border-bottom: 1px solid var(--c-glass-edge);
+    background-color: var(--c-glass-soft);
+    backdrop-filter: blur(20px) saturate(1.6);
+    -webkit-backdrop-filter: blur(20px) saturate(1.6);
     padding: 0.625rem 1rem;
   }
 
@@ -154,9 +184,13 @@
     align-items: center;
     gap: 0.375rem;
     cursor: pointer;
-    border: 1px solid var(--c-chrome-border);
-    border-radius: 0.5rem;
-    background-color: var(--c-surface);
+    /* **쉼이 유리여야 올림의 먹이 얹힌다.** 쉼을 불투명한 면 색으로 두면 올림의 반투명 먹이
+       얹히는 것이 아니라 그 면을 치환해, 올림에서 단추가 사라지는 변화가 된다. */
+    border: 1px solid var(--c-glass-edge);
+    border-radius: var(--r-ctl);
+    background-color: var(--c-glass-soft);
+    /* 그림자 1단계 — 바닥에서 약간 부상한 것(단추·알약). 2단계는 다른 것 위에 겹친 것이다. */
+    box-shadow: var(--c-lift-1);
     padding: 0.625rem 1rem;
     font-weight: 500;
     color: var(--c-fg-muted);
@@ -172,9 +206,17 @@
     padding-inline: 0;
   }
 
+  /* **유리 위에서는 불투명한 면 색이 매몰된다** — 유리가 배후를 투과시켜 명도 차이가 거의
+     소멸한다(쉼↔올림 1.09:1). 투과하는 먹은 배후와 무관하게 차이가 일정하다(1.21:1). */
   .app-head-btn:hover {
-    background-color: var(--c-surface-hover);
+    background-color: var(--c-glass-hover);
     color: var(--c-fg);
+  }
+
+  /* 누름은 올림과 상이해야 한다 — 상태 넷이 각각 다른 수단을 보유한다(짚음은 테두리, 올림은
+     색, 누름은 축소). 색만으로 가르지 않는다. */
+  .app-head-btn:active {
+    transform: scale(0.97);
   }
 
   /* 개폐하는 단추는 **지금 어느 쪽인지를 표시한다.** 조작할 때마다 형태가
@@ -276,7 +318,7 @@
 
   .app-card {
     border: 1px solid var(--c-chrome-border);
-    border-radius: 0.75rem;
+    border-radius: var(--r-card);
     background-color: var(--c-surface);
     padding: 1.25rem 1.5rem;
   }
@@ -315,13 +357,16 @@
   .app-btn {
     display: inline-flex;
     align-items: center;
-    border-radius: 0.5rem;
+    border-radius: var(--r-ctl);
+    box-shadow: var(--c-lift-1);
     background-color: var(--c-accent);
     padding: 0.5rem 1.25rem;
     font-weight: 500;
     color: var(--c-accent-fg);
   }
 
+  /* **`.app-link` 에는 `transform` 으로 누름을 부여하지 않는다** — 인라인 비치환 요소라 `transform` 이
+     적용되지 않아 죽은 규칙이 된다. 누름이 필요해지면 `color` 로 한다. */
   .app-link {
     color: var(--c-accent);
     font-weight: 500;
@@ -347,12 +392,12 @@
     max-width: 28rem;
     cursor: pointer;
     border: 1px solid var(--c-warn);
-    border-radius: 0.75rem;
+    border-radius: var(--r-card);
     background-color: var(--c-surface);
     padding: 0.75rem 1rem;
     text-align: left;
     color: var(--c-fg);
-    box-shadow: 0 10px 30px rgb(0 0 0 / 0.25);
+    box-shadow: var(--c-shadow-pop);
   }
 
   .app-toast-enter-active,
@@ -457,7 +502,7 @@
      클래스 문자열을 두 곳(묶음·묶음 없음)에 전재하면 일방만 수정된다. */
   .app-side-item {
     width: 100%;
-    border-radius: 0.5rem;
+    border-radius: var(--r-ctl);
     padding: 0.5rem 0.75rem;
     text-align: left;
     color: var(--c-fg-muted);
@@ -467,9 +512,14 @@
     transition: background-color 120ms ease, color 120ms ease;
   }
 
+  /* 유리 위이므로 투과하는 먹이다(`.app-head-btn:hover` 와 동일한 사유). */
   .app-side-item:hover {
-    background-color: var(--c-surface-hover);
+    background-color: var(--c-glass-hover);
     color: var(--c-fg);
+  }
+
+  .app-side-item:active {
+    transform: scale(0.99);
   }
 
   .app-side-item[data-current="true"] {
@@ -521,13 +571,17 @@
   /* 머리의 **하단에서** 개시한다. 화면 전체를 덮으면 개폐하는 단추까지
      은폐되어, 개방한 상태를 표시할 수도 그 단추로 폐쇄할 수도 없다.
      높이는 App.vue 가 실측해 전달한다 — 머리가 2행으로 접히는 폭이 존재한다. */
+  /* 포개진 목록은 `position: fixed` 라 하부로 이동하는 것이 없다 — 흐림이 안전한 둘째 자리다. */
   .app-side[data-overlay="true"] {
     position: fixed;
+    background-color: var(--c-glass-soft);
+    backdrop-filter: blur(20px) saturate(1.6);
+    -webkit-backdrop-filter: blur(20px) saturate(1.6);
     inset-block: var(--app-head-h, 3.5rem) 0;
     left: 0;
     z-index: 50;
     width: min(17rem, 85vw);
-    box-shadow: 0 0 40px rgb(0 0 0 / 0.35);
+    box-shadow: var(--c-shadow-pop);
     transition: transform 160ms ease;
   }
 
@@ -550,7 +604,7 @@
     position: fixed;
     inset: var(--app-head-h, 3.5rem) 0 0;
     z-index: 40;
-    background-color: rgb(0 0 0 / 0.45);
+    background-color: var(--c-overlay);
   }
 
   @media (prefers-reduced-motion: reduce) {

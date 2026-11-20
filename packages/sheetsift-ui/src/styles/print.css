@@ -37,6 +37,9 @@
     margin: 12mm 10mm;
   }
 
+  /* **`background` 는 숏핸드여야 한다** — 숏핸드가 `background-image` 를 `none` 으로 되돌리므로,
+     받는 앱이 `body` 에 도포한 무늬가 지면에서 사라진다. `background-color` 로 바꾸면 사용자가
+     인쇄 대화상자의 「배경 그래픽」을 켤 때 그 무늬가 매 쪽에 인쇄된다. */
   html,
   body {
     background: var(--c-print-paper);

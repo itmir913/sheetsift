@@ -319,6 +319,84 @@ fn colours_come_only_from_the_tokens() {
     assert!(found.is_empty(), "`{TOKENS}` 외부에 색 값이 기재되었습니다 — 토큰을 사용하십시오: {found:#?}");
 }
 
+/// 이 앱 자신의 화면 원본. 저장소 뿌리 기준이다.
+const WEB_SRC: &str = "web/src";
+
+/// `web/` 에서 토큰을 피복하고 공용 CSS 를 적재하는 유일한 파일.
+const WEB_OVERRIDES: &str = "base.css";
+
+/// **이 앱 자신의 화면도 색을 토큰에서 취하는가.**
+///
+/// 공용 패키지만 검사하면 `web/` 이 조사 범위 밖에 잔존해, 수정해도 재차 누출되는 것을
+/// 저지할 수단이 부재한다. 범위를 넓히되 **면제는 줄 단위다** — 토큰을 피복하는 파일에서도
+/// `--` 로 개시하는 커스텀 프로퍼티 선언 줄에만 색 값을 허용한다. 파일 단위로 면제하면
+/// 그 파일 전체(600줄)가 개방되어, 넓힌 취지가 그 안에서 소멸한다.
+#[test]
+fn the_apps_own_screen_takes_colours_from_the_tokens_too() {
+    let mut paths = Vec::new();
+    collect(&root().join(WEB_SRC), &mut paths);
+    assert!(!paths.is_empty(), "{WEB_SRC} 에서 원본을 탐색하지 못했습니다 — 검사가 실명한 것입니다");
+
+    // **한 줄씩 본다.** 그래서 커스텀 프로퍼티의 값을 여러 줄로 기재하면(`--c-foo:` 다음 줄에 `#fff;`)
+    // 둘째 줄이 면제되지 않아 거짓 실패가 된다. 지금 `web/` 에 그런 표기는 없다.
+    let mut found = Vec::new();
+    for path in paths {
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let body = strip_comments(&text);
+        for (i, line) in body.lines().enumerate() {
+            // 토큰을 피복하는 파일의 커스텀 프로퍼티 선언만 면제한다.
+            if name == WEB_OVERRIDES && line.trim_start().starts_with("--") {
+                continue;
+            }
+            for c in color_values(&name, line) {
+                found.push(format!("{name}:{}: {c}", i + 1));
+            }
+        }
+    }
+    assert!(
+        found.is_empty(),
+        "`{TOKENS}` 외부에 색 값이 기재되었습니다 — 토큰을 사용하십시오(피복 파일은 `--` 선언 줄만 허용): {found:#?}"
+    );
+}
+
+/// **이 앱이 공용 CSS 를 전부 적재하는가.**
+///
+/// `grid.css` 는 이제 `tokens.css` 가 먼저 적재된 것을 전제한다(되돌림을 제거했다). 하나라도
+/// 누락하면 그 요소가 모양 없이 출현하는데 **빌드는 통과한다** — 미정의 `var()` 는 오류를
+/// 발생시키지 않고 배경을 `transparent` 로, `border` 숏핸드를 `currentColor` 로 하강시킨다.
+#[test]
+fn the_app_imports_every_shared_stylesheet() {
+    let dir = root().join(SRC).join("styles");
+    let mut shipped: Vec<String> = fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".css"))
+        .collect();
+    shipped.sort();
+    assert!(!shipped.is_empty(), "공용 CSS 를 탐색하지 못했습니다 — 검사가 실명한 것입니다");
+
+    let base = root().join(WEB_SRC).join("styles").join(WEB_OVERRIDES);
+    let text = fs::read_to_string(&base).unwrap_or_else(|e| panic!("{}: {e}", base.display()));
+    // **줄 전체를 비교한다.** 문자열 포함으로 보면 주석에 명칭만 기재되어 있어도 통과한다.
+    // 주석을 먼저 소거하고, `@import "…";` 한 줄과 정확히 일치하는지 본다.
+    // `layer()` 수식이나 홑따옴표를 붙이면 이 비교가 실패한다 — 그런 변경은 의도적이니 검사도 함께 고친다.
+    let body = strip_comments(&text);
+    let lines: Vec<&str> = body.lines().map(str::trim).collect();
+    let missing: Vec<&String> = shipped
+        .iter()
+        .filter(|n| {
+            let want = format!("@import \"sheetsift-ui/styles/{n}\";");
+            !lines.contains(&want.as_str())
+        })
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "{WEB_OVERRIDES} 가 적재하지 않는 공용 CSS 가 있습니다: {missing:?} (내보내는 것: {shipped:?})"
+    );
+}
+
 /// **`@/` 로 반입하지 않는가.** 받는 쪽의 `@/` 는 받는 쪽의 `src` 를 지시한다.
 #[test]
 fn the_package_uses_no_alias() {

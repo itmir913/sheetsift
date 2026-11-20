@@ -334,7 +334,11 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
 
 <template>
   <!-- no-print: 인쇄 시 앱 화면은 은폐하고 인쇄 뷰만 존치한다 -->
-  <div class="no-print flex h-screen flex-col bg-canvas text-fg" :style="appVars">
+  <!-- **`bg-canvas` 를 부여하지 않는다.** 이 상자는 `h-screen` 이라 뷰포트를 전부 덮으므로,
+       불투명한 면을 부여하면 `body` 에 도포한 무늬를 완전히 차폐한다 — 그러면 머리띠의
+       `backdrop-filter` 가 단색을 흐리게 되어 아무것도 변화시키지 않는다. 색은 `body` 가
+       같은 토큰으로 부여한다(`base.css` 의 `@apply bg-canvas`). -->
+  <div class="no-print flex h-screen flex-col text-fg" :style="appVars">
     <header ref="headEl" class="app-head">
       <!-- 좌측 목록 개폐. 목록을 배치하는 양식에서만 출현한다 — 조작해도 아무
            작용이 없는 단추를 상주시키지 않는다. -->
