@@ -363,6 +363,7 @@ fn rem_in_proportional_rules(css: &str) -> Vec<String> {
         ".dg-cell",
         ".dg-fcell",
         ".dg-sortmark",
+        ".dg-skeleton",
         ".dg-finput",
         ".dg-fwrap",
         ".dg-fbtn",

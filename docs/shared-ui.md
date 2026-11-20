@@ -74,6 +74,15 @@ const kept = dropColumnState(dropped, { sorts, filterText, filterValues });
   would silently filter rows, and a leftover sort would print its raw key.
 - The last column can never be hidden. `load()` and `applyColumns()` enforce it (a
   stored `hidden` that covers everything is cleared), not the modal.
+- **The `columns` array you pass `GridTable` must be a subarray of the layout's own
+  `columns`** — filter it if you must, never reorder it. The table counts from the
+  front until it meets a column that is not in `pinnedKeys`, because a pinned column
+  has to be a contiguous run at the left edge (`position: sticky`). Break the
+  precondition and pinning only ever *shrinks* — a non-pinned column in front yields
+  zero pinned columns, and no column outside `pinnedKeys` is ever pinned instead. It
+  fails quietly, and the package cannot warn: a filtered array is also what a
+  legitimate column chip produces, so the warning would fire on correct use. Hold the
+  precondition with a test in the receiving app.
 - `GridTable` takes `pinnedKeys` (the keys of the pinned columns; `layout.pinnedKeys`), not
   a count: a count means "the first N of the array you were given", which differs once
   the app filters that array further than the layout does. Likewise it draws the range
