@@ -332,7 +332,7 @@ watch(sorts, reload, { deep: true });
       :filter-text="filterText"
       :filter-values="filterValues"
       :filter-ranges="filterRanges"
-      :pinned="layout.pinned.value"
+      :pinned-keys="layout.pinnedKeys.value"
       :load-values="loadValues"
       :busy="busy"
       @sort="onSort"

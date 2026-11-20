@@ -74,8 +74,15 @@ const kept = dropColumnState(dropped, { sorts, filterText, filterValues });
   would silently filter rows, and a leftover sort would print its raw key.
 - The last column can never be hidden. `load()` and `applyColumns()` enforce it (a
   stored `hidden` that covers everything is cleared), not the modal.
-- `move()` takes **visible** indexes (what `GridTable` emits) and converts them to
-  `order` positions; the modal never calls it, it edits its own draft with `reorder`.
+- `GridTable` takes `pinnedKeys` (the keys of the pinned columns; `layout.pinnedKeys`), not
+  a count: a count means "the first N of the array you were given", which differs once
+  the app filters that array further than the layout does. Likewise it draws the range
+  inputs only when `filterRanges` is passed — an app that does not track ranges would
+  otherwise get inputs that never reach its query.
+- `move(from, to)` takes column **keys** (what `GridTable` emits), never indexes: an
+  index means a position in whatever array the table was given, and a receiving app
+  may filter that array further than the layout does. It moves `from` to `to`'s place
+  in `order`, leaving hidden columns where they are; the modal never calls it, it edits its own draft with `reorder`.
 - The dictionary needs the `picker.*` keys and `tools.columns`; `picker.count` is a
   plural keyed by the number of shown columns, with `total` as a parameter.
 

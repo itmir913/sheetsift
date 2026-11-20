@@ -31,7 +31,8 @@ const props = withDefaults(
     filterValues: Record<string, ValuePick | null>;
     /**
      * 숫자 열의 범위. 열쇠가 부재하거나 null 이면 그 열은 범위를 걸지 않은 것이다.
-     * **생략할 수 있다** — 여과하지 않는 표나 범위를 모르는 받는 앱은 그대로 쓴다.
+     * **생략할 수 있다** — 여과하지 않는 표나 범위를 모르는 받는 앱은 그대로 쓴다. 생략하면
+     * **범위 칸이 그려지지 않는다.** 칸이 보이고 걸린 듯한데 조회에 닿지 않는 모양을 막는다.
      */
     filterRanges?: Record<string, NumberRange | null>;
     /**
@@ -42,8 +43,20 @@ const props = withDefaults(
      * 화면에서 숨긴 열이 조용히 누락되고 오류가 발생하지 않는다.
      */
     detailColumns: DetailColumn[];
-    /** 좌측에 고정할 열 수. */
-    pinned: number;
+    /**
+     * 좌측에 고정할 열의 **열쇠**. 「앞에서 몇 개」가 아니다 — 받는 앱이 `columns` 를 정본보다
+     * 더 걸러 넘기면 앞의 몇 개가 다른 열이 된다. 열쇠는 어느 배열에서 봐도 같다.
+     * 고정 열은 정본의 앞쪽이라 거른 뒤에도 앞쪽에 남으며, 표는 `columns` 앞에서부터
+     * 이 열쇠에 드는 열까지만 고정한다.
+     *
+     * **전제: 받는 `columns` 는 정본(`layout.columns`)의 부분 배열이어야 한다 — 거르기만 하고
+     * 차례는 바꾸지 않는다.** 고정은 왼쪽에 붙는 연속한 앞부분이어야 해서(`position: sticky` 와
+     * 열 offset) 표는 앞에서부터 **처음으로 `pinnedKeys` 에 들지 않는 열까지**만 센다. 전제가 깨지면
+     * 틀린 열이 고정되지는 않지만 **고정이 조용히 줄어든다**: 재배열해 고정 아닌 열이 맨 앞에
+     * 오면 0개, 고정 열을 거르면 그 뒤로 이어지던 고정 열만 남는다(다음 열이 대신 고정되지 않는다).
+     * 타입으로는 세울 수 없고(차례는 타입에 드러나지 않는다) 시험은 받는 앱의 몫이다.
+     */
+    pinnedKeys: string[];
     /**
      * 값 선택 목록을 수령하는 방법.
      *
@@ -55,7 +68,7 @@ const props = withDefaults(
      * 담아야 하는데, 무시하면 범위 밖의 값이 목록에 나타나고 그것을 고르는 즉시 범위와 AND 로
      * 겹쳐 조용히 0건이 된다. 바탕이 `range` 를 반환하지 않으면(범위 칸이 나오지 않는다) 안전하나,
      * 반환하기 시작하는 순간 이 함정이 되살아난다. `update:filterRanges` 를 듣지 않는 앱도
-     * 같은 사정이다 — 범위를 걸어도 조회에 닿지 않는다.
+     * 같은 사정이라, **`filterRanges` 를 넘기지 않으면 범위 칸을 그리지 않는다**(아래).
      */
     loadValues: (
       columnKey: string,
@@ -76,7 +89,6 @@ const props = withDefaults(
     busy: false,
     emptyText: "",
     showFilters: true,
-    filterRanges: () => ({}),
   },
 );
 
@@ -86,8 +98,12 @@ const emit = defineEmits<{
   "update:filterText": [value: Record<string, string>];
   "update:filterValues": [value: Record<string, ValuePick | null>];
   "update:filterRanges": [value: Record<string, NumberRange | null>];
-  /** 열을 조작해 이전했다. */
-  move: [from: number, to: number];
+  /**
+   * 열을 조작해 이전했다. **인자는 번호가 아니라 열의 열쇠다** — 번호는 「누가 받은 배열의
+   * 몇째인가」에 따라 뜻이 달라진다(받는 앱이 `columns` 에 걸러 넘기면 이 표의 번호와
+   * 정본의 번호가 어긋나 엉뚱한 열이 움직인다). `from` 을 `to` 의 자리로 옮긴다.
+   */
+  move: [from: string, to: string];
   /** 열 폭을 조작하는 중. */
   resize: [key: string, width: number];
   /** 폭 조작이 종료되었다(저장 시점). */
@@ -128,10 +144,18 @@ const totalWidth = computed(
   () => `${props.columns.reduce((sum, c) => sum + c.width, 0)}em`,
 );
 
+/** 고정할 열 수 — 받은 `columns` 앞에서부터 `pinnedKeys` 에 드는 열까지. */
+const pinned = computed(() => {
+  const keys = new Set(props.pinnedKeys);
+  let n = 0;
+  while (n < props.columns.length && keys.has(props.columns[n].key)) n += 1;
+  return n;
+});
+
 const pinOffsets = computed(() => {
   const out: string[] = [];
   let acc = 0;
-  for (let i = 0; i < props.pinned; i += 1) {
+  for (let i = 0; i < pinned.value; i += 1) {
     out.push(`${acc}em`);
     acc += props.columns[i]?.width ?? 0;
   }
@@ -139,7 +163,7 @@ const pinOffsets = computed(() => {
 });
 
 function pinIndex(i: number): number | undefined {
-  return i < props.pinned ? i : undefined;
+  return i < pinned.value ? i : undefined;
 }
 
 /** 헤더 셀에 부여할 CSS 변수. 지정하지 않았거나 비어 있으면 `undefined` 라 `style` 이 부착되지 않는다. */
@@ -349,7 +373,7 @@ function applyFilterValues(pick: ValuePick | null, range: NumberRange | null) {
   if (!key) return;
   /* **범위를 먼저 올린다.** 받는 쪽은 값 선택이 올라올 때 조회하므로(`DataGrid.onFilterValues`),
      순서가 반대면 새 범위 없이 한 번 조회하고 다시 조회한다. */
-  emit("update:filterRanges", { ...props.filterRanges, [key]: range });
+  if (props.filterRanges !== undefined) emit("update:filterRanges", { ...props.filterRanges, [key]: range });
   emit("update:filterValues", { ...props.filterValues, [key]: pick });
   openFilterKey.value = null;
 }
@@ -396,7 +420,9 @@ function onHeaderPointerUp() {
   const from = dragFrom.value;
   if (from !== null) {
     if (dragging.value && dropAt.value !== null) {
-      emit("move", from, dropAt.value);
+      const a = props.columns[from]?.key;
+      const b = props.columns[dropAt.value]?.key;
+      if (a !== undefined && b !== undefined) emit("move", a, b);
     } else {
       // 이동하지 않았으면 클릭으로 판정한다 → 정렬.
       const col = props.columns[from];
@@ -523,7 +549,7 @@ defineExpose({ close: () => (openFilterKey.value = null) });
               <button
                 type="button"
                 class="dg-fbtn"
-                :data-active="own(filterValues, col.key) != null || own(filterRanges, col.key) != null"
+                :data-active="own(filterValues, col.key) != null || own(filterRanges ?? {}, col.key) != null"
                 :disabled="!col.filterable"
                 :aria-label="t('grid.filter.aria', { label: col.label })"
                 :aria-expanded="openFilterKey === col.key"
@@ -664,7 +690,8 @@ defineExpose({ close: () => (openFilterKey.value = null) });
       :key="openFilterColumn.key"
       :column="openFilterColumn"
       :selected="own(filterValues, openFilterColumn.key) ?? null"
-      :range="own(filterRanges, openFilterColumn.key) ?? null"
+      :range="own(filterRanges ?? {}, openFilterColumn.key) ?? null"
+      :no-range="filterRanges === undefined"
       :load="(needle: string, range: NumberRange | null) => loadValues(openFilterColumn!.key, needle, range)"
       :x="popX"
       :y="popY"

@@ -282,23 +282,28 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
    */
   const pinLimit = computed(() => Math.min(MAX_PIN, columns.value.length - 1));
 
+  /** 고정한 열의 열쇠 — 보이는 열의 앞에서 `pinned` 개. 표에는 번호가 아니라 이것을 준다. */
+  const pinnedKeys = computed(() =>
+    columns.value.slice(0, pinned.value).map((c) => c.key),
+  );
+
   function setPinned(n: number) {
     pinned.value = Math.max(0, Math.min(n, pinLimit.value));
     save();
   }
 
   /**
-   * 표에서 끌어 옮긴 열을 이전한다. **`from`·`to` 는 보이는 열의 위치다**(표가
-   * 보내는 것) — `order` 의 위치가 아니다. 숨긴 열이 끼면 둘이 어긋나므로
-   * 열쇠로 환산해 `order` 안에서 옮기고, 숨긴 열은 제자리에 남긴다.
+   * 표에서 끌어 옮긴 열을 이전한다. **`from`·`to` 는 열의 열쇠다**(표가 보내는 것) —
+   * 번호가 아니다. 번호는 표가 받은 배열의 자리라, 받는 앱이 `columns` 를 더 걸러 넘기면
+   * (묶음 칩·조회 전용 열) 정본의 번호와 어긋나 엉뚱한 열이 옮겨졌다. 열쇠는 어느 배열에서
+   * 봐도 같다. `order` 안에서 옮기고, 숨긴 열은 제자리에 남긴다.
    * 순서 규칙은 모달 초안과 공유하는 `reorder` 다.
    */
-  function move(from: number, to: number) {
-    const shown = columns.value;
-    const a = shown[from]?.key;
-    const b = shown[to]?.key;
-    if (a === undefined || b === undefined || a === b) return;
-    order.value = reorder(order.value, order.value.indexOf(a), order.value.indexOf(b));
+  function move(from: string, to: string) {
+    const i = order.value.indexOf(from);
+    const j = order.value.indexOf(to);
+    if (i === -1 || j === -1 || i === j) return;
+    order.value = reorder(order.value, i, j);
     save();
   }
 
@@ -364,6 +369,7 @@ export function useColumnLayout(screen: Ref<ScreenDef>) {
     applyColumns,
     widths,
     pinned,
+    pinnedKeys,
     pinLimit,
     setPinned,
     ready,

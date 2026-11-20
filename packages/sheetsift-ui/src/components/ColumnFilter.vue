@@ -39,6 +39,11 @@ const props = defineProps<{
   /** 현 범위(숫자 열). null 이면 범위를 걸지 않은 것이다. */
   range?: NumberRange | null;
   /**
+   * 범위 칸을 그리지 않는다. 범위를 모르는 받는 앱(`filterRanges` 를 넘기지 않는다)에서 칸이
+   * 보이고 걸린 듯한데 조회에 닿지 않는 일을 막는다. 값 목록은 범위 없이 그대로 쓴다.
+   */
+  noRange?: boolean;
+  /**
    * 후보 목록을 수령하는 방법. `needle` 로 축소한 것을 반환한다. `range` 는 **이 팝오버가 지금
    * 보유한 범위**다(확정했으나 아직 적용하지 않은 것) — 목록이 그 범위 안의 값만 담아야 한다.
    */
@@ -287,7 +292,7 @@ let settleTimer: number | undefined;
 const grid = computed(() => (span.value ? snapSpan(span.value) : null));
 
 /** 범위 칸을 그리는가(판정은 `showsRange`). */
-const showRange = computed(() => showsRange(props.column.kind, span.value));
+const showRange = computed(() => !props.noRange && showsRange(props.column.kind, span.value));
 
 /** 자료의 폭이 0 인가(값이 한 가지뿐). 손잡이를 움직일 데가 없어 조작만 막는다. */
 const flat = computed(() => !!span.value && span.value.min >= span.value.max);
@@ -344,7 +349,7 @@ const summary = computed(() => {
 
 function takeRangeFacts(res: ColumnValuesResult) {
   const r = res.range;
-  const next = r && Number.isFinite(r.min) && Number.isFinite(r.max) ? r : null;
+  const next = !props.noRange && r && Number.isFinite(r.min) && Number.isFinite(r.max) ? r : null;
   if (next?.min !== span.value?.min || next?.max !== span.value?.max) span.value = next;
 }
 

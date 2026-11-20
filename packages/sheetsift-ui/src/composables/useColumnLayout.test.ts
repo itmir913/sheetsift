@@ -109,15 +109,15 @@ describe("useColumnLayout", () => {
     for (const c of l.detailColumns.value) expect(c.width).toBeGreaterThan(0);
   });
 
-  it("move converts visible indexes into order indexes", () => {
+  it("move places by key and leaves hidden columns", () => {
     const l = layout();
     l.applyColumns({ order: KEYS, hidden: ["b"] });
     expect(shown(l)).toEqual(["a", "c", "d"]);
-    l.move(0, 1); // 보이는 열 기준: a 를 c 자리로
+    l.move("a", "c"); // a 를 c 자리로
     expect(shown(l)).toEqual(["c", "a", "d"]);
     expect(l.order.value).toEqual(["b", "c", "a", "d"]);
     expect(l.hidden.value).toEqual(["b"]);
-    l.move(2, 0); // d 를 맨 앞으로
+    l.move("d", "c"); // d 를 c 자리로
     expect(shown(l)).toEqual(["d", "c", "a"]);
   });
 
@@ -155,7 +155,7 @@ describe("useColumnLayout", () => {
   it("move works when the hidden column is last", () => {
     const l = layout();
     l.applyColumns({ order: KEYS, hidden: ["d"] });
-    l.move(0, 2); // a goes to c's place; d stays last in order
+    l.move("a", "c"); // a goes to c's place; d stays last in order
     expect(shown(l)).toEqual(["b", "c", "a"]);
     expect(l.order.value).toEqual(["b", "c", "a", "d"]);
   });

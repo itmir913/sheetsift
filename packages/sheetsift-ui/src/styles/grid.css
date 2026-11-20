@@ -18,8 +18,9 @@
      (`useTableFont`). 여기 값은 그것을 부여받지 않은 `.dg`(열 폭을 측정하는
      `.dg-probe`)의 크기이고, `DEFAULT_TABLE_FONT` 와 일치해야 한다 —
      `crates/shell/tests/screen.rs` 가 대조한다.
-     **`px` 는 이 한 곳에서만 기재한다.** 행 높이·열 폭·셀의 여백(`.dg-hcell`·`.dg-cell`·
-     `.dg-fcell` 등)은 전부 `em` 이라 이 값에 비례한다. 글자에 비례하지 않는 부분이
+     **표 안쪽의 `px` 는 이 한 곳에서만 기재한다.** 행 높이·열 폭·셀의 여백(`.dg-hcell`·`.dg-cell`·
+     `.dg-fcell` 등)은 전부 `em` 이라 이 값에 비례한다. 표 외부의 조작(칩·정렬 패널)은 글자 크기
+     조절의 대상이 아니라 시안의 `px` 를 그대로 쓴다 — `rem` 은 어느 쪽도 따르지 않는 제3의 기준이라 쓰지 않는다. 글자에 비례하지 않는 부분이
      잔존하면, 16px 에서 측정한 열 폭이 작은 글자에서 부족해 헤더가 절단된다. */
   --dg-font: 16px;
   font-size: var(--dg-font);
@@ -1282,7 +1283,9 @@ select.ss-text:disabled {
 .gx-sorts-label,
 .gx-sorts-help,
 .gx-sorts-status {
-  padding-block: 0.4rem;
+  /* 정렬 패널은 표 외부의 조작이라 표 글자 크기 조절의 대상이 아니다 — 칩(`.cp-chip`)과 같은
+     까닭으로 고정 px 이다. `em` 으로 바꾸면 표 글자를 키울 때 패널이 함께 커진다. */
+  padding-block: 6px;
 }
 
 /* 설명 문구. 절단하지 않고 줄바꿈한다. */
