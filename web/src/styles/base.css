@@ -412,12 +412,24 @@
    폭만 변경되므로 내용은 그대로 존치하고 초과 부분만 은폐한다.
    ───────────────────────────────────────────────────────────── */
 @layer components {
+  /* **흐림 유리의 셋째 자리다.** 이 목록은 가로 flex 의 형제이고 스크롤러(`.app-main`)
+     **외부**라, **그 하부로 이동하는 것이 부재한다** — 표는 형제이므로 이 뒤를 통과하지
+     않는다. 그래서 열 제목 띠를 제외한 사유(그 띠는 `sticky` 이고 하부로 500행이 이동해 매
+     프레임 재합성한다)가 여기에는 적용되지 않는다.
+
+     **포개진 벌과 동일한 값이다**(하기 `[data-overlay="true"]`). 예전에는 그쪽만 유리이고
+     이쪽은 불투명한 `--c-surface` 라, **동일한 목록이 폭에 따라 질감이 갈렸다.** 그리고 하기
+     `.app-side-item:hover` 가 「유리 위이므로 투과하는 먹이다」라고 기재해 둔 채 그 면이
+     불투명해, **주석이 거짓이었고 올림이 의도보다 옅었다** — 투과하는 먹은 불투명한 면
+     위에서 매몰된다. 양측을 동일한 값으로 두어 두 벌을 한 벌로 만든다. */
   .app-side {
     flex: 0 0 auto;
     width: 15rem;
     overflow: hidden;
-    border-right: 1px solid var(--c-border);
-    background-color: var(--c-surface);
+    border-right: 1px solid var(--c-glass-edge);
+    background-color: var(--c-glass-soft);
+    backdrop-filter: blur(20px) saturate(1.6);
+    -webkit-backdrop-filter: blur(20px) saturate(1.6);
     transition: width 160ms ease, border-right-width 160ms ease;
   }
 
@@ -559,12 +571,11 @@
   /* 머리의 **하단에서** 개시한다. 화면 전체를 덮으면 개폐하는 단추까지
      은폐되어, 개방한 상태를 표시할 수도 그 단추로 폐쇄할 수도 없다.
      높이는 App.vue 가 실측해 전달한다 — 머리가 2행으로 접히는 폭이 존재한다. */
-  /* 포개진 목록은 `position: fixed` 라 하부로 이동하는 것이 없다 — 흐림이 안전한 둘째 자리다. */
+  /* 포개진 목록은 `position: fixed` 라 하부로 이동하는 것이 없다 — 흐림이 안전한 둘째 자리다.
+     **유리는 상기 `.app-side` 가 이미 지닌다** — 예전에는 여기에 다시 기재해 두 벌이었고,
+     그래서 접힌 벌만 불투명한 채로 잔존했다. 여기는 자리와 크기만 변경한다. */
   .app-side[data-overlay="true"] {
     position: fixed;
-    background-color: var(--c-glass-soft);
-    backdrop-filter: blur(20px) saturate(1.6);
-    -webkit-backdrop-filter: blur(20px) saturate(1.6);
     inset-block: var(--app-head-h, 3.5rem) 0;
     left: 0;
     z-index: 50;
