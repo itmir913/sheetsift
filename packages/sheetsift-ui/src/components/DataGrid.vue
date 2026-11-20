@@ -336,6 +336,11 @@ watch(sorts, reload, { deep: true });
       <template v-if="$slots.cell" #cell="slotProps">
         <slot name="cell" v-bind="slotProps" />
       </template>
+      <!-- `#cell` 과 동일한 사유로 전달한다 — 전달하지 않으면 공용 부품이 자체 화면에서
+           머리 슬롯만 사용하지 못한다. -->
+      <template v-if="$slots.head" #head="slotProps">
+        <slot name="head" v-bind="slotProps" />
+      </template>
     </GridTable>
 
     <!-- 인쇄 뷰. 화면에서는 은폐되어 있고 @media print 에서만 출현한다. -->
@@ -350,7 +355,13 @@ watch(sorts, reload, { deep: true });
           :truncated="printTruncated"
           :sorts="sorts"
           :filters="activeFilters"
-        />
+        >
+          <!-- 표와 **동일한 슬롯**을 지면에도 전달한다. 전달하지 않으면 셀을 직접 묘사하는 열이
+               인쇄에서 소실되고, 공용 부품이 자체 화면(`web/`)에서 사용하지 못하는 기능을 보유하게 된다. -->
+          <template v-if="$slots.cell" #cell="slotProps">
+            <slot name="cell" v-bind="slotProps" />
+          </template>
+        </PrintView>
       </div>
     </Teleport>
   </div>

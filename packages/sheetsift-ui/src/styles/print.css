@@ -138,6 +138,14 @@
     overflow-wrap: anywhere;
   }
 
+  /* 지면에도 민짜 짝이 필요하다 — 칸의 여백이 잔존하면 본문의 그림이 칸을 전부 사용하지 못한다.
+     **본문 칸만이다.** `PrintView` 에는 `#head` 슬롯이 없어 머리 칸이 담는 것은 `col.label` 문자뿐이고,
+     거기에 여백을 제거하면 제목이 칸의 테두리에 접한다. 지면에 축이 필요해지면 그것은
+     `PrintView` 의 `#head` 슬롯이고 별건이다. */
+  .pv-table td[data-bare] {
+    padding: 0;
+  }
+
   .pv-table th {
     background: var(--c-print-head);
     font-size: var(--pv-head-font);

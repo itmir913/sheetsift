@@ -167,8 +167,18 @@ function colVars(col: LaidOutColumn): Record<string, string> {
       <tbody>
         <tr v-for="(row, i) in rows" :key="i">
           <td class="pv-no">{{ formatNumber(i + 1) }}</td>
-          <td v-for="col in columns" :key="col.key" :data-kind="col.kind">
-            {{ format(col, row[col.srcIndex]) }}
+          <td v-for="col in columns" :key="col.key" :data-kind="col.kind" :data-bare="col.bare ? '' : undefined">
+            <!-- **표와 동일한 인자 셋이다**(`GridTable` 의 `#cell`). 상이하면 막대에 필요한
+                 lo·hi·mid 를 수령하지 못해 슬롯이 무용해지고, 화면용과 지면용 묘사가 두 벌이 된다.
+                 지면의 묘사는 `currentColor` 의 선·테두리·문자로만 수행한다 — 이 저장소에
+                 `print-color-adjust` 가 전무하여 배경색은 용지에 **출력되지 않는다.**
+                 그래서 칸 안에 숫자 문자를 **적어도 하나** 존치한다(묶음을 색으로 전달할 수 없다).
+                 `.print-root` 는 `display: none` 이고 `@media print` 에서만 출현하므로,
+                 슬롯의 내용은 **크기 0 인 상자 안에서** 생성된다 — `getBoundingClientRect` ·
+                 canvas · `ResizeObserver` 에 의존하는 묘사는 공란으로 인쇄된다. -->
+            <slot name="cell" :col="col" :row="row" :value="row[col.srcIndex]">
+              {{ format(col, row[col.srcIndex]) }}
+            </slot>
           </td>
         </tr>
       </tbody>

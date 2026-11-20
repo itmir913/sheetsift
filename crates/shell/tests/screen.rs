@@ -499,6 +499,64 @@ fn the_check_catches_a_switch_the_screen_stopped_attaching() {
     assert!(switches.iter().any(|a| !bound.contains(a)));
 }
 
+/// CSS 가 판독하는 **셀 단위** 전환(`.dg-cell[…]` · `.dg-hcell[…]` · `.dg-fcell[…]`).
+///
+/// 표 단위 전환(`.dg[data-…]`)은 [`css_grid_switches`] 가 별도로 산정한다. 그쪽이 셀 단위를
+/// 의도적으로 제외하므로, 셀 단위는 여기에서 센다.
+///
+/// **주석 안의 문자열도 산정한다**(이 계열은 주석을 제거하지 않는다). 그래서 `grid.css` 가
+/// 주석으로만 언급하는 이름(`.dg-fcell[data-fvars]` — 실제 규칙은 제품의 `header-tint.css` 다)도
+/// 수호의 대상이 된다. 그 주석을 삭제하면 그 속성이 조용히 수호 밖으로 이탈한다.
+fn css_cell_switches(css: &str) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    for prefix in [".dg-cell[data-", ".dg-hcell[data-", ".dg-fcell[data-"] {
+        for (i, _) in css.match_indices(prefix) {
+            let rest = &css[i + prefix.len() - "data-".len()..];
+            let Some(name) = rest.split(['=', ']']).next() else { continue };
+            if name.is_empty() || !name.chars().all(|c| c.is_ascii_lowercase() || c == '-') {
+                continue;
+            }
+            if !found.contains(&name.to_string()) {
+                found.push(name.to_string());
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// **셀을 전환하는 속성이 화면과 CSS 양측에 존재하는가.**
+///
+/// 표 단위 전환과 동일한 부류의 결함이다 — 한쪽에만 명칭이 잔존하면 규칙이 영구히
+/// 정합하지 않는데 빌드도 시험도 침묵한다. 민짜 칸(`data-bare`)처럼 셀 단위로만
+/// 작동하는 전환은 표 단위 검사가 산정하지 않으므로 이 시험이 필요하다.
+#[test]
+fn every_cell_switch_the_css_reads_is_one_the_screen_attaches() {
+    let switches = css_cell_switches(GRID_CSS);
+    assert!(
+        !switches.is_empty(),
+        "grid.css 에서 `.dg-cell[data-…]` 전환을 탐색하지 못했습니다 — 검사가 실명한 것입니다"
+    );
+    let bound = vue_bound_attrs(GRID_TABLE_VUE);
+    let missing: Vec<&String> = switches.iter().filter(|a| !bound.contains(a)).collect();
+    assert!(
+        missing.is_empty(),
+        "grid.css 가 셀에서 판독하는 속성을 GridTable.vue 가 부착하지 않습니다: {missing:?} (부착하는 것: {bound:?})"
+    );
+}
+
+#[test]
+fn the_cell_check_catches_a_switch_the_screen_stopped_attaching() {
+    assert_eq!(css_cell_switches(".dg-cell[data-bare] {}"), ["data-bare"]);
+    assert_eq!(css_cell_switches(".dg-hcell[data-bare] .dg-sortmark {}"), ["data-bare"]);
+    /* 표 단위 전환은 산정하지 않는다 — 그쪽은 `css_grid_switches` 의 몫이다. */
+    assert!(css_cell_switches(".dg[data-wrap=\"true\"] .dg-row {}").is_empty());
+    /* 명칭이 갈라진 상태를 탐지하는가. */
+    let switches = css_cell_switches(".dg-cell[data-naked] {}");
+    let bound = vue_bound_attrs("<div :data-bare=\"col.bare ? '' : undefined\">");
+    assert!(switches.iter().any(|a| !bound.contains(a)));
+}
+
 /* ── 경계의 두 벌 ───────────────────────────────────────────────── */
 
 const BOOK_WASM: &str = include_str!("../../../web/src/lib/book.wasm.ts");

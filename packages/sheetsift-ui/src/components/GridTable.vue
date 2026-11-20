@@ -465,6 +465,7 @@ defineExpose({ close: () => (openFilterKey.value = null) });
             :data-sorted="!!sortOf(col.key)"
             :data-pin="pinIndex(i)"
             :data-pin-last="i === pinned - 1"
+            :data-bare="col.bare ? '' : undefined"
             :data-hvars="headerVars(col) ? '' : undefined"
             :style="headerVars(col)"
             :data-drag-src="dragging && dragFrom === i"
@@ -477,7 +478,11 @@ defineExpose({ close: () => (openFilterKey.value = null) });
             @keydown.space.prevent="col.sortable && emit('sort', col.key)"
             @pointerdown="onHeaderPointerDown(i, $event)"
           >
-            <span class="dg-hlabel">{{ col.label }}</span>
+            <!-- 헤더를 직접 묘사하는 열(축의 눈금 등)만 이 위치를 사용한다. 정렬 표식과 폭 손잡이는
+                 슬롯 외부에 존치하므로 상실되지 않는다. **슬롯 내부에 누르는 것을 배치하지 않는다** —
+                 `onHeaderPointerDown` 이 `sortable` 을 판별하지 않으므로 열이 견인되어 이동한다.
+                 배치해야 하면 `.dg-resize` 처럼 `stopPropagation` 하는 것이 받는 앱의 책무다. -->
+            <slot name="head" :col="col"><span class="dg-hlabel">{{ col.label }}</span></slot>
             <!-- 방향만 노출된다. 몇 번째로 정렬했는지는 상단 정렬 칩이 번호로
                  제시하므로, 여기서 재차 배지를 부착하면 헤더마다 그 폭을 항상
                  확보해 두게 된다(정렬하지 않은 열까지). -->
@@ -562,6 +567,7 @@ defineExpose({ close: () => (openFilterKey.value = null) });
             :data-blank="isBlank(row[col.srcIndex])"
             :data-pin="pinIndex(ci)"
             :data-pin-last="ci === pinned - 1"
+            :data-bare="col.bare ? '' : undefined"
             :data-cvars="cellVars(col) ? '' : undefined"
             :style="cellVars(col)"
             :data-tip="wrap ? undefined : String(row[col.srcIndex] ?? '')"
