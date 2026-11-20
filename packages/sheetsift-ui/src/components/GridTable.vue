@@ -13,7 +13,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import ColumnFilter from "./ColumnFilter.vue";
 import GridIcon from "./GridIcon.vue";
-import { cellText, isBlank, opensRowDetail, own, placePop } from "../lib/grid";
+import { cellText, isBlank, opensRowDetail, own, placePop, runStarts } from "../lib/grid";
 import { t } from "../lib/inject";
 import { tableFont } from "../composables/useTableFont";
 import { wrap } from "../composables/useWrap";
@@ -177,6 +177,15 @@ function cellVars(col: LaidOutColumn): Record<string, string> | undefined {
   const v = col.cellVars;
   return v && Object.keys(v).length > 0 ? v : undefined;
 }
+
+/**
+ * 행 상세의 묶음이 개시되는 자리(`runStarts`). 색이 이어지는 동안이 한 묶음이고, 띠는
+ * 묶음 전체를 하나로 잇는다 — 그래서 **개시하는 줄만** 표식하고 CSS 가 거기에만 간격을
+ * 둔다. `cellVars` 와 동일하게 정규화한 것을 넘긴다(빈 그릇과 부재를 가르지 않는다).
+ */
+const detailRunStarts = computed(() =>
+  runStarts(props.detailColumns.map((c) => ({ cellVars: cellVars(c) }))),
+);
 
 const gridVars = computed(() => {
   const vars: Record<string, string> = {
@@ -626,6 +635,9 @@ defineExpose({ close: () => (openFilterKey.value = null) });
       @keydown="onDetailKey"
     >
       <div v-if="detailRow" class="rd-head">
+        <!-- 협소한 창에서 판이 아래 변에서 올라온 것이라는 표식. **끌어 내리는 동작은
+             부재한다** — 표식뿐이고, 폐쇄는 단추와 Esc 다. 넓은 창에서는 CSS 가 감춘다. -->
+        <span class="rd-grip" aria-hidden="true"></span>
         <h3 id="rd-title" class="rd-title">{{ t("detail.title") }}</h3>
         <button ref="detailCloseBtn" type="button" class="rd-btn" @click="detailDialog?.close()">
           {{ t("detail.close") }}
@@ -636,12 +648,15 @@ defineExpose({ close: () => (openFilterKey.value = null) });
            행 이동 키는 `<dialog>` 가 받으므로(`onDetailKey`) 여기가 초점을 보유할 사유가 없다. -->
       <div v-if="detailRow" class="rd-body" role="group" aria-labelledby="rd-title">
         <dl class="rd-list">
-          <!-- 열에 준 색은 **줄 전체**에 칠한다. 값 칸만 칠하면 이름과 값이 다른 줄처럼 보인다. -->
+          <!-- 열에 준 색은 **왼쪽 띠**로 보인다(면을 칠하지 않는다 — `grid.css` 의 `.rd-pair` 에
+               사유가 있다). `data-run` 은 묶음이 개시되는 줄이고, 그 줄에만 간격이 들어가
+               띠가 끊긴다. 색을 전달하지 않는 앱에서는 첫 줄 하나만 개시해 무색 한 묶음이 된다. -->
           <div
-            v-for="col in detailColumns"
+            v-for="(col, i) in detailColumns"
             :key="col.key"
             class="rd-pair"
             :data-cvars="cellVars(col) ? '' : undefined"
+            :data-run="detailRunStarts[i] || undefined"
             :style="cellVars(col)"
           >
             <dt class="rd-name">

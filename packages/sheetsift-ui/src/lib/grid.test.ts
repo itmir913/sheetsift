@@ -7,6 +7,7 @@ import {
   dropColumnState,
   opensRowDetail,
   reorder,
+  runStarts,
   settleRange,
   canApply,
   changeCommitsAtOnce,
@@ -290,5 +291,50 @@ describe("where the funnel popover goes", () => {
     // 축소하다가 목록이 소멸하는 쪽보다, 팝오버 자신이 구르는 쪽이다.
     const tight = { left: 0, right: 1000, top: 300, bottom: 420 };
     expect(placePop(btn(200, 310), tight, "number").h).toBe(POP_MIN_H);
+  });
+});
+
+describe("runStarts", () => {
+  /** 열 하나. 색은 받는 앱이 싣는 변수이고, 여기서는 **같은지만** 본다. */
+  const col = (vars?: Record<string, string>) => ({ cellVars: vars });
+  /* 받는 앱의 변수 이름을 흉내낸 값. 이 패키지는 이름도 값도 해석하지 않는다. */
+  const A = { "--hv-light": "#111111", "--hv-dark": "#eeeeee" };
+  const B = { "--hv-light": "#222222", "--hv-dark": "#dddddd" };
+
+  it("opens one run while the colour stays the same", () => {
+    expect(runStarts([col(A), col(A), col(A)])).toEqual([true, false, false]);
+  });
+
+  it("opens a new run where the colour changes", () => {
+    expect(runStarts([col(A), col(B)])).toEqual([true, true]);
+  });
+
+  it("treats the same colour coming back apart as a different run", () => {
+    /* 합치면 열 차례를 바꾸는 셈이고, **차례의 정본은 표다.** */
+    expect(runStarts([col(A), col(A), col(B), col(A)])).toEqual([true, false, true, true]);
+  });
+
+  it("makes one colourless run where the app passes no colour", () => {
+    /* 색을 싣지 않는 앱(이 저장소의 앱)에서 띠가 투명한 한 묶음이 된다. */
+    expect(runStarts([col(), col(), col()])).toEqual([true, false, false]);
+  });
+
+  it("reads an empty map as no colour at all", () => {
+    /* `cellVars()` 가 빈 객체를 `undefined` 로 정규화하므로 묶음을 가르면 안 된다. */
+    expect(runStarts([col(), col({}), col()])).toEqual([true, false, false]);
+  });
+
+  it("does not split on the order the keys were written in", () => {
+    /* 받는 앱이 매 묘사마다 객체를 다시 만들 수 있다 — 객체 동일성으로 보면 전부 갈라진다. */
+    const flipped = { "--hv-dark": "#eeeeee", "--hv-light": "#111111" };
+    expect(runStarts([col(A), col(flipped)])).toEqual([true, false]);
+  });
+
+  it("splits where only one of the two colours is there", () => {
+    expect(runStarts([col(A), col(), col(A)])).toEqual([true, true, true]);
+  });
+
+  it("gives an empty list back for no columns", () => {
+    expect(runStarts([])).toEqual([]);
   });
 });

@@ -500,7 +500,7 @@ fn the_check_catches_a_switch_the_screen_stopped_attaching() {
     assert!(switches.iter().any(|a| !bound.contains(a)));
 }
 
-/// CSS 가 판독하는 **셀 단위** 전환(`.dg-cell[…]` · `.dg-hcell[…]` · `.dg-fcell[…]`).
+/// CSS 가 판독하는 **셀 단위** 전환(`.dg-cell[…]` · `.dg-hcell[…]` · `.dg-fcell[…]` · `.rd-pair[…]`).
 ///
 /// 표 단위 전환(`.dg[data-…]`)은 [`css_grid_switches`] 가 별도로 산정한다. 그쪽이 셀 단위를
 /// 의도적으로 제외하므로, 셀 단위는 여기에서 센다.
@@ -508,9 +508,13 @@ fn the_check_catches_a_switch_the_screen_stopped_attaching() {
 /// **주석 안의 문자열도 산정한다**(이 계열은 주석을 제거하지 않는다). 그래서 `grid.css` 가
 /// 주석으로만 언급하는 이름(`.dg-fcell[data-fvars]` — 실제 규칙은 제품의 `header-tint.css` 다)도
 /// 수호의 대상이 된다. 그 주석을 삭제하면 그 속성이 조용히 수호 밖으로 이탈한다.
+///
+/// **행 상세의 줄(`.rd-pair[…]`)도 동일한 부류다.** 그 줄은 표의 셀이 아니나 전환의 사정이
+/// 같다 — 열의 색(`data-cvars`)과 묶음의 경계(`data-run`)를 속성으로 받고, 명칭이 갈라지면
+/// 띠가 조용히 엉뚱한 자리에서 끊기거나 색을 입힐 자리가 소멸한다.
 fn css_cell_switches(css: &str) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
-    for prefix in [".dg-cell[data-", ".dg-hcell[data-", ".dg-fcell[data-"] {
+    for prefix in [".dg-cell[data-", ".dg-hcell[data-", ".dg-fcell[data-", ".rd-pair[data-"] {
         for (i, _) in css.match_indices(prefix) {
             let rest = &css[i + prefix.len() - "data-".len()..];
             let Some(name) = rest.split(['=', ']']).next() else { continue };
@@ -550,6 +554,8 @@ fn every_cell_switch_the_css_reads_is_one_the_screen_attaches() {
 fn the_cell_check_catches_a_switch_the_screen_stopped_attaching() {
     assert_eq!(css_cell_switches(".dg-cell[data-bare] {}"), ["data-bare"]);
     assert_eq!(css_cell_switches(".dg-hcell[data-bare] .dg-sortmark {}"), ["data-bare"]);
+    /* 행 상세의 줄도 센다. 띠의 색과 묶음의 경계가 거기로 들어온다. */
+    assert_eq!(css_cell_switches(".rd-pair[data-run] {}"), ["data-run"]);
     /* 표 단위 전환은 산정하지 않는다 — 그쪽은 `css_grid_switches` 의 몫이다. */
     assert!(css_cell_switches(".dg[data-wrap=\"true\"] .dg-row {}").is_empty());
     /* 명칭이 갈라진 상태를 탐지하는가. */
