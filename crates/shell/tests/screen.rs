@@ -651,6 +651,195 @@ fn the_check_catches_a_door_on_only_one_side() {
     assert!(!exported(BOOK_WASM).contains(&"onlyHere".to_string()));
 }
 
+/* ── 창틀의 경계 ───────────────────────────────────────────────────
+   자료의 경계와 **동일한 분업의 둘째 쌍**이다. 창 단추와 「지금 데스크톱인가」가 여기로만
+   통과하고, 화면은 `sheetsift-shell` 이라는 명칭으로 반입해 어느 쪽인지 인지하지 않는다. */
+
+const SHELL_WEB: &str = include_str!("../../../web/src/lib/shell.web.ts");
+const SHELL_TAURI: &str = include_str!("../../../web/src/lib/shell.tauri.ts");
+const CAPABILITIES: &str = include_str!("../../tauri/capabilities/default.json");
+const TAURI_CONF: &str = include_str!("../../tauri/tauri.conf.json");
+const APP_VUE: &str = include_str!("../../../web/src/App.vue");
+
+#[test]
+fn the_two_window_frames_are_there_to_look_at() {
+    assert!(
+        !exported(SHELL_WEB).is_empty() && !exported(SHELL_TAURI).is_empty(),
+        "창틀 경계의 반출을 탐색하지 못했습니다 — 검사가 실명한 것입니다"
+    );
+}
+
+/// **창틀 경계의 두 벌이 동일한 것을 반출하는가.** 자료의 경계와 동일한 사유다 — 일방에만
+/// 존재하는 반출은 **그 벌에서만 화면이 중단되고**, 타입 검사는 기준으로 삼은 일방
+/// (`tsconfig.app.json` 의 `paths`)만 참조하므로 통과한다.
+#[test]
+fn both_window_frames_export_the_same_things() {
+    assert_eq!(
+        exported(SHELL_WEB),
+        exported(SHELL_TAURI),
+        "창틀 경계의 두 벌이 상이한 것을 반출합니다"
+    );
+}
+
+/// `@tauri-apps/…` 를 반입하는 `web/src` 의 파일 명칭들.
+fn tauri_importers() -> Vec<String> {
+    let at = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../web/src");
+    let mut found = Vec::new();
+    let mut stack = vec![at];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+                continue;
+            }
+            let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("");
+            if !["ts", "vue"].contains(&ext) {
+                continue;
+            }
+            let Ok(src) = std::fs::read_to_string(&p) else { continue };
+            if src.contains("\"@tauri-apps/") || src.contains("'@tauri-apps/") {
+                found.push(p.file_name().unwrap().to_string_lossy().to_string());
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// **`@tauri-apps` 를 반입하는 위치가 경계 둘뿐인가.**
+///
+/// 화면이 그 꾸러미를 직접 반입하면 **브라우저 묶음에 함께 적재되고**, 그 환경에서 호출하는
+/// 시점에 중단된다. 별칭(`vite.config.ts`)은 경계 파일만 교체하므로 경계 밖의 반입은 양쪽
+/// 묶음에 그대로 남는다. 묶음에 무엇이 적재되었는지는 타입 검사도 시험도 판정하지 못한다.
+#[test]
+fn only_the_two_boundaries_reach_for_tauri() {
+    let importers = tauri_importers();
+    assert!(
+        !importers.is_empty(),
+        "`@tauri-apps` 의 반입을 탐색하지 못했습니다 — 검사가 실명한 것입니다"
+    );
+    assert_eq!(
+        importers,
+        ["book.tauri.ts", "shell.tauri.ts"],
+        "경계 밖에서 `@tauri-apps` 를 반입합니다 — 브라우저 묶음에 적재됩니다"
+    );
+}
+
+/// **창 단추가 브라우저에서 묘사되지 않는가.**
+///
+/// 조용히 보이는 쪽이 가장 흔한 결함이다 — 브라우저에서 단추가 보이고 눌러도 아무 작업도
+/// 수행하지 않는데 오류가 발생하지 않는다. 그래서 두 가지를 본다: 브라우저 벌이 거짓을
+/// 반출하는가, 그리고 화면이 그것으로 가리는가.
+#[test]
+fn the_window_buttons_are_hidden_in_a_browser() {
+    assert!(
+        SHELL_WEB.contains("IS_DESKTOP: boolean = false"),
+        "브라우저 벌이 `IS_DESKTOP` 을 거짓으로 반출하지 않습니다"
+    );
+    assert!(
+        SHELL_TAURI.contains("IS_DESKTOP: boolean = true"),
+        "창 벌이 `IS_DESKTOP` 을 참으로 반출하지 않습니다"
+    );
+    assert!(
+        APP_VUE.contains("<WindowButtons v-if=\"IS_DESKTOP\" />"),
+        "화면이 창 단추를 `IS_DESKTOP` 으로 가리지 않습니다"
+    );
+}
+
+/// 창틀 경계가 호출하는 창의 작업마다, 그것을 개방하는 권한의 명칭.
+///
+/// **권한이 부재하면 단추가 오류도 없이 아무 작업도 수행하지 않는다.** 그것을 발견하는
+/// 수단이 굽는 것 말고는 부재하므로 글자로 대조한다.
+const WINDOW_DOORS: &[(&str, &str)] = &[
+    ("win.minimize()", "core:window:allow-minimize"),
+    ("win.toggleMaximize()", "core:window:allow-toggle-maximize"),
+    ("win.close()", "core:window:allow-close"),
+];
+
+#[test]
+fn every_window_door_has_the_permission_that_opens_it() {
+    for (call, permission) in WINDOW_DOORS {
+        assert!(
+            SHELL_TAURI.contains(call),
+            "창틀 경계가 `{call}` 를 호출하지 않습니다 — 검사가 실명한 것입니다"
+        );
+        assert!(
+            CAPABILITIES.contains(permission),
+            "`{call}` 를 개방하는 권한 `{permission}` 이 capabilities 에 부재합니다 — \
+             단추가 오류도 없이 아무 작업도 수행하지 않습니다"
+        );
+    }
+}
+
+/// **창을 끌 수 있는가.** 제목 표시줄을 걷으면 창을 이동할 길이 끌기 영역뿐이고,
+/// 그것은 `core:window:allow-start-dragging` 이 개방한다. 셋이 함께여야 성립한다 —
+/// 하나가 누락되면 창이 이동하지 않는데 오류는 발생하지 않는다.
+#[test]
+fn the_window_can_still_be_dragged_after_the_title_bar_went() {
+    assert!(
+        TAURI_CONF.contains("\"decorations\": false"),
+        "제목 표시줄을 걷지 않았습니다"
+    );
+    assert!(
+        APP_VUE.contains("data-tauri-drag-region"),
+        "끌기 영역이 부재합니다 — 창을 이동할 길이 소멸합니다"
+    );
+    assert!(
+        CAPABILITIES.contains("core:window:allow-start-dragging"),
+        "끌기를 개방하는 권한이 capabilities 에 부재합니다 — 끌기 영역이 작동하지 않습니다"
+    );
+}
+
+/// **끌기 영역을 누르는 요소에 부착하지 않았는가.** 부착하면 누르는 즉시 창이 끌려 그 요소가
+/// 눌리지 않는다 — 단추가 「반응하지 않는다」로 발현되고 오류는 부재한다.
+#[test]
+fn the_drag_region_is_not_on_anything_you_press() {
+    let mut offenders = Vec::new();
+    for (at, _) in APP_VUE.match_indices("data-tauri-drag-region") {
+        /* 그 속성이 속한 여는 꼬리표의 명칭을 뒤로 탐색한다. */
+        let Some(open) = APP_VUE[..at].rfind('<') else { continue };
+        let tag: String = APP_VUE[open + 1..]
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
+            .collect();
+        if ["button", "a", "input", "select", "textarea"].contains(&tag.as_str()) {
+            offenders.push(tag);
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "누르는 요소에 끌기 영역이 부착되었습니다: {offenders:?} — 그 요소가 눌리지 않습니다"
+    );
+}
+
+/// 그 검사들이 실제로 차단하는지 판정한다. **수호 대상을 탐색하지 못하면 통과가 아니라
+/// 실패**이므로, 훼손한 입력으로 정지하는지를 여기에서 함께 본다.
+#[test]
+fn the_window_frame_checks_catch_what_they_are_there_for() {
+    /* 반출이 갈린 상태. */
+    let doctored = "export const IS_DESKTOP: boolean = false;\nexport function onlyWeb(): void {}\n";
+    assert!(exported(doctored) != exported(SHELL_TAURI));
+    /* 끌기 영역이 단추에 부착된 상태를 탐지하는가. */
+    let bad = "<button type=\"button\" data-tauri-drag-region>x</button>";
+    let mut offenders = Vec::new();
+    for (at, _) in bad.match_indices("data-tauri-drag-region") {
+        let open = bad[..at].rfind('<').unwrap();
+        let tag: String = bad[open + 1..]
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
+            .collect();
+        if ["button", "a", "input", "select", "textarea"].contains(&tag.as_str()) {
+            offenders.push(tag);
+        }
+    }
+    assert_eq!(offenders, ["button"]);
+    /* 권한이 누락된 capabilities 를 탐지하는가. */
+    let thin = "{ \"permissions\": [\"core:default\"] }";
+    assert!(WINDOW_DOORS.iter().any(|(_, p)| !thin.contains(p)));
+}
+
 /* ── 문서의 제목과 설명 ─────────────────────────────────────────── */
 
 const INDEX_HTML: &str = include_str!("../../../web/index.html");

@@ -116,6 +116,12 @@ export const ui = {
   "locale.ko": "한국어",
   "locale.en": "English",
 
+  /* 창 조작. **창에서만 출현한다**(`sheetsift-shell` 의 `IS_DESKTOP`) — 브라우저에는
+     조작할 창이 부재한다. 설명 상자와 보조기기의 명칭이 동일하므로 열쇠를 가르지 않는다. */
+  "win.min": "최소화",
+  "win.max": "최대화·이전 크기",
+  "win.close": "닫기",
+
   /* 쪽 이동 */
   "pager.first": "첫 페이지",
   "pager.prev": "이전 페이지",

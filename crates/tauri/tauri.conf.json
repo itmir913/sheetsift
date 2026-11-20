@@ -16,7 +16,8 @@
         "title": "sheetsift",
         "width": 1280,
         "height": 840,
-        "dragDropEnabled": false
+        "dragDropEnabled": false,
+        "decorations": false
       }
     ],
     "security": {

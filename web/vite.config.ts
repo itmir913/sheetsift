@@ -32,6 +32,12 @@ export default defineConfig(({ mode }) => {
         "sheetsift-book": fileURLToPath(
           new URL(`./src/lib/book.${wasm ? "wasm" : "tauri"}.ts`, import.meta.url),
         ),
+        // 창틀의 경계. 자료의 경계와 **동일한 분업**이다 — 창 단추와 「지금 데스크톱인가」가
+        // 여기로만 통과한다. 별칭이 파일 자체를 교체하므로 브라우저 묶음에
+        // `@tauri-apps/api` 가 적재될 경로가 부재하고, 판정도 빌드 시점 1회다.
+        "sheetsift-shell": fileURLToPath(
+          new URL(`./src/lib/shell.${wasm ? "web" : "tauri"}.ts`, import.meta.url),
+        ),
       },
     },
     // Pages 는 저장소 명칭이 부착된 위치에 배포된다. 절대 경로로 컴파일하면 그

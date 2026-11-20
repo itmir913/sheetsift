@@ -90,6 +90,10 @@ export const ui: Record<UiKey, string> = {
   "locale.ko": "한국어",
   "locale.en": "English",
 
+  "win.min": "Minimize",
+  "win.max": "Maximize / restore",
+  "win.close": "Close",
+
   "pager.first": "First page",
   "pager.prev": "Previous page",
   "pager.next": "Next page",

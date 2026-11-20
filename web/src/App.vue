@@ -25,6 +25,8 @@ import type { HeaderSpec, ScreenCatalog, ScreenDef } from "sheetsift-ui/lib/grid
 import { start } from "sheetsift-book";
 import { useFault } from "sheetsift-ui/composables/useFault";
 import LocaleToggle from "@/components/LocaleToggle.vue";
+import WindowButtons from "@/components/WindowButtons.vue";
+import { IS_DESKTOP } from "sheetsift-shell";
 import StartScreen from "@/components/StartScreen.vue";
 import { APP_NAME, storageKey } from "@/lib/app";
 import { painted } from "@/lib/paint";
@@ -339,7 +341,12 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
        `backdrop-filter` 가 단색을 흐리게 되어 아무것도 변화시키지 않는다. 색은 `body` 가
        같은 토큰으로 부여한다(`base.css` 의 `@apply bg-canvas`). -->
   <div class="no-print flex h-screen flex-col text-fg" :style="appVars">
-    <header ref="headEl" class="app-head">
+    <!-- **머리의 빈 자리를 끌면 창이 움직인다**(`data-tauri-drag-region`). 운영체제의 제목
+         표시줄을 걷었으므로(`decorations: false`) 그러지 않으면 창을 이동할 길이 소멸한다.
+         두 번 누르면 최대화가 전환되는 것도 그 표식의 동작이다 — 손으로 기재하지 않는다.
+         **누르는 요소에는 부착하지 않는다** — 누르는 즉시 창이 끌려 그 요소가 눌리지 않는다.
+         브라우저에서는 이 속성이 아무 작용도 하지 않는다. -->
+    <header ref="headEl" class="app-head" data-tauri-drag-region>
       <!-- 좌측 목록 개폐. 목록을 배치하는 양식에서만 출현한다 — 조작해도 아무
            작용이 없는 단추를 상주시키지 않는다. -->
       <button
@@ -355,16 +362,19 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
         <span aria-hidden="true">☰</span>
       </button>
 
-      <h1 class="shrink-0 text-xl font-bold tracking-tight">{{ APP_NAME }}</h1>
+      <h1 class="shrink-0 text-xl font-bold tracking-tight" data-tauri-drag-region>
+        {{ APP_NAME }}
+      </h1>
 
       <p
         v-if="fileName"
         class="min-w-0 flex-1 truncate text-right font-medium"
         :data-tip="fileName"
+        data-tauri-drag-region
       >
         {{ fileName }}
       </p>
-      <span v-else class="flex-1"></span>
+      <span v-else class="flex-1" data-tauri-drag-region></span>
 
       <!-- **협소한 폭에서는 설정을 헤더에 배열하지 않는다.** 분절 선택기
            둘과 단추 하나가 상주하면 헤더가 세 행이 되고 파일 명칭이 2~3자만
@@ -375,6 +385,12 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
         <LocaleToggle />
         <ThemeToggle />
       </template>
+
+      <!-- **창 단추는 상기의 `template` 밖이다.** 설정류는 협소한 폭에서 목록 하단으로
+           이양되는데, 목록은 접히는 것이라 접힌 상태에서 창을 닫을 길이 소멸한다. 창 조작은
+           폭에 따라 사라질 성질이 아니다. 차례가 끝인 것은 제품과 동일하다 — 설정류가 먼저,
+           창 조작이 끝. 브라우저에서는 묘사하지 않는다. -->
+      <WindowButtons v-if="IS_DESKTOP" />
     </header>
 
     <div class="flex min-h-0 flex-1">
