@@ -176,6 +176,8 @@ function colVars(col: LaidOutColumn): Record<string, string> {
                  `.print-root` 는 `display: none` 이고 `@media print` 에서만 출현하므로,
                  슬롯의 내용은 **크기 0 인 상자 안에서** 생성된다 — `getBoundingClientRect` ·
                  canvas · `ResizeObserver` 에 의존하는 묘사는 공란으로 인쇄된다. -->
+            <!-- `row` 는 인쇄 조회가 돌려준 **그 객체**다 — 복제하지 않는다. 본문의 행과는 다른 객체이고,
+                 그래서 받는 앱이 객체만으로 어느 벌인지 가린다(`docs/shared-ui.md`). -->
             <slot name="cell" :col="col" :row="row" :value="row[col.srcIndex]">
               {{ format(col, row[col.srcIndex]) }}
             </slot>

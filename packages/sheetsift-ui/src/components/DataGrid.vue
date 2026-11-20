@@ -4,7 +4,7 @@
  * 확보한다. 정렬·필터·페이지는 SQL 로 처리한다(12만 행을 화면에서 취급할 수
  * 없다).
  */
-import { computed, onBeforeUnmount, onMounted, ref, toRef, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, toRef, watch } from "vue";
 import GridTable from "./GridTable.vue";
 import GridToolbar from "./GridToolbar.vue";
 import PrintView from "./PrintView.vue";
@@ -34,7 +34,18 @@ const emit = defineEmits<{ setHeader: [spec: HeaderSpec] }>();
 
 /* ── 상태 ──────────────────────────────────────────────────── */
 
-const rows = ref<Row[]>([]);
+/**
+ * 조회한 한 쪽의 행.
+ *
+ * **`shallowRef` 다 — `ref` 로 두면 행이 깊은 반응 대리자로 감싸여 슬롯에 **다른 객체**가 도달한다.
+ * 받는 앱은 행 객체를 열쇠로 자기가 산출한 것을 조회하므로(`docs/shared-ui.md` 의 `cell` 슬롯 계약),
+ * 대리자가 끼면 그 조회가 **조용히** 빈손이 된다 — 재어 보고 고친 자리다(`GridRowIdentity.test.ts`).
+ *
+ * 얕아도 되는 까닭은 **행을 제자리에서 고치지 않기 때문**이다 — 조회가 올 때마다 배열을 통째로
+ * 갈아 끼우고(`rows.value = res.rows`), 칸 값을 쓰는 자리는 없다. 제자리 수정이 필요해지면 그때는
+ * 이 선택이 아니라 그 수정을 다시 생각한다.
+ */
+const rows = shallowRef<Row[]>([]);
 const total = ref(0);
 const elapsedMs = ref(0);
 const page = ref(0);
@@ -210,7 +221,8 @@ function resetColumns() {
    조건에 부합하는 전체를 출력한다. 몇 행을 출력할지는 받는 앱이 결정하며
    (`GridSource.printRows`), 이 화면은 응답이 준 행을 그대로 출력한다. */
 
-const printRows = ref<Row[]>([]);
+/* 지면의 행. 본문과 같은 사유로 얕다 — 슬롯 계약은 인쇄에도 걸린다(`PrintView.vue` 의 슬롯 주석). */
+const printRows = shallowRef<Row[]>([]);
 const printTotal = ref(0);
 const printTruncated = ref(false);
 const printing = ref(false);

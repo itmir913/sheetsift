@@ -572,7 +572,11 @@ defineExpose({ close: () => (openFilterKey.value = null) });
             :style="cellVars(col)"
             :data-tip="wrap ? undefined : String(row[col.srcIndex] ?? '')"
           >
-            <!-- 셀을 특수하게 묘사해야 하는 화면(가능성 배지 등)만 이 위치를 사용한다. -->
+            <!-- 셀을 특수하게 묘사해야 하는 화면(가능성 배지 등)만 이 위치를 사용한다.
+                 `row` 는 **응답의 `rows` 배열에 들어 있던 그 객체**다 — 복제하지도, 반응 대리자로 감싸지도
+                 않는다(그래서 `DataGrid` 의 행이 `shallowRef` 다). 받는 앱이 행마다 산출한 것을 그 객체를
+                 열쇠로 조회한다(`docs/shared-ui.md`, `GridRowIdentity.test.ts`). 어느 쪽이든 끼면 그 조회가
+                 **조용히** 실패한다 — 오류도 경고도 없이 서식만 사라지고 표는 멀쩡해 보인다. -->
             <slot name="cell" :col="col" :row="row" :value="row[col.srcIndex]">
               {{ cellText(col, row[col.srcIndex]) }}
             </slot>
@@ -619,7 +623,8 @@ defineExpose({ close: () => (openFilterKey.value = null) });
               <span v-if="col.hidden" class="rd-tag">{{ t("detail.hidden") }}</span>
             </dt>
             <dd class="rd-value" :data-kind="col.kind" :data-blank="isBlank(detailRow[col.srcIndex])">
-              <!-- 표와 **동일한 슬롯**이다. 그러지 않으면 모달에서만 꼴이 상이해진다. -->
+              <!-- 표와 **동일한 슬롯**이다. 그러지 않으면 모달에서만 꼴이 상이해진다.
+                   `detailRow` 도 응답의 그 객체다(위 본문 슬롯의 주석과 같은 계약이다). -->
               <slot name="cell" :col="col" :row="detailRow" :value="detailRow[col.srcIndex]">
                 {{ cellText(col, detailRow[col.srcIndex]) }}
               </slot>

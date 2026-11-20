@@ -79,6 +79,40 @@ const kept = dropColumnState(dropped, { sorts, filterText, filterValues });
 - The dictionary needs the `picker.*` keys and `tools.columns`; `picker.count` is a
   plural keyed by the number of shown columns, with `total` as a parameter.
 
+### The `cell` slot hands over the row object itself
+
+A receiving app may need a per-row judgement the package knows nothing about —
+goe-navi evaluates a condition on each row and emphasises one cell of it. The
+only thing the slot gives it to identify the row is the `row` value, so:
+
+**The three `cell` slots hand over the very object that came in the response's
+`rows` array. The package does not copy a row, rebuild it, spread it or map it.**
+
+A receiving app may therefore use the row object as a key (a `WeakMap`) and look
+up whatever it computed for that row. The three slots are the table body
+(`GridTable.vue`), the row details modal (`GridTable.vue`) and print
+(`PrintView.vue`).
+
+This was **not** already true when it was asked for. `DataGrid` held the rows in a
+plain `ref`, so Vue wrapped every row in a deep reactive proxy and the slot handed
+over the proxy, not the response's object — `toRaw(row)` was the response's object
+but `row === res.rows[i]` was false. A receiving app that keyed its results on the
+rows it returned from `queryRows` would have looked up a different object and found
+nothing. `rows` and `printRows` are `shallowRef` now, which is enough because a row
+is never edited in place: a query replaces the whole array.
+
+Why it is pinned down rather than left as it happens to work: the lookup fails
+**silently**. No error, no warning — the emphasis simply stops arriving and the
+table still looks right. A row index was asked for first and measured as
+unworkable: `GridTable` and `PrintView` are not given `offset`, print always
+queries from 0, and body and print share one slot, so the receiver could not tell
+which query a number belonged to. The object answers both questions by itself,
+because the body's rows and print's rows are different objects.
+
+`GridRowIdentity.test.ts` holds this. It mounts the three slots and asserts the
+slot's `row` **is** the element of the array the source returned. Each of the three
+legs was checked against the defect: putting either `ref` back fails them.
+
 ### Row details (`GridTable.vue`)
 
 `GridTable` holds this modal, not `GridToolbar` or `DataGrid`: some screens build
