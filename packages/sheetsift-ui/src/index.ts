@@ -23,6 +23,7 @@ import {
   type SharedUiMessages,
 } from "./lib/inject";
 import { installShortcutGuard, type ShortcutGuard } from "./lib/shortcuts";
+import { provideWindowFrame, type WindowFrame } from "./composables/useWindowFrame";
 
 export type {
   ColumnValuesRequest,
@@ -38,6 +39,7 @@ export type {
   SharedUiMessages,
 } from "./lib/inject";
 export type { ShortcutGuard } from "./lib/shortcuts";
+export type { WindowFrame } from "./composables/useWindowFrame";
 
 export interface SharedUiOptions {
   /** 브라우저 저장소 키의 접두사. 제품마다 상이해야 한다. */
@@ -52,6 +54,14 @@ export interface SharedUiOptions {
    * 창에 탑재하는 제품만 지정한다.
    */
   shortcuts?: ShortcutGuard;
+  /**
+   * 창의 조작(최소화·최대화·폐쇄)과 운영체제의 제목 표시줄 존치 여부.
+   *
+   * **생략하면 창 조작이 부재하는 앱이다** — 창 단추도 운영체제 단추의 자리도 묘사되지
+   * 않는다. 필수로 배치하면 브라우저 전용 앱이 의미가 부재하는 값을 기재하게 되고, 받는
+   * 앱이 그 행을 기재하기 이전까지 타입 검사가 정지한다.
+   */
+  windowFrame?: WindowFrame;
 }
 
 /**
@@ -72,4 +82,5 @@ export function installSharedUi(o: SharedUiOptions): void {
   installGrouping();
   installWrap();
   if (o.shortcuts) installShortcutGuard(o.shortcuts);
+  if (o.windowFrame) provideWindowFrame(o.windowFrame);
 }

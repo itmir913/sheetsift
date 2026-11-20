@@ -21,6 +21,20 @@ export const IS_DESKTOP: boolean = true;
 /* 창은 묘사 이전에 존재하므로 적재 시점에 1회 취득한다. */
 const win = getCurrentWindow();
 
+/**
+ * **운영체제의 제목 표시줄이 존치하는가.** 맥은 신호등 단추를 살리려 `decorations` 를
+ * 참으로 두고, 윈도·리눅스는 걷으려 거짓으로 둔다(`tauri.macos.conf.json`).
+ *
+ * **운영체제의 명칭으로 판정하지 않는다.** 우리가 단추를 묘사하는 사유는 「맥이 아니라서」가
+ * 아니라 「운영체제가 묘사하지 않아서」다. 창에 물으면 그 설정 자체가 답이라 **설정과 판정이
+ * 갈릴 수 없다** — 명칭으로 판정하면 리눅스에서 신호등을 사용하기로 하는 날 어긋나고, 그것은
+ * 그 운영체제에서만 발현된다. 운영체제를 알려면 꾸러미를 더 들여야 하고 그 꾸러미는 러스트의
+ * 최소 판을 1.90 으로 끌어올린다(이 상자는 1.82 다).
+ */
+export function nativeTitleBar(): Promise<boolean> {
+  return win.isDecorated();
+}
+
 export function minimize(): void {
   void win.minimize();
 }

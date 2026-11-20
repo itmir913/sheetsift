@@ -24,6 +24,14 @@ export const IS_DESKTOP: boolean = false;
  * 통과한다.
  */
 
+/**
+ * 브라우저에는 제목 표시줄이 부재한다. **호출되지 않는다** — `isDesktop` 이 거짓이면
+ * 공용 화면이 묻지 않는다. 그래도 반출해야 두 벌의 반출이 동일하다.
+ */
+export function nativeTitleBar(): Promise<boolean> {
+  return Promise.resolve(false);
+}
+
 export function minimize(): void {}
 
 export function toggleMaximize(): void {}

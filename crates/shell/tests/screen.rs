@@ -742,9 +742,15 @@ fn the_window_buttons_are_hidden_in_a_browser() {
         SHELL_TAURI.contains("IS_DESKTOP: boolean = true"),
         "창 벌이 `IS_DESKTOP` 을 참으로 반출하지 않습니다"
     );
+    /* 화면은 「데스크톱인가」를 직접 보지 않는다 — 운영체제가 제목 표시줄을 그리는 창(맥)
+       에서도 거짓이어야 하므로, 판정을 집약한 `showsWindowButtons` 로 가린다. */
     assert!(
-        APP_VUE.contains("<WindowButtons v-if=\"IS_DESKTOP\" />"),
-        "화면이 창 단추를 `IS_DESKTOP` 으로 가리지 않습니다"
+        APP_VUE.contains("<WindowButtons v-if=\"showsWindowButtons\">"),
+        "화면이 창 단추를 `showsWindowButtons` 로 가리지 않습니다"
+    );
+    assert!(
+        !APP_VUE.contains("v-if=\"IS_DESKTOP\""),
+        "화면이 「데스크톱인가」를 직접 판정합니다 — 맥에서도 단추가 묘사됩니다"
     );
 }
 
@@ -814,6 +820,114 @@ fn the_drag_region_is_not_on_anything_you_press() {
     );
 }
 
+/* ── 맥의 창 설정 ──────────────────────────────────────────────────
+   맥은 운영체제의 신호등 단추를 존치하므로 제목 표시줄을 걷지 않는다. 그 차이를 플랫폼
+   설정 파일이 기재한다.
+
+   **그 파일은 창 설정을 통째로 치환한다.** tauri 의 병합은 RFC 7396 이고 배열은 키별로
+   합쳐지지 않는다 — `app.windows` 도 배열이라 플랫폼 항목이 기본 항목을 **대체**하고,
+   기재하지 않은 항목은 기본값으로 하강한다. 그래서 창 설정의 정본이 두 곳이 된다.
+
+   한쪽만 수정하는 날 **맥의 창만 제목이나 크기가 상이하게 개방되는데**, 굽기도 검사도
+   그것을 인지하지 못한다. 그래서 글자로 대조한다. */
+
+const TAURI_MACOS_CONF: &str = include_str!("../../tauri/tauri.macos.conf.json");
+
+/// **일부러 갈라 둔 열쇠.** 여기 기재하는 행위가 「이 열쇠는 맥에서 상이한 것이 의도다」라는
+/// 진술이다 — **뜻을 기재하는 곳이지 빠져나가는 곳이 아니다.** 갈라야 할 사유가 없는 열쇠를
+/// 여기 추가하면 그 시점부터 양측이 조용히 분기한다.
+///
+/// - `decorations` — 맥은 참이다. 신호등을 존치해야 하고, `titleBarStyle: "Overlay"` 가
+///   그것을 요구한다.
+/// - `titleBarStyle`·`hiddenTitle` — 맥 전용 열쇠라 기본 설정에 부재한다.
+const MACOS_MAY_DIFFER: &[&str] = &["decorations", "titleBarStyle", "hiddenTitle"];
+
+/// `app.windows[0]` 을 읽는다.
+fn window_conf(src: &str) -> serde_json::Map<String, serde_json::Value> {
+    let v: serde_json::Value = serde_json::from_str(src).expect("창 설정을 판독하지 못했습니다");
+    v["app"]["windows"][0]
+        .as_object()
+        .expect("`app.windows[0]` 이 부재합니다")
+        .clone()
+}
+
+#[test]
+fn the_two_window_configs_are_there_to_look_at() {
+    assert!(
+        !window_conf(TAURI_CONF).is_empty() && !window_conf(TAURI_MACOS_CONF).is_empty(),
+        "창 설정을 탐색하지 못했습니다 — 검사가 실명한 것입니다"
+    );
+}
+
+/// **맥의 창 설정이 기본과 일부러 갈라 둔 열쇠에서만 상이한가.**
+#[test]
+fn the_macos_window_repeats_everything_it_is_not_meant_to_change() {
+    let base = window_conf(TAURI_CONF);
+    let mac = window_conf(TAURI_MACOS_CONF);
+    let mut drifted = Vec::new();
+    /* 기본에 소재하는 열쇠가 맥에서 누락되면 **기본값으로 하강한다** — 그것도 분기다. */
+    for (key, want) in &base {
+        if MACOS_MAY_DIFFER.contains(&key.as_str()) {
+            continue;
+        }
+        match mac.get(key) {
+            None => drifted.push(format!("`{key}` 가 맥 설정에 부재합니다(기본값으로 하강합니다)")),
+            Some(got) if got != want => {
+                drifted.push(format!("`{key}` 가 상이합니다: 기본 {want} · 맥 {got}"))
+            }
+            Some(_) => {}
+        }
+    }
+    /* 맥에만 소재하는 열쇠는 백지 목록에 기재되어 있어야 한다. */
+    for key in mac.keys() {
+        if !base.contains_key(key) && !MACOS_MAY_DIFFER.contains(&key.as_str()) {
+            drifted.push(format!("`{key}` 가 맥에만 소재하는데 백지 목록에 부재합니다"));
+        }
+    }
+    assert!(
+        drifted.is_empty(),
+        "맥의 창 설정이 기본과 분기했습니다: {drifted:?}"
+    );
+}
+
+/// **맥은 제목 표시줄을 걷지 않는다.** 걷으면 신호등이 소멸하는데 우리 단추는 그려지지
+/// 않으므로(`nativeTitleBar` 가 거짓이 되어야 그린다) **창을 닫을 길이 전부 소멸한다.**
+#[test]
+fn the_mac_keeps_the_buttons_the_system_draws() {
+    let mac = window_conf(TAURI_MACOS_CONF);
+    assert_eq!(mac.get("decorations"), Some(&serde_json::Value::Bool(true)));
+    assert_eq!(
+        mac.get("titleBarStyle").and_then(|v| v.as_str()),
+        Some("Overlay"),
+        "신호등 위에 우리 머리를 겹치려면 `Overlay` 여야 합니다"
+    );
+    /* 화면이 그 자리를 비우는지. 비우지 않으면 신호등과 글자가 포개진다. */
+    assert!(
+        APP_VUE.contains("reservesTrafficLights"),
+        "맥에서 신호등이 앉을 자리를 비우지 않습니다"
+    );
+}
+
+/// **두 번 눌러 최대화를 기재했는가.**
+///
+/// tauri 가 수행해 주지 않는다 — 그 쪽 문서는 그것을 손으로 기재하는 예시로만 제시하고,
+/// `data-tauri-drag-region` 이 그것을 수행한다는 진술은 부재한다. 기재한 것이 소멸하는 것은
+/// 조용하므로 결속을 본다.
+#[test]
+fn double_clicking_the_title_bar_is_something_we_wrote_ourselves() {
+    assert!(
+        WINDOW_FRAME_TS.contains("ev.detail !== 2"),
+        "두 번 누름의 판정이 부재합니다"
+    );
+    assert!(
+        APP_VUE.contains("@click=\"onTitleBarDoubleClick\""),
+        "창 머리가 두 번 누름을 결속하지 않습니다"
+    );
+}
+
+const WINDOW_FRAME_TS: &str =
+    include_str!("../../../packages/sheetsift-ui/src/composables/useWindowFrame.ts");
+
 /// 그 검사들이 실제로 차단하는지 판정한다. **수호 대상을 탐색하지 못하면 통과가 아니라
 /// 실패**이므로, 훼손한 입력으로 정지하는지를 여기에서 함께 본다.
 #[test]
@@ -838,6 +952,19 @@ fn the_window_frame_checks_catch_what_they_are_there_for() {
     /* 권한이 누락된 capabilities 를 탐지하는가. */
     let thin = "{ \"permissions\": [\"core:default\"] }";
     assert!(WINDOW_DOORS.iter().any(|(_, p)| !thin.contains(p)));
+    /* 맥의 창 설정이 조용히 분기한 상태를 탐지하는가 — 폭만 상이한 벌을 투입한다. */
+    let doctored = r#"{"app":{"windows":[{"label":"main","width":1,"decorations":true}]}}"#;
+    let base = window_conf(TAURI_CONF);
+    let mac = window_conf(doctored);
+    let drifted: Vec<&String> = base
+        .keys()
+        .filter(|k| !MACOS_MAY_DIFFER.contains(&k.as_str()))
+        .filter(|k| mac.get(*k) != base.get(*k))
+        .collect();
+    assert!(
+        !drifted.is_empty(),
+        "분기한 맥 설정을 탐지하지 못했습니다 — 검사가 실명한 것입니다"
+    );
 }
 
 /* ── 문서의 제목과 설명 ─────────────────────────────────────────── */

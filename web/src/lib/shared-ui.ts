@@ -9,6 +9,7 @@
  * 그것을 요구하는 결정을 수행한 바가 없다.
  */
 import type { SharedUiOptions } from "sheetsift-ui";
+import { IS_DESKTOP, close, minimize, nativeTitleBar, toggleMaximize } from "sheetsift-shell";
 import { AppError } from "sheetsift-book";
 import { APP_NAME, STORAGE_PREFIX } from "@/lib/app";
 import { bookSource } from "@/lib/workbook";
@@ -20,6 +21,9 @@ export const sharedUi: SharedUiOptions = {
   appName: APP_NAME,
   messages: { t, tn, formatNumber, formatDateTime },
   source: bookSource,
+  /* 창의 조작. **경계가 벌을 가린다** — 브라우저 벌은 `isDesktop` 이 거짓이라 공용 화면이
+     단추도 자리도 묘사하지 않는다. */
+  windowFrame: { isDesktop: IS_DESKTOP, nativeTitleBar, minimize, toggleMaximize, close },
   errors: {
     recognize: (e) =>
       e instanceof AppError

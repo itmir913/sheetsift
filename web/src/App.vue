@@ -25,8 +25,12 @@ import type { HeaderSpec, ScreenCatalog, ScreenDef } from "sheetsift-ui/lib/grid
 import { start } from "sheetsift-book";
 import { useFault } from "sheetsift-ui/composables/useFault";
 import LocaleToggle from "@/components/LocaleToggle.vue";
-import WindowButtons from "@/components/WindowButtons.vue";
-import { IS_DESKTOP } from "sheetsift-shell";
+import WindowButtons from "sheetsift-ui/components/WindowButtons.vue";
+import {
+  onTitleBarDoubleClick,
+  reservesTrafficLights,
+  showsWindowButtons,
+} from "sheetsift-ui/composables/useWindowFrame";
 import StartScreen from "@/components/StartScreen.vue";
 import { APP_NAME, storageKey } from "@/lib/app";
 import { painted } from "@/lib/paint";
@@ -346,7 +350,11 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
          두 번 누르면 최대화가 전환되는 것도 그 표식의 동작이다 — 손으로 기재하지 않는다.
          **누르는 요소에는 부착하지 않는다** — 누르는 즉시 창이 끌려 그 요소가 눌리지 않는다.
          브라우저에서는 이 속성이 아무 작용도 하지 않는다. -->
-    <header ref="headEl" class="app-head" data-tauri-drag-region>
+    <header ref="headEl" class="app-head" data-tauri-drag-region @click="onTitleBarDoubleClick">
+      <!-- 운영체제의 단추(맥의 신호등)가 앉을 자리. **우리 단추와 배타**이고, 판정은
+           `useWindowFrame` 한 곳이 수행한다. 폭은 재지 못했다 — `window.css` 의 변수 하나에
+           집약해 두었다. -->
+      <span v-if="reservesTrafficLights" class="wc-lights" aria-hidden="true" data-tauri-drag-region></span>
       <!-- 좌측 목록 개폐. 목록을 배치하는 양식에서만 출현한다 — 조작해도 아무
            작용이 없는 단추를 상주시키지 않는다. -->
       <button
@@ -389,8 +397,26 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
       <!-- **창 단추는 상기의 `template` 밖이다.** 설정류는 협소한 폭에서 목록 하단으로
            이양되는데, 목록은 접히는 것이라 접힌 상태에서 창을 닫을 길이 소멸한다. 창 조작은
            폭에 따라 사라질 성질이 아니다. 차례가 끝인 것은 제품과 동일하다 — 설정류가 먼저,
-           창 조작이 끝. 브라우저에서는 묘사하지 않는다. -->
-      <WindowButtons v-if="IS_DESKTOP" />
+           창 조작이 끝.
+
+           **묘사 여부를 여기서 판정하지 않는다** — `useWindowFrame` 한 곳이 판정한다.
+           브라우저에서도, 운영체제가 제목 표시줄을 그리는 창(맥)에서도 거짓이다.
+           도형은 이 앱의 것이라 슬롯으로 전달한다. -->
+      <WindowButtons v-if="showsWindowButtons">
+        <template #min>
+          <svg class="wc-icon" viewBox="0 0 10 10" aria-hidden="true"><path d="M1 5h8" /></svg>
+        </template>
+        <template #max>
+          <svg class="wc-icon" viewBox="0 0 10 10" aria-hidden="true">
+            <rect x="1.5" y="1.5" width="7" height="7" />
+          </svg>
+        </template>
+        <template #close>
+          <svg class="wc-icon" viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" />
+          </svg>
+        </template>
+      </WindowButtons>
     </header>
 
     <div class="flex min-h-0 flex-1">

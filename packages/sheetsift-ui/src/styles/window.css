@@ -1,0 +1,80 @@
+/* ─────────────────────────────────────────────────────────────
+   창틀 — 창 단추와 운영체제의 단추가 앉을 자리.
+
+   운영체제의 제목 표시줄을 걷은 창(`decorations: false`)이 그것을 대신 묘사한다. 맥은
+   걷지 않으므로 여기 단추가 묘사되지 않고, 대신 좌측의 자리만 비운다 — 판정은
+   `useWindowFrame` 한 곳이 수행한다.
+
+   색은 tokens.css 의 토큰만 참조한다.
+   ───────────────────────────────────────────────────────────── */
+@layer components {
+  /* **머리의 타 단추와 모양을 공유하지 않는다.** 그쪽은 테두리와 음영을 보유한 조작이고
+     이쪽은 창틀의 일부다 — 동급으로 묘사하면 파일을 교체하는 조작과 창을 폐쇄하는 조작이
+     동일한 급으로 판독된다. 그래서 쉼에서는 테두리도 면색도 부재한다.
+
+     **우측의 여백을 상쇄한다** — 머리의 우측 끝에 접해야 운영체제의 단추가 소재하던 자리와
+     일치한다. 상쇄할 값은 받는 앱의 머리가 보유한 여백이라 변수로 수령한다. */
+  .wc {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-self: stretch;
+    align-items: stretch;
+    margin-left: var(--sp-1);
+    margin-right: calc(-1 * var(--wc-head-pad, var(--sp-4)));
+  }
+
+  .wc-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    cursor: pointer;
+    border: 0;
+    background: none;
+    color: var(--c-fg-muted);
+    transition:
+      background-color 120ms ease,
+      color 120ms ease;
+  }
+
+  /* **유리 위에서는 불투명한 면색이 매몰된다** — 유리가 배후를 투과시켜 명도 차이가 거의
+     소멸한다. 투과하는 먹은 배후와 무관하게 차이가 일정하다. */
+  .wc-btn:hover {
+    background-color: var(--c-glass-hover);
+    color: var(--c-fg);
+  }
+
+  /* **폐쇄만 적색이다.** 되돌릴 수 없는 조작이 셋 중 하나뿐이라 그것을 색으로 가른다.
+     쉼에서는 타 단추와 동일하다 — 상주하는 적색은 오류로 판독된다. */
+  .wc-btn[data-close]:hover {
+    background-color: var(--c-danger);
+    color: var(--c-fg-inverted);
+  }
+
+  .wc-icon {
+    display: block;
+    width: 10px;
+    height: 10px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.2;
+  }
+
+  /* 운영체제의 단추(맥의 신호등)가 앉을 자리. **우리가 그 단추를 묘사하지 않는 창에서만**
+     비운다.
+
+     **폭을 실측하지 못했다.** tauri 의 문서가 「제목 표시줄의 높이는 운영체제의 판마다
+     상이하다」고 기재해 두었고, 이 자리에 맥이 부재해 재지 못했다. 짐작한 수를 분산해
+     기재하면 근거처럼 굳으므로 **변수 하나에 집약한다 — 실측한 사람이 이 한 곳만
+     수정한다.** */
+  .wc-lights {
+    flex: 0 0 auto;
+    width: var(--wc-lights-w, 88px);
+  }
+
+  /* 끌기 영역이 **접촉·펜 입력에서도** 작동하게 한다(tauri 의 문서가 윈도 항에 기재한 것).
+     부여하지 않으면 마우스로만 끌리는데, 그 차이는 마우스로 시험하는 동안 발현되지 않는다. */
+  [data-tauri-drag-region] {
+    app-region: drag;
+  }
+}

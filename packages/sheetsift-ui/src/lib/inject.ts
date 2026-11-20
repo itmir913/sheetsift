@@ -139,7 +139,12 @@ export type SharedUiKey =
   | "tools.sorts"
   | "tools.sorts.clear"
   | "tools.wrap"
-  | "tools.wrap.tip";
+  | "tools.wrap.tip"
+  /* 창 조작. **창에 탑재하는 앱만 묘사한다** — 설명 상자와 보조기기의 명칭이 동일하므로
+     열쇠를 가르지 않는다. */
+  | "win.close"
+  | "win.max"
+  | "win.min";
 
 export type MessageParams = Record<string, string | number>;
 
