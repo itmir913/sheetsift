@@ -894,7 +894,11 @@
    않는 화면이 칩을 쓸 때 의존이 거꾸로다.
 
    - 꺼짐 글자는 `--c-fg-muted` 다. 꺼진 것이 꺼져 보여야 하고, 마우스를 올리면 `--c-fg`.
-   - 켜짐은 색만으로 가르지 않는다 — 굵기(`600`)를 더한다(색을 구분하기 어려운 사람).
+   - 켜짐은 색만으로 가르지 않는다 — **바탕이 차는 것 자체**가 색이 아닌 표시다(테두리만 있는 것과
+     면이 찬 것은 색을 구분하기 어려운 사람도 가른다). 선두의 점도 흐림에서 또렷함으로 바뀐다.
+   - **굵기는 두 상태가 같다(`600`).** 켤 때만 굵게 하면 글자가 넓어져 칩이 커지고, 그만큼
+     **뒤의 칩이 밀립니다** — 누른 자리가 움직이면 다음 칩을 잘못 누릅니다(소유자 지적 2026-11-22).
+     두 상태의 크기는 **바탕이 찼는가만** 달라야 한다.
    - 한 줄에 고정한다(`nowrap`). */
 .cp-chip,
 .ss-chip {
@@ -909,6 +913,8 @@
   background-color: var(--c-glass-soft);
   color: var(--c-fg-muted);
   font: inherit;
+  /* 두 상태가 같은 굵기다 — 켤 때만 굵게 하면 칩이 넓어져 뒤의 칩이 밀린다. */
+  font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
 }
@@ -943,7 +949,6 @@
   border-color: transparent;
   background-color: var(--kc, var(--c-accent));
   color: var(--c-accent-fg);
-  font-weight: 600;
   box-shadow: var(--c-lift-1);
 }
 
