@@ -1162,6 +1162,35 @@ select.ss-text:disabled {
   min-height: var(--h-ctl);
 }
 
+/* 마지막 행 아래의 빈 자리. 까닭은 `GridTable.vue` 의 그 자리에 적었다.
+   기본이 0 이라 토큰을 주지 않은 앱은 지금 모습 그대로다. 인쇄에서는 뺀다. */
+.gx-tail {
+  width: 0;
+  height: var(--gx-tail, 0);
+}
+
+@media print {
+  .gx-tail {
+    display: none;
+  }
+}
+
+/* 인쇄 앞의 구분선. 인쇄는 보기 설정이 아니라 **바깥으로 내보내는 행동**이라
+   옆 설정 덩이에 붙어 읽히면 안 된다. 선 하나로 결이 다름을 보인다. */
+.gx-tools-sep {
+  align-self: center;
+  width: 1px;
+  height: 1rem;
+  background: var(--c-border);
+}
+
+/* 「더보기」가 여는 줄은 **오른쪽에 붙인다.** 그 줄을 연 단추가 줄의 오른쪽 끝에 있으므로,
+   왼쪽에 나오면 누른 사람의 눈이 반대쪽으로 끌려간다. `flex-wrap` 은 그대로라 폭이 모자라면
+   여전히 줄이 늘어난다. */
+.gx-tools-more {
+  justify-content: flex-end;
+}
+
 .gx-tools-set {
   display: flex;
   flex: 0 1 auto;

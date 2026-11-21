@@ -258,18 +258,6 @@ function labelOf(key: string): string {
           </button>
         </span>
 
-        <!-- 인쇄는 `compact` 에도 존치한다. 열을 취급하는 기능이 아니라 화면이 낸 행을 지면으로 내는 기능이다. -->
-        <button
-          v-if="canPrint"
-          type="button"
-          class="gx-tool-btn"
-          :disabled="printing || printDisabled"
-          :data-tip="t('tools.print.tip')"
-          @click="emit('print')"
-        >
-          {{ t(printing ? "tools.print.busy" : "tools.print") }}
-        </button>
-
         <template v-if="!compact">
           <span class="gx-pin">
             <span class="whitespace-nowrap text-fg-muted">{{ t("tools.pin") }}</span>
@@ -384,6 +372,29 @@ function labelOf(key: string): string {
             {{ t("tools.grouping") }}
           </label>
 
+        </template>
+
+        <!-- **인쇄는 줄의 오른쪽 끝, 「더보기」 바로 앞에 둔다**(소유자 결정 2026-11-21).
+             나머지는 전부 보기 설정이라 눌러도 지금 보는 표가 바뀔 뿐인데, 인쇄만 바깥으로
+             내보내는 행동이다. 설정 덩이 사이에 끼어 있으면 `글자 − 14px 인쇄` 가 한 덩이로
+             읽혀 두 설정을 갈라 놓는다. 오른쪽에 「누르면 무슨 일이 일어나는 것들」을 모은다.
+
+             `compact` 에도 존치한다 — 열을 취급하는 기능이 아니라 화면이 낸 행을 지면으로
+             내는 기능이다. 그래서 이 단추만 `!compact` 바깥에 있고, 「더보기」는 그 안에서
+             줄의 마지막 자리를 지킨다. -->
+        <span v-if="canPrint" class="gx-tools-sep" aria-hidden="true"></span>
+        <button
+          v-if="canPrint"
+          type="button"
+          class="gx-tool-btn"
+          :disabled="printing || printDisabled"
+          :data-tip="t('tools.print.tip')"
+          @click="emit('print')"
+        >
+          {{ t(printing ? "tools.print.busy" : "tools.print") }}
+        </button>
+
+        <template v-if="!compact">
           <!-- **되돌리는 셋은 이름이 부여된 위치 뒤에 둔다.**
 
                종전에는 아홉이 동일한 무게로 한 행에 나열되어, 전부가 중요하면
