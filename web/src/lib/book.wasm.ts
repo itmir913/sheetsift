@@ -15,7 +15,7 @@
  * 문자만 주고받는다 — 창 벌이 명령 겹을 호출하는 것과 동일한 분업이고, 양측이
  * 공히 비동기라 화면이 대기하는 구조도 한 벌이다.
  */
-import type { WorkerAsk, WorkerReply } from "./book.worker";
+import type { WorkerAsk, WorkerReply, WorkerTask } from "./book.worker";
 import type { AppErrorPayload, ErrorCode } from "@/i18n/codes";
 import { formatError } from "@/i18n";
 
@@ -90,7 +90,7 @@ const waiting = new Map<number, { resolve: (value: string) => void; reject: (e: 
  * **중단한 것도 회신으로 도달한다.** 작업자의 예외는 주 흐름의 예외가 아니라,
  * 그쪽에서 포착해 `ok: false` 로 운반한 것을 여기서 재차 발생시킨다.
  */
-function ask(request: Omit<WorkerAsk, "id">, transfer?: Transferable[]): Promise<string> {
+function ask(task: WorkerTask, transfer?: Transferable[]): Promise<string> {
   const hand = hired();
   if (waiting.size === 0) {
     hand.onmessage = (ev: MessageEvent<WorkerReply>) => {
@@ -113,7 +113,7 @@ function ask(request: Omit<WorkerAsk, "id">, transfer?: Transferable[]): Promise
   const id = nextId++;
   return new Promise<string>((resolve, reject) => {
     waiting.set(id, { resolve, reject });
-    hand.postMessage({ ...request, id } as WorkerAsk, transfer ?? []);
+    hand.postMessage({ ...task, id } as WorkerAsk, transfer ?? []);
   });
 }
 

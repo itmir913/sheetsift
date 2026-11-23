@@ -16,11 +16,18 @@
  */
 import init, { Book as WasmBook, limits as wasmLimits } from "sheetsift-wasm";
 
-/** 주 흐름이 요청하는 작업. 명칭은 경계가 반출하는 문과 동일한 벌이다. */
-export type WorkerAsk =
-  | { id: number; op: "start" }
-  | { id: number; op: "open"; bytes: Uint8Array; name: string }
-  | { id: number; op: "listScreens" | "queryRows" | "columnValues"; request: string };
+/**
+ * 주 흐름이 요청하는 작업. 명칭은 경계가 반출하는 문과 동일한 벌이다.
+ *
+ * **식별자를 교차로 부착한다.** 합집합의 각 벌에 기재하면 그것을 `Omit` 으로
+ * 제거하는 쪽에서 합집합이 뭉개져, 어느 벌에도 속하지 않는 요청이 통과한다.
+ */
+export type WorkerTask =
+  | { op: "start" }
+  | { op: "open"; bytes: Uint8Array; name: string }
+  | { op: "listScreens" | "queryRows" | "columnValues"; request: string };
+
+export type WorkerAsk = WorkerTask & { id: number };
 
 /**
  * 회신. **중단한 것도 회신으로 반환한다** — 작업자의 예외는 주 흐름의 예외가
