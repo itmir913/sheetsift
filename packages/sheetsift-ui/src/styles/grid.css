@@ -120,10 +120,6 @@
   text-overflow: ellipsis;
 }
 
-.dg-hcell[data-kind="number"] .dg-hlabel {
-  text-align: right;
-}
-
 /* 정렬 표식은 **항상 공간을 점유**한다.
    정렬 여부에 따라 노출만 전환되므로 머리글을 조작해도 문자가 이동하지 않는다.
 
@@ -326,8 +322,10 @@
   align-self: stretch;
 }
 
+/* **숫자도 좌측에 배치한다.** 표의 헤더와 칸은 종류를 구분하지 않고 동일한 축에서
+   개시한다 — 숫자만 우측으로 이동시키면 헤더와 값의 개시 위치가 괴리되어 열을 2회
+   판독해야 한다. 자릿수의 대조는 `tabular-nums` 가 글자 폭을 고정해 담당한다. */
 .dg-cell[data-kind="number"] {
-  justify-content: flex-end;
   font-variant-numeric: tabular-nums;
 }
 

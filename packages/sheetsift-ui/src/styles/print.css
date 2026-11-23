@@ -158,9 +158,10 @@
     font-weight: 700;
   }
 
+  /* 숫자도 좌측에 배치한다 — 화면(`grid.css` 의 `.dg-cell[data-kind="number"]`)과 동일한
+     판정이다. 번호 열(`.pv-no`)도 동일하게 좌측이다. */
   .pv-table th[data-kind="number"],
   .pv-table td[data-kind="number"] {
-    text-align: right;
     font-variant-numeric: tabular-nums;
   }
 
@@ -180,7 +181,6 @@
 
   .pv-no {
     width: 8mm;
-    text-align: right;
     color: var(--c-print-ink-subtle);
   }
 
