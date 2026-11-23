@@ -1,5 +1,9 @@
 # sheetsift
 
+[![CI](https://github.com/itmir913/sheetsift/actions/workflows/ci.yml/badge.svg)](https://github.com/itmir913/sheetsift/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/github/v/tag/itmir913/sheetsift?sort=semver&label=version)](https://github.com/itmir913/sheetsift/tags)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 **Read Excel files without opening Excel.**
 
 Opening a spreadsheet just to look something up means waiting for a heavy
