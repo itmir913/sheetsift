@@ -459,11 +459,27 @@
      `.app-side-item:hover` 가 「유리 위이므로 투과하는 먹이다」라고 기재해 둔 채 그 면이
      불투명해, **주석이 거짓이었고 올림이 의도보다 옅었다** — 투과하는 먹은 불투명한 면
      위에서 매몰된다. 양측을 동일한 값으로 두어 두 벌을 한 벌로 만든다. */
+  /* 목록판. **`<dialog>` 다**(사유는 `App.vue`). 창틀의 기본 묘사를 전부
+     해제한다 — 그쪽은 화면 가운데 뜨는 상자를 전제해 여백·테두리·바깥 여백과
+     최대 치수를 지정해 둔다. */
   .app-side {
+    position: static;
+    inset: auto;
+    /* **높이를 기재한다.** 창틀의 기본은 `height: fit-content` 라, 적지 않으면
+       판이 내용만큼만 길어진다 — 목록이 단축일 때 판이 공중에 뜬 토막이 된다. */
+    height: auto;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    color: inherit;
     flex: 0 0 auto;
     width: 15rem;
     overflow: hidden;
     border-right: 1px solid var(--c-glass-edge);
+    /* 창틀이 폐쇄한 것은 묘사하지 않는다(`display: none`). 광폭에서는 접어도
+       개방한 채로 두므로 이 규칙에 닿지 않는다. */
     background-color: var(--c-glass-soft);
     backdrop-filter: blur(20px) saturate(1.6);
     -webkit-backdrop-filter: blur(20px) saturate(1.6);
@@ -617,116 +633,31 @@
   /* 포개진 목록은 `position: fixed` 라 하부로 이동하는 것이 없다 — 흐림이 안전한 둘째 자리다.
      **유리는 상기 `.app-side` 가 이미 지닌다** — 예전에는 여기에 다시 기재해 두 벌이었고,
      그래서 접힌 벌만 불투명한 채로 잔존했다. 여기는 자리와 크기만 변경한다. */
-  /* **포개진 목록판은 흐리지 않는다.**
-
-     유리는 하부가 이동하지 않는 곳에만 둔다(이 파일 머리의 사유, `grid.css` 도
-     동일하다). 접히지 않는 폭의 목록판은 본문의 형제라 하부로 이동하는 것이
-     부재하나, **포개진 것은 본문 위에 떠 있어 그 하부가 스크롤한다** — 매
-     프레임 재합성하게 되고, 실측(iOS Safari)에서는 판을 개방한 채 스크롤하면
-     합성이 어긋나 판이 투과한 채로 잔존했다.
-
-     그래서 포개진 벌만 불투명한 면으로 치환한다. 접히지 않는 폭의 유리는
-     그대로다 — 거기서는 뒤가 이동하지 않는다. */
   .app-side[data-overlay="true"] {
-    background-color: var(--c-surface);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     position: fixed;
     inset-block: var(--app-head-h, 3.5rem) 0;
     left: 0;
-    z-index: 50;
     width: min(17rem, 85vw);
     box-shadow: var(--c-shadow-pop);
-    transition: transform 160ms ease;
+    /* **밀려 나오는 전환은 두지 않는다.** 창틀이 묘사 여부를 전환하는 것이라
+       그 전환에는 `allow-discrete` 와 `@starting-style` 이 필요한데, 실측에서
+       개시 값(`translateX(-100%)`)이 종료 이후에도 잔류해 판이 화면 밖에 정지한
+       경우가 있었다. 전환이 부재해도 개폐는 동일하게 성립한다. */
+  }
+
+  /* 덮개. **그림이 아니라 창틀의 것이다** — 뒤의 문서를 조작 불가로 두는 것은
+     모달로 개방한 결과이고, 이 선언은 그 위에 색만 얹는다. */
+  .app-side[data-overlay="true"]::backdrop {
+    background-color: var(--c-overlay);
   }
 
   .app-side[data-overlay="true"] .app-side-inner {
     width: 100%;
   }
 
-  /* 포개진 상태에서는 폭이 아니라 위치로 개폐한다. 폭을 0 으로 축소하면
-     내부가 전부 재배치된 뒤에 전개되어 1회 변형이 노출된다. */
-  .app-side[data-overlay="true"][data-collapsed="true"] {
-    width: min(17rem, 85vw);
-    border-right-width: 1px;
-    transform: translateX(-100%);
-  }
-
-  /* 포개진 목록의 바깥. 조작하면 폐쇄된다. */
-  /* 바깥. 목록과 동일하게 머리의 하단에서 개시한다 — 머리를 덮으면 그 위의
-     조작이 전부 차단된다. */
-  /* 읽는 중. 화면 전체를 덮되 **머리까지 덮는다** — 그 구간에는 머리의 조작도
-     작동하지 않으므로, 조작 가능한 것처럼 묘사하면 눌러도 반응하지 않는다. */
-  .app-busy {
-    position: fixed;
-    inset: 0;
-    z-index: 80;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background-color: var(--c-overlay);
-  }
-
-  .app-busy-card {
-    display: flex;
-    max-width: min(28rem, 86vw);
-    flex-direction: column;
-    align-items: center;
-    gap: 0.625rem;
-    border: 1px solid var(--c-glass-edge);
-    border-radius: var(--r-card);
-    background-color: var(--c-surface);
-    box-shadow: var(--c-shadow-pop);
-    padding: 1.5rem 2rem;
-    text-align: center;
-  }
-
-  /* 회전하는 고리. **점유 중에는 정지한다** — 주 흐름이 점유되면 이 애니메이션도
-     진행하지 않는다. 그래도 배치하는 사유는, 점유가 개시되기 이전과 종료된
-     이후에 그것이 작업 중이라는 것을 진술하기 때문이다. */
-  .app-busy-spin {
-    width: 1.75rem;
-    height: 1.75rem;
-    border: 2px solid var(--c-border-strong);
-    border-top-color: var(--c-accent);
-    border-radius: 9999px;
-    animation: app-spin 900ms linear infinite;
-  }
-
-  .app-busy-text {
-    font-weight: 600;
-  }
-
-  .app-busy-name {
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--c-fg-muted);
-  }
-
-  @keyframes app-spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
   @media (prefers-reduced-motion: reduce) {
     .app-busy-spin {
       animation: none;
-    }
-  }
-
-  .app-scrim {
-    position: fixed;
-    inset: var(--app-head-h, 3.5rem) 0 0;
-    z-index: 40;
-    background-color: var(--c-overlay);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .app-side[data-overlay="true"] {
-      transition: none;
     }
   }
 

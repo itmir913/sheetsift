@@ -15,7 +15,7 @@
  * 아무 진술도 하지 않으면 그 소비를 인지할 경로가 전무하다. 통지는 소멸하는
  * 것이라 판 내부에 잔류하지 않는다.
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import AppTooltip from "sheetsift-ui/components/AppTooltip.vue";
 import ThemeToggle from "sheetsift-ui/components/ThemeToggle.vue";
 import FilePick from "@/components/FilePick.vue";
@@ -165,6 +165,65 @@ watch(stored, (v) => {
     /* 저장 실패는 무시한다. */
   }
 });
+
+/* ── 포개진 판은 모달이다 ─────────────────────────────────────────
+   협소한 폭의 목록판은 본문 위에 떠서 본문을 차단하는 것이라, 그것은 **모달
+   대화상자**다. 그 사실을 창틀에 진술하면(`showModal`) 창틀이 그에 따르는 것을
+   전부 수행한다 — 뒤의 문서를 조작 불가(`inert`)로 두고, 덮개(`::backdrop`)를
+   그리고, 초점을 판 내부에 유지하고, `Esc` 로 폐쇄한다.
+
+   **판 자체가 스크롤하지 않는 것도 그 중 하나다.** 종전에는 판을 `<nav>` 로 두고
+   덮개를 직접 그렸는데, 그 덮개는 그림일 뿐이라 뒤의 문서가 그대로 스크롤했다
+   (실측 — iPhone 에서 판을 개방한 채 밀면 뒤가 이동했다). 스크롤하는 것은 판
+   내부의 목록 하나이고, 그것은 그 상자가 담당한다(`.app-side-scroll`).
+
+   광폭에서는 동일한 요소를 **비모달**로 개방한다(`show`) — 거기서는 본문과
+   병렬하는 갈피라 아무것도 차단하지 않는다. 요소를 둘로 가르지 않는 사유는
+   내부가 동일하기 때문이다. */
+
+const sideEl = ref<HTMLDialogElement | null>(null);
+/** 지금 모달로 개방했는가. 창틀은 이것을 질의할 문을 제공하지 않는다. */
+let sideModal = false;
+
+async function syncSide() {
+  await nextTick();
+  const el = sideEl.value;
+  if (!el) return;
+  if (narrow.value) {
+    if (sideCollapsed.value) {
+      if (el.open) el.close();
+      return;
+    }
+    if (el.open && !sideModal) el.close();
+    if (!el.open) {
+      sideModal = true;
+      el.showModal();
+    }
+    return;
+  }
+  // 광폭. 접힌 상태에서도 개방해 둔다 — 폭이 0 으로 축소될 뿐이고, 그 전환이
+  // 묘사되어야 한다. 폐쇄하면 요소가 소멸해 전환이 1회 점멸로 보인다.
+  if (el.open && sideModal) {
+    sideModal = false;
+    el.close();
+  }
+  if (!el.open) el.show();
+}
+
+/** 창틀이 폐쇄한 것(덮개를 누름·`Esc`)을 상태에 반영한다. */
+function onSideClose() {
+  if (!sideModal) return;
+  sideModal = false;
+  sideCollapsed.value = true;
+}
+
+/** 덮개를 누르면 폐쇄한다. 내용 위의 누름은 상자 자신이 대상이 아니라 걸리지 않는다. */
+function onSideClick(ev: MouseEvent) {
+  if (sideModal && ev.target === sideEl.value) sideEl.value?.close();
+}
+
+watch([hasNav, narrow, sideCollapsed], () => void syncSide(), { immediate: true });
+onMounted(() => void syncSide());
 
 /**
  * 개폐 단축키. 입력란에 문자를 기재하는 중에는 작동하지 않는다 — 열 검색란에
@@ -474,14 +533,17 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
 
     <div class="flex min-h-0 flex-1">
       <!-- 시트 목록. 양식 개방 이전에는 공백이므로 공간도 점유하지 않는다. -->
-      <nav
+      <dialog
         v-if="hasNav"
         id="app-side"
+        ref="sideEl"
         class="app-side"
         :data-collapsed="sideCollapsed"
         :data-overlay="narrow"
-        :inert="sideCollapsed || undefined"
+        :inert="(!narrow && sideCollapsed) || undefined"
         :aria-label="t('app.sheets')"
+        @close="onSideClose"
+        @click="onSideClick"
       >
         <div class="app-side-inner">
           <div class="app-side-scroll">
@@ -565,14 +627,7 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
             <ThemeToggle />
           </div>
         </div>
-      </nav>
-
-      <!-- 포개진 목록의 바깥. 조작하면 폐쇄한다. -->
-      <div
-        v-if="narrow && !sideCollapsed"
-        class="app-scrim"
-        @click="sideCollapsed = true"
-      ></div>
+      </dialog>
 
       <!-- 수직 스크롤이 발생하는 유일한 위치. 표의 열 헤더만 상단에 고정된다. -->
       <main ref="mainEl" class="app-main" :style="mainVars">
