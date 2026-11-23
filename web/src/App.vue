@@ -631,6 +631,23 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
       </main>
     </div>
 
+    <!-- 읽는 중. **화면 중앙에 덮는다.**
+
+         바탕은 동기로 작동해 그동안 창이 점유된다(운영체제가 「응답 없음」을
+         기재하는 구간이다). 그 점유는 여기서 소거할 수 없으나, **점유되기
+         이전에 진술이 도달하게** 할 수는 있다 — 개방하는 문이 `painted()` 로
+         1회 대기하므로 이 판은 그 이전에 묘사된다.
+
+         단추 옆의 작은 표식으로 기재하지 않는다. 수 초간 조작이 전부 차단되는
+         구간이라, 그것을 탐색해야 인지되는 위치에 두면 정지한 것으로 판독된다. -->
+    <div v-if="busy" class="app-busy" role="status" aria-live="assertive">
+      <div class="app-busy-card">
+        <span class="app-busy-spin" aria-hidden="true"></span>
+        <span class="app-busy-text">{{ t("pick.reading") }}</span>
+        <span v-if="fileName" class="app-busy-name">{{ fileName }}</span>
+      </div>
+    </div>
+
     <!-- 소멸하는 통지. 화면 전체에 하나이고 공간을 점유하지 않는다. -->
     <Transition name="app-toast">
       <button

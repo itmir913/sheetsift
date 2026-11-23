@@ -611,6 +611,68 @@
   /* 포개진 목록의 바깥. 조작하면 폐쇄된다. */
   /* 바깥. 목록과 동일하게 머리의 하단에서 개시한다 — 머리를 덮으면 그 위의
      조작이 전부 차단된다. */
+  /* 읽는 중. 화면 전체를 덮되 **머리까지 덮는다** — 그 구간에는 머리의 조작도
+     작동하지 않으므로, 조작 가능한 것처럼 묘사하면 눌러도 반응하지 않는다. */
+  .app-busy {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--c-overlay);
+  }
+
+  .app-busy-card {
+    display: flex;
+    max-width: min(28rem, 86vw);
+    flex-direction: column;
+    align-items: center;
+    gap: 0.625rem;
+    border: 1px solid var(--c-glass-edge);
+    border-radius: var(--r-card);
+    background-color: var(--c-surface);
+    box-shadow: var(--c-shadow-pop);
+    padding: 1.5rem 2rem;
+    text-align: center;
+  }
+
+  /* 회전하는 고리. **점유 중에는 정지한다** — 주 흐름이 점유되면 이 애니메이션도
+     진행하지 않는다. 그래도 배치하는 사유는, 점유가 개시되기 이전과 종료된
+     이후에 그것이 작업 중이라는 것을 진술하기 때문이다. */
+  .app-busy-spin {
+    width: 1.75rem;
+    height: 1.75rem;
+    border: 2px solid var(--c-border-strong);
+    border-top-color: var(--c-accent);
+    border-radius: 9999px;
+    animation: app-spin 900ms linear infinite;
+  }
+
+  .app-busy-text {
+    font-weight: 600;
+  }
+
+  .app-busy-name {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--c-fg-muted);
+  }
+
+  @keyframes app-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .app-busy-spin {
+      animation: none;
+    }
+  }
+
   .app-scrim {
     position: fixed;
     inset: var(--app-head-h, 3.5rem) 0 0;
