@@ -421,7 +421,7 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
        불투명한 면을 부여하면 `body` 에 도포한 무늬를 완전히 차폐한다 — 그러면 머리띠의
        `backdrop-filter` 가 단색을 흐리게 되어 아무것도 변화시키지 않는다. 색은 `body` 가
        같은 토큰으로 부여한다(`base.css` 의 `@apply bg-canvas`). -->
-  <div class="no-print flex h-screen flex-col text-fg" :style="appVars">
+  <div class="no-print app-shell flex flex-col text-fg" :style="appVars">
     <!-- **머리의 빈 자리를 끌면 창이 움직인다**(`data-tauri-drag-region`). 운영체제의 제목
          표시줄을 걷었으므로(`decorations: false`) 그러지 않으면 창을 이동할 길이 소멸한다.
          두 번 누르면 최대화가 전환되는 것도 그 표식의 동작이다 — 손으로 기재하지 않는다.
