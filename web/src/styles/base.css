@@ -533,6 +533,9 @@
   /* 포개진 목록은 머리글이 부재하므로 상단에 여백을 부여한다. */
   .app-side[data-overlay="true"] .app-side-scroll {
     padding-top: 1rem;
+    /* 목록의 끝에서 계속 밀면 **하부의 본문이 스크롤한다.** 포개진 판을 개방한
+       채 표가 이동하는 것이라, 폐쇄하면 선행과 상이한 위치가 묘사된다. */
+    overscroll-behavior: contain;
   }
 
   /* 목록의 항목. 현재 열람 중인 것은 `data-current` 가 표시한다.
@@ -600,7 +603,20 @@
   /* 포개진 목록은 `position: fixed` 라 하부로 이동하는 것이 없다 — 흐림이 안전한 둘째 자리다.
      **유리는 상기 `.app-side` 가 이미 지닌다** — 예전에는 여기에 다시 기재해 두 벌이었고,
      그래서 접힌 벌만 불투명한 채로 잔존했다. 여기는 자리와 크기만 변경한다. */
+  /* **포개진 목록판은 흐리지 않는다.**
+
+     유리는 하부가 이동하지 않는 곳에만 둔다(이 파일 머리의 사유, `grid.css` 도
+     동일하다). 접히지 않는 폭의 목록판은 본문의 형제라 하부로 이동하는 것이
+     부재하나, **포개진 것은 본문 위에 떠 있어 그 하부가 스크롤한다** — 매
+     프레임 재합성하게 되고, 실측(iOS Safari)에서는 판을 개방한 채 스크롤하면
+     합성이 어긋나 판이 투과한 채로 잔존했다.
+
+     그래서 포개진 벌만 불투명한 면으로 치환한다. 접히지 않는 폭의 유리는
+     그대로다 — 거기서는 뒤가 이동하지 않는다. */
   .app-side[data-overlay="true"] {
+    background-color: var(--c-surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     position: fixed;
     inset-block: var(--app-head-h, 3.5rem) 0;
     left: 0;
