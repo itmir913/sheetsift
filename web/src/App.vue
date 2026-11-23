@@ -293,6 +293,24 @@ async function shown() {
   if (current.value?.headerFound) notify(t("app.header.assumed", { sheet: s.title }));
 }
 
+/**
+ * 개방한 파일을 폐쇄한다. **처음 화면으로 복귀한다.**
+ *
+ * 교체하는 경로(`FilePick`)만 배치했더니, 자료를 열람한 이후 그것을 화면에서
+ * 치울 길이 전무했다 — 타인이 접근하는 기기에서 그 상태가 유지된다.
+ *
+ * 개방할 때와 **동일한 항목을 전부 초기화한다.** 일부만 소거하면 처음 화면이
+ * 선행 파일의 시트 목록을 보유한 채로 묘사된다.
+ */
+function close() {
+  clearFault();
+  screens.value = [];
+  groupNames.value = [];
+  current.value = null;
+  headers.value = {};
+  fileName.value = "";
+}
+
 function select(item: ScreenDef) {
   if (narrow.value) sideCollapsed.value = true;
   if (current.value?.id === item.id) return;
@@ -402,6 +420,29 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
       <template v-if="!narrow">
         <!-- 개방 이후의 교체 경로. 투입(drag-drop)도 여기서 수령한다. -->
         <FilePick v-if="fileName" compact :busy="busy" @pick="pick" @pick-at="pickAt" />
+        <!-- 폐쇄하는 경로. **교체와 별개로 배치한다** — 교체는 타 파일을 선정해야
+             성립하므로, 지금 열람 중인 것을 치우려는 사람에게는 수행할 조작이
+             부재했다. -->
+        <button
+          v-if="fileName"
+          type="button"
+          class="app-ic"
+          :aria-label="t('pick.close')"
+          :data-tip="t('pick.close.tip')"
+          @click="close"
+        >
+          <svg
+            class="ss-icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            aria-hidden="true"
+          >
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
         <LocaleToggle />
         <ThemeToggle />
       </template>
@@ -500,6 +541,26 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
               @pick="pick"
               @pick-at="pickAt"
             />
+            <button
+              v-if="fileName"
+              type="button"
+              class="app-ic"
+              :aria-label="t('pick.close')"
+              :data-tip="t('pick.close.tip')"
+              @click="close"
+            >
+              <svg
+                class="ss-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                aria-hidden="true"
+              >
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
             <LocaleToggle />
             <ThemeToggle />
           </div>

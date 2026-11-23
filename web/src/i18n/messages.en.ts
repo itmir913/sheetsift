@@ -80,6 +80,8 @@ export const ui: Record<UiKey, string> = {
   "pick.change": "Open another file",
   "pick.change.tip": "Choose another file, or drop one on this button",
   "pick.busy.tip": "Reading the file",
+  "pick.close": "Close file",
+  "pick.close.tip": "Close the open file and return to the start screen",
   "pick.filter": "Spreadsheets",
 
   "theme.aria": "Theme",

@@ -105,6 +105,8 @@ export const ui = {
   "pick.change": "다른 파일 열기",
   "pick.change.tip": "다른 파일을 선택하거나 이 버튼에 끌어다 놓으십시오",
   "pick.busy.tip": "파일을 읽고 있습니다",
+  "pick.close": "파일 닫기",
+  "pick.close.tip": "지금 연 파일을 닫고 처음 화면으로 돌아갑니다",
   "pick.filter": "표 파일",
 
   /* 테마·언어 */
