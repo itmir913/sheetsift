@@ -360,23 +360,35 @@ const FIRST_GUESS: HeaderSpec = { at: 0, rows: 1 };
       <button
         v-if="hasNav"
         type="button"
-        class="app-head-btn app-head-icon"
+        class="app-ic"
         :aria-expanded="!sideCollapsed"
         aria-controls="app-side"
         :aria-label="t('app.sheets')"
         :data-tip="t(sideCollapsed ? 'app.sheets.show.tip' : 'app.sheets.hide.tip')"
         @click="sideCollapsed = !sideCollapsed"
       >
-        <span aria-hidden="true">☰</span>
+        <!-- 세 줄. 머리의 도형은 전부 동일한 좌표계(24)와 선 굵기로 작도한다 —
+             문자(`☰`)는 서체마다 자형과 폭이 변동해 타 도형과 중심이 어긋났다. -->
+        <svg
+          class="ss-icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          aria-hidden="true"
+        >
+          <path d="M4 7h16M4 12h16M4 17h16" />
+        </svg>
       </button>
 
-      <h1 class="shrink-0 text-xl font-bold tracking-tight" data-tauri-drag-region>
+      <h1 class="app-head-name" data-tauri-drag-region>
         {{ APP_NAME }}
       </h1>
 
       <p
         v-if="fileName"
-        class="min-w-0 flex-1 truncate text-right font-medium"
+        class="app-head-file"
         :data-tip="fileName"
         data-tauri-drag-region
       >

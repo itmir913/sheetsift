@@ -5,7 +5,7 @@
 @import "sheetsift-ui/styles/grid.css";
 @import "sheetsift-ui/styles/tooltip.css";
 @import "sheetsift-ui/styles/print.css";
-@import "sheetsift-ui/styles/seg.css";
+@import "sheetsift-ui/styles/icon.css";
 @import "sheetsift-ui/styles/picker.css";
 @import "sheetsift-ui/styles/window.css";
 
@@ -148,102 +148,128 @@
 /* ─────────────────────────────────────────────────────────────
    머리글 행. 명칭·개방한 파일·조작이 1행에 배열된다.
    ───────────────────────────────────────────────────────────── */
+
+/* 머리 한 행의 높이. **이 앱의 배치라 꾸러미에 두지 않는다.** 정본(goe-navi)의
+   창 머리와 같은 수다 — 두 제품의 창틀이 상이한 높이면 동일한 앱으로 보이지
+   않는다. */
+:root {
+  --app-head-row-h: 52px;
+}
 @layer components {
   /* **흐림 유리는 여기와 포개진 목록 둘뿐이다.** 이 띠는 열 방향 flex 의 형제이고 스크롤러
      (`.app-main`) **외부**라 하부로 이동하는 것이 없고 자손에 표가 없다 — 고정 열의
      `sticky left` 에도 닿지 않는다. 도구 줄(`.gx-tools`)은 `.app-fixed` 라 **sticky** 이므로
      제외한다. 열 제목 띠와 필터 띠도 `grid.css` 가 사유와 함께 금지해 두었다 — 그 하부로
      500행이 이동하므로 매 프레임 재합성하게 된다. */
+  /* 높이는 **한 줄 52px 로 고정한다.** 종전에는 단추의 여백이 높이를 결정해 띠가
+     64px 이었다 — 조작이 문구짜리 상자 셋이었기 때문이다. 그것들을 도형 단추로
+     치환했으므로 띠도 같이 축약한다. 정본(goe-navi)의 창 머리와 같은 수다.
+
+     **고정하되 접히는 것은 존치한다**(협소한 폭의 `flex-wrap`). 높이는 거기서
+     `auto` 로 복귀하고, 포개지는 목록은 실측한 값을 적용한다(`--app-head-h`). */
   .app-head {
     display: flex;
     flex: 0 0 auto;
     align-items: center;
     gap: 0.75rem;
     min-width: 0;
+    height: var(--app-head-row-h);
+    /* **쌓임 맥락을 여기서 세운다.** 이 띠는 `backdrop-filter` 를 지녀 자체가
+       쌓임 맥락이고, 그 내부의 `z-index` 는 띠의 바깥과 비교되지 않는다 — 띠에
+       순위를 부여하지 않으면 뒤에 묘사되는 본문이 포개어 개방된 목록을 덮는다.
+       본문의 고정 띠(표의 열 제목 따위, `grid.css` 의 20)보다 상위이고 설명
+       상자(60)보다 하위다 — 설명 상자는 이 띠의 단추도 설명한다. */
+    position: relative;
+    z-index: 30;
     border-bottom: 1px solid var(--c-glass-edge);
     background-color: var(--c-glass-soft);
     backdrop-filter: blur(20px) saturate(1.6);
     -webkit-backdrop-filter: blur(20px) saturate(1.6);
-    padding: 0.625rem 1rem;
+    padding: 0 0 0 0.75rem;
+    /* 창 단추는 머리의 **오른쪽 여백을 상쇄해** 창 끝에 붙는다. 이 머리의 오른쪽
+       여백은 0 이라 상쇄할 값도 0 이다 — 기재하지 않으면 꾸러미의 기본값만큼
+       단추가 창 밖으로 밀린다. */
+    --wc-head-pad: 0px;
   }
 
-  /* 머리글의 단추. 목록 개폐와 파일 교체가 동일한 형태다 — 양자가 동급의
-     조작이라, 일방만 강조하면 타방을 조작 불가로 인식한다.
-
-     여백은 **분절 선택기의 외곽과 동일한 수치로 합산한다** — 그쪽은 그릇의
-     여백 0.25rem 과 내부 단추의 여백 0.375rem·0.75rem 이 가산되어 0.625rem·
-     1rem 이다. 단추의 여백만 내부 단추와 일치시키면 머리글에 병렬된 조작의
-     높이가 상이해진다. */
-  .app-head-btn {
+  /* 제품의 명칭. 머리가 축약되어 글자도 같이 축약한다 — 52px 띠에서 1.25rem 은
+     위아래 여백을 전부 소비한다. */
+  .app-head-name {
     flex: 0 0 auto;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    cursor: pointer;
-    /* **쉼이 유리여야 올림의 먹이 얹힌다.** 쉼을 불투명한 면 색으로 두면 올림의 반투명 먹이
-       얹히는 것이 아니라 그 면을 치환해, 올림에서 단추가 사라지는 변화가 된다. */
-    border: 1px solid var(--c-glass-edge);
-    border-radius: var(--r-ctl);
-    background-color: var(--c-glass-soft);
-    /* 그림자 1단계 — 바닥에서 약간 부상한 것(단추·알약). 2단계는 다른 것 위에 겹친 것이다. */
-    box-shadow: var(--c-lift-1);
-    padding: 0.625rem 1rem;
-    font-weight: 500;
-    color: var(--c-fg-muted);
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: -0.022em;
     white-space: nowrap;
-    transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
   }
 
-  /* 도형 하나뿐인 단추. 좌우 여백을 그대로 두면 **정사각형이 아니라 가로로
-     누운 상자**가 된다 — 문자를 수용하는 여백이라 2~3자를 전제한다. */
-  .app-head-icon {
-    width: 3rem;
-    justify-content: center;
-    padding-inline: 0;
-  }
-
-  /* 개폐하는 단추는 **지금 어느 쪽인지를 표시한다.** 조작할 때마다 형태가
-     동일하면 그것이 여는 단추인지 닫는 단추인지 판별할 수 없고, 목록이 접힌
-     것을 인지하지 못한 채 시트를 탐색하게 된다. `aria-expanded` 가 이미 그
-     상태를 보유하므로 그것을 그대로 참조한다 — 상태를 두 벌로 보유하면
-     일방만 갱신된다.
-
-     **개방한 쪽은 충전해 묘사한다.** 담색 바탕에 윤곽선만 부여했더니 폐쇄한
-     형태와의 차이가 윤곽선 1px 이라, 조작한 이후에도 어느 쪽인지 즉시
-     판별되지 않았다. */
-  .app-head-btn[aria-expanded="true"] {
-    border-color: transparent;
-    background-color: var(--c-accent);
-    color: var(--c-accent-fg);
-  }
-
-  .app-head-btn[aria-expanded="true"]:hover {
-    background-color: var(--c-accent-hover);
-    color: var(--c-accent-fg);
+  /* 개방한 파일의 명칭. 남는 폭을 전부 사용하고 한 줄이며, 넘치면 말줄임이다. */
+  .app-head-file {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    font-weight: 500;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--c-fg-muted);
   }
 
   /* 투입이 이 단추 위에 도달한 상태. 수령 가능하다는 것을 표시한다. */
-  .app-head-btn-over {
-    border-color: var(--c-accent);
+  .app-ic-over {
     background-color: var(--c-accent-surface);
     color: var(--c-fg);
+  }
+
+  /* 머리에 포개어 개방되는 목록(언어 선택). 떠 있는 것이라 그림자는 2단계다. */
+  .app-pop-at {
+    position: relative;
+    flex: 0 0 auto;
+  }
+
+  .app-pop {
+    position: absolute;
+    top: calc(100% + 0.25rem);
+    right: 0;
+    z-index: 1;
+    display: flex;
+    min-width: 8rem;
+    flex-direction: column;
+    gap: 0.125rem;
+    border: 1px solid var(--c-glass-edge);
+    border-radius: var(--r-ctl);
+    background-color: var(--c-surface);
+    box-shadow: var(--c-shadow-pop);
+    padding: 0.25rem;
+  }
+
+  .app-pop-item {
+    border-radius: var(--r-xs);
+    padding: 0.375rem 0.625rem;
+    text-align: left;
+    font-weight: 500;
+    color: var(--c-fg-muted);
+    white-space: nowrap;
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+
+  .app-pop-item:hover {
+    background-color: var(--c-surface-hover);
+    color: var(--c-fg);
+  }
+
+  .app-pop-item[data-on="true"] {
+    background-color: var(--c-accent);
+    color: var(--c-accent-fg);
   }
 
   /* 협소한 폭. 머리글이 2행으로 접히고 분절 선택기가 축소된다.
      **접히게 둔다** — 가로로 압출하면 파일 명칭이 1~2자만 노출된다. */
   @media (max-width: 48rem) {
     .app-head {
+      height: auto;
       flex-wrap: wrap;
       row-gap: 0.5rem;
-      padding: 0.5rem 0.75rem;
-    }
-
-    .app-seg-btn {
-      padding: 0.375rem 0.5rem;
-    }
-
-    .app-head-btn {
-      padding: 0.625rem 0.75rem;
+      padding: 0.5rem 0 0.5rem 0.5rem;
     }
 
     .app-drop {
@@ -540,27 +566,16 @@
     color: var(--c-fg-subtle);
   }
 
+  /* 협소한 폭에서 머리에서 이양된 조작들. **한 행에 배열한다** — 도형 단추라
+     폭을 점유하지 않고, 세로로 쌓으면 목록의 하단을 셋이 점유한다. */
   .app-side-foot {
     display: flex;
     flex: 0 0 auto;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.5rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
     border-top: 1px solid var(--c-border);
-    padding: 0.75rem;
-  }
-
-  .app-side-foot .app-seg {
-    justify-content: center;
-  }
-
-  .app-side-foot .app-seg-btn {
-    flex: 1 1 0;
-    text-align: center;
-  }
-
-  .app-side-foot .app-head-btn {
-    justify-content: center;
+    padding: 0.5rem;
   }
 
   /* 협소한 폭: 목록이 본문을 밀어내지 않고 **본문 위에 포개진다.**

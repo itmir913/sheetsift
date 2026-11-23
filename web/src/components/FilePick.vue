@@ -33,6 +33,13 @@ async function onPickNative() {
  */
 defineProps<{ busy?: boolean; note?: string | null; danger?: boolean; compact?: boolean }>();
 
+/**
+ * 여는 것(folder)과 읽는 중(clock). **문구를 도형으로 치환해도 읽는 중은
+ * 표시해야 한다** — 조작한 결과가 즉시 묘사되지 않는 유일한 단추다.
+ */
+const FOLDER = "M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v7a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 3 17z";
+const CLOCK = "M12 7v5l3.5 2M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18";
+
 const over = ref(false);
 
 function onInput(ev: Event) {
@@ -50,13 +57,16 @@ function onDrop(ev: DragEvent) {
 </script>
 
 <template>
-  <!-- 개방 이후의 축소된 형태. 단추 하나이고, 투입도 동일하게 수령한다. -->
+  <!-- 개방 이후의 축소된 형태. **도형 하나짜리 단추다** — 머리의 조작 셋이
+       동일한 형태여야 하고, 문구로 기재하면 그 하나만 폭을 과점한다. 투입도
+       동일하게 수령한다. -->
   <component
     v-if="compact"
     :is="native ? 'button' : 'label'"
     :type="native ? 'button' : undefined"
-    class="app-head-btn"
-    :class="over ? 'app-head-btn-over' : ''"
+    class="app-ic"
+    :class="over ? 'app-ic-over' : ''"
+    :aria-label="t('pick.change')"
     :data-tip="t(busy ? 'pick.busy.tip' : 'pick.change.tip')"
     @dragover.prevent="over = true"
     @dragleave="over = false"
@@ -64,7 +74,18 @@ function onDrop(ev: DragEvent) {
     @click="native ? onPickNative() : undefined"
   >
     <input v-if="!native" type="file" class="hidden" accept=".xlsx,.xls,.csv" @change="onInput" />
-    {{ t(busy ? "pick.reading" : "pick.change") }}
+    <svg
+      class="ss-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path :d="busy ? CLOCK : FOLDER" />
+    </svg>
   </component>
 
   <div v-else class="flex h-full flex-col gap-3">
