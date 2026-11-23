@@ -19,6 +19,10 @@ const LIB: &str = include_str!("../src/lib.rs");
 const BOOK: &str = include_str!("../../../web/src/lib/book.tauri.ts");
 
 /// `#[tauri::command]` 가 부착된 `pub fn` 들.
+///
+/// **`async` 를 분리하고 판정한다.** 문은 주 스레드를 점유하지 않도록 통상
+/// `async` 이고, 그 글자까지 명칭의 일부로 취급하면 검사가 문을 1건도 탐색하지
+/// 못한 채 실명한다.
 fn doors(src: &str) -> Vec<String> {
     let mut found = Vec::new();
     let mut marked = false;
@@ -27,7 +31,9 @@ fn doors(src: &str) -> Vec<String> {
             marked = true;
             continue;
         }
-        let Some(rest) = line.strip_prefix("pub fn ") else { continue };
+        let line = line.strip_prefix("pub ").unwrap_or(line);
+        let line = line.strip_prefix("async ").unwrap_or(line);
+        let Some(rest) = line.strip_prefix("fn ") else { continue };
         if !marked {
             continue;
         }

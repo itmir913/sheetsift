@@ -8,6 +8,15 @@
 //! 반환하는 오류는 [`Fault`](sheetsift_desk::Fault) 그대로다. 구조가 바탕의
 //! 것과 동일해(`code`·`params`·`detail`) 화면은 단일 사전으로 문구를 부여한다.
 
+//! **문은 전부 `async` 다.** tauri 는 동기 명령을 **주 스레드**에서 실행하고,
+//! 그 스레드는 창의 메시지 루프다 — 수십 MB 양식을 판독하는 수 초 동안 창이
+//! 묘사도 조작도 수령하지 못하고, 운영체제가 「응답 없음」을 기재한다. `async`
+//! 로 기재하면 tauri 가 그것을 자체 실행기의 스레드로 이동시킨다.
+//!
+//! **내부에서 대기하지 않는다.** 여기 소재하는 것은 잠금을 확보해 [`Desk`] 를
+//! 1회 호출하는 행뿐이라, 잠금이 대기 지점을 경과하지 않는다 — 경과하면
+//! `MutexGuard` 가 스레드를 횡단해 컴파일이 정지한다.
+
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -27,7 +36,7 @@ fn held<'a>(desk: &'a Held<'a>) -> std::sync::MutexGuard<'a, Desk> {
 
 /// 선택 대화상자가 반환한 경로의 양식을 개방한다. **바이트를 경유시키지 않는다.**
 #[tauri::command]
-pub fn open_workbook(desk: Held, path: PathBuf) -> Result<()> {
+pub async fn open_workbook(desk: Held<'_>, path: PathBuf) -> Result<()> {
     held(&desk).open_workbook(&path)
 }
 
@@ -38,7 +47,7 @@ pub fn open_workbook(desk: Held, path: PathBuf) -> Result<()> {
 /// 생성되고 그 시점에 창이 메모리를 고갈시킨다. 파일 명칭은 그 경로로 함께
 /// 전달할 수 없어 머리에 부착된다.
 #[tauri::command]
-pub fn open_bytes(desk: Held, request: tauri::ipc::Request<'_>) -> Result<()> {
+pub async fn open_bytes(desk: Held<'_>, request: tauri::ipc::Request<'_>) -> Result<()> {
     let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
         return Err(sheetsift_desk::ShellError::new(sheetsift_desk::ErrorCode::FileReadFailed)
             .detail("expected a raw body")
@@ -83,17 +92,17 @@ fn percent_decode(raw: &str) -> Option<String> {
 }
 
 #[tauri::command]
-pub fn list_screens(desk: Held, request: CatalogAsk) -> Result<ScreenCatalog> {
+pub async fn list_screens(desk: Held<'_>, request: CatalogAsk) -> Result<ScreenCatalog> {
     held(&desk).list_screens(&request)
 }
 
 #[tauri::command]
-pub fn query_rows(desk: Held, request: Ask) -> Result<Page> {
+pub async fn query_rows(desk: Held<'_>, request: Ask) -> Result<Page> {
     held(&desk).query_rows(&request)
 }
 
 #[tauri::command]
-pub fn column_values(desk: Held, request: ValuesAsk) -> Result<ColumnValues> {
+pub async fn column_values(desk: Held<'_>, request: ValuesAsk) -> Result<ColumnValues> {
     held(&desk).column_values(&request)
 }
 
